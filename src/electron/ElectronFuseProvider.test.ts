@@ -1,10 +1,11 @@
-import { mkdir, symlink, writeFile } from "node:fs/promises";
+import { mkdir, symlink, writeFile, truncate } from "node:fs/promises";
 import { join } from "node:path";
 import { describe, expect, it } from "vitest";
 
 import { createTestTempDirectory } from "../../tests/fixtures/temporaryDirectory.js";
 import {
   elfFuseImage,
+  fuseWire,
   FUSE_SENTINEL,
   OBSIDIAN_FUSE_BYTES,
   peFuseImage,
@@ -17,6 +18,7 @@ import {
 } from "../../tests/fixtures/electron/fuseImage.js";
 import { ELECTRON_FUSE_STATE_BYTES } from "../domain/electron/electronFuses.js";
 import { ElectronFuseProvider } from "./ElectronFuseProvider.js";
+import { projectAnalysisError } from "../domain/analysisErrorProjection.js";
 import { readElectronFuseImage } from "./ElectronFuseReader.js";
 
 const provider = new ElectronFuseProvider();
@@ -441,4 +443,95 @@ describe("direct Electron Framework binary selection", () => {
       });
     }
   });
+});
+
+it.each(["Contents", "Frameworks"])(
+  "rejects a redirected %s for every app selection form",
+  async (segment) => {
+    const root = await createTestTempDirectory("rea-electron-parent-link-");
+    const app = join(root, "Fixture.app");
+    const outside = join(root, "outside");
+    const actualFramework = join(
+      outside,
+      ...(segment === "Contents" ? ["Frameworks"] : []),
+      "Electron Framework.framework",
+    );
+    await mkdir(join(actualFramework, "Versions", "A"), { recursive: true });
+    await writeFile(
+      join(actualFramework, "Versions", "A", "Electron Framework"),
+      thinFuseImage(OBSIDIAN_FUSE_BYTES).bytes,
+    );
+    await symlink("A", join(actualFramework, "Versions", "Current"));
+    await mkdir(segment === "Contents" ? app : join(app, "Contents"), {
+      recursive: true,
+    });
+    await symlink(
+      outside,
+      join(
+        app,
+        "Contents",
+        ...(segment === "Frameworks" ? ["Frameworks"] : []),
+      ),
+    );
+    const framework = join(
+      app,
+      "Contents",
+      "Frameworks",
+      "Electron Framework.framework",
+    );
+    for (const path of [
+      app,
+      framework,
+      join(framework, "Versions", "Current", "Electron Framework"),
+    ]) {
+      const result = await provider.inspect({ path });
+      expect(result.ok, path).toBe(false);
+      if (!result.ok) expect(result.error._tag).toBe("AnalysisInputError");
+    }
+  },
+);
+
+it("enforces the 32 sentinel boundary with typed and public limit details", async () => {
+  const root = await createTestTempDirectory("rea-electron-sentinel-limit-");
+  const wire = Buffer.concat([FUSE_SENTINEL, fuseWire(1, [0x31])]);
+  for (const count of [32, 33]) {
+    const path = join(root, String(count));
+    await writeFile(
+      path,
+      thinMacho(
+        0x0100000c,
+        Buffer.concat(Array.from({ length: count }, () => wire)),
+      ),
+    );
+    const result = await provider.inspect({ path });
+    if (count === 32) {
+      expect(result.ok).toBe(true);
+      if (result.ok) expect(result.value.slices[0]?.sentinel_count).toBe(32);
+    } else {
+      expect(result.ok).toBe(false);
+      if (!result.ok) {
+        expect(result.error._tag).toBe("AnalysisResourceConstraintError");
+        expect(projectAnalysisError(result.error)).toMatchObject({
+          code: "resource_constraint",
+          details: { reported_limits: { maximum_sentinels_per_slice: 32 } },
+        });
+      }
+    }
+  }
+});
+
+it("rejects a sparse artifact over 1 GiB before scanning", async () => {
+  const root = await createTestTempDirectory("rea-electron-input-limit-");
+  const path = join(root, "large");
+  await writeFile(path, thinFuseImage(OBSIDIAN_FUSE_BYTES).bytes);
+  await truncate(path, 1024 * 1024 * 1024 + 1);
+  const result = await provider.inspect({ path });
+  expect(result.ok).toBe(false);
+  if (!result.ok) {
+    expect(result.error._tag).toBe("AnalysisResourceConstraintError");
+    expect(projectAnalysisError(result.error)).toMatchObject({
+      code: "resource_constraint",
+      details: { reported_limits: { maximum_input_bytes: 1024 * 1024 * 1024 } },
+    });
+  }
 });

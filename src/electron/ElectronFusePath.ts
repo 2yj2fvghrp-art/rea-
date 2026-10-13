@@ -74,7 +74,7 @@ const resolveFrameworkSymlink = async (
       "invalid_format",
       `Expected a regular file without a symlink: ${selectedPath}`,
     );
-  await requireRealDirectories(dirname(root), [basename(root)], selectedPath);
+  await requireFrameworkRoot(root, selectedPath);
   const relativePath = relativeInside(root, selectedPath);
   if (relativePath === null)
     throw new ElectronFusePathFailure(
@@ -95,11 +95,6 @@ const resolveBundleBinary = async (
   if (name === FRAMEWORK_NAME)
     return resolveKnownBinary(selectedPath, selectedPath, signal);
   if (name.endsWith(".app")) {
-    await requireRealDirectories(
-      selectedPath,
-      ["Contents", "Frameworks", FRAMEWORK_NAME],
-      selectedPath,
-    );
     return resolveKnownBinary(
       join(selectedPath, "Contents", "Frameworks", FRAMEWORK_NAME),
       selectedPath,
@@ -118,6 +113,7 @@ const resolveKnownBinary = async (
   bundle: string,
   signal: AbortSignal | undefined,
 ): Promise<string> => {
+  await requireFrameworkRoot(root, bundle);
   const versioned = await resolveInside(
     root,
     `Versions/A/${BINARY_NAME}`,
@@ -190,6 +186,28 @@ const resolveInside = async (
   return isPathWithinRoot(root, path)
     ? { kind: "file", path }
     : { kind: "escapes" };
+};
+
+/** Validate the app-parent chain equally for app, framework, and binary selection. */
+const requireFrameworkRoot = async (
+  root: string,
+  selectedPath: string,
+): Promise<void> => {
+  const frameworks = dirname(root);
+  const contents = dirname(frameworks);
+  const app = dirname(contents);
+  if (
+    basename(frameworks) === "Frameworks" &&
+    basename(contents) === "Contents" &&
+    basename(app).endsWith(".app")
+  )
+    await requireRealDirectories(
+      dirname(app),
+      [basename(app), "Contents", "Frameworks", FRAMEWORK_NAME],
+      selectedPath,
+    );
+  else
+    await requireRealDirectories(dirname(root), [basename(root)], selectedPath);
 };
 
 /**

@@ -324,7 +324,27 @@ const validateReportBounds = (
     for (const [sentinelIndex, sentinel] of slice.sentinels.entries())
       validateSentinel(slice, sentinel, sliceIndex, sentinelIndex, context);
   }
+  const expected = describeElectronFuseFindings(
+    report.slices,
+    report.artifact.format,
+  ).runtime_implications;
   for (const [index, implication] of report.runtime_implications.entries()) {
+    if (
+      !expected.some(
+        (fact) =>
+          fact.slice_index === implication.slice_index &&
+          fact.sentinel_offset === implication.sentinel_offset &&
+          fact.subject === implication.subject &&
+          fact.fuse_index === implication.fuse_index &&
+          fact.outcome === implication.outcome,
+      )
+    )
+      context.addIssue({
+        code: "custom",
+        path: ["runtime_implications", index],
+        message:
+          "Runtime implication is not supported by the reported fuse bytes and applicability.",
+      });
     const slice = report.slices[implication.slice_index];
     if (
       slice?.sentinels.some(
@@ -347,6 +367,17 @@ const validateSentinel = (
   context: z.RefinementCtx,
 ): void => {
   const sentinelEnd = sentinel.sentinel_offset + ELECTRON_FUSE_SENTINEL.length;
+  const wireEnd =
+    sentinelEnd +
+    (sentinel.wire_version === null ? 0 : 1) +
+    (sentinel.declared_length === null ? 0 : 1) +
+    sentinel.fuses.length;
+  if (wireEnd > slice.file_offset + slice.size)
+    context.addIssue({
+      code: "custom",
+      path: ["slices", sliceIndex, "sentinels", sentinelIndex],
+      message: "Reported wire header or fuse bytes extend outside the slice.",
+    });
   if (
     sentinel.sentinel_offset < slice.file_offset ||
     sentinelEnd > slice.file_offset + slice.size

@@ -227,3 +227,41 @@ describe("ELF embedded ASAR integrity applicability", () => {
     ).toMatchObject({ outcome: "enforced" });
   });
 });
+
+it("rejects claimed wire bytes outside their slice and unsupported derivations", () => {
+  const slices = [slice([sentinel(4, [ELECTRON_FUSE_STATE_BYTES.disabled])])];
+  const findings = describeElectronFuseFindings(slices, "mach-o");
+  const report = { artifact, slices, ...findings };
+  expect(electronFuseReportSchema.safeParse(report).success).toBe(true);
+  expect(
+    electronFuseReportSchema.safeParse({
+      ...report,
+      artifact: { ...artifact, bytes: 36 },
+      slices: [{ ...slices[0], size: 36 }],
+    }).success,
+  ).toBe(false);
+  expect(
+    electronFuseReportSchema.safeParse({
+      ...report,
+      runtime_implications: findings.runtime_implications.map((fact) => ({
+        ...fact,
+        outcome: "honored",
+      })),
+    }).success,
+  ).toBe(false);
+  expect(
+    electronFuseReportSchema.safeParse({
+      ...report,
+      runtime_implications: [
+        {
+          relationship: "derivation",
+          subject: "node_cli_inspect_arguments",
+          fuse_index: 3,
+          outcome: "honored",
+          slice_index: 0,
+          sentinel_offset: 4,
+        },
+      ],
+    }).success,
+  ).toBe(false);
+});
