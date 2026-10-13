@@ -310,6 +310,39 @@ const scenarios = [
         '__vite__mapDeps([0]); const copy = {...__vite__mapDeps}; copy.f[0] = "./last.js";',
     },
     {
+      file: "spread-projected-child.js",
+      mutation:
+        '__vite__mapDeps([0]); const cache = ({...__vite__mapDeps}).f; cache[0] = "./last.js";',
+    },
+    {
+      file: "spread-projected-splice.js",
+      mutation:
+        '__vite__mapDeps([0]); const cache = ({...__vite__mapDeps}).f; cache.splice(0, 1, "./last.js");',
+    },
+    {
+      file: "spread-uncertain-override.js",
+      mutation:
+        '__vite__mapDeps([0]); const copy = {...__vite__mapDeps, [runtimeKey]: []}; copy.f[0] = "./last.js";',
+    },
+    {
+      file: "spread-literal-override.js",
+      mutation:
+        '__vite__mapDeps([0]); const copy = {...__vite__mapDeps, ...{f: []}}; copy.f[0] = "./last.js";',
+      kept: true,
+    },
+    {
+      file: "rest-copied-array.js",
+      mutation:
+        '__vite__mapDeps([0]); const {f: {...copy}} = __vite__mapDeps; copy[0] = "./last.js";',
+      kept: true,
+    },
+    {
+      file: "spread-nested-literal-override.js",
+      mutation:
+        '__vite__mapDeps([0]); const copy = {...__vite__mapDeps, ...{...{f: []}}}; copy.f[0] = "./last.js";',
+      kept: true,
+    },
+    {
       file: "spread-property-replacement.js",
       mutation:
         '__vite__mapDeps([0]); const copy = {...__vite__mapDeps}; copy.f = ["./last.js"];',

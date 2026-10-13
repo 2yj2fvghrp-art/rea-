@@ -33,6 +33,9 @@ interface CacheOwnership {
 
 interface CacheAlias {
   readonly target: AliasVertex;
+  /** Selection in the source before an object-rest copy. */
+  readonly sourceFirst?: CacheKey;
+  /** Selection in the produced value, after any copy. */
   readonly first: CacheKey;
   /** undefined is an alias; a boolean retains the object-rest copied selection. */
   readonly copyKeepsCache?: boolean;
@@ -131,20 +134,19 @@ function* createViteCacheOriginsSteps(
     const fact = pending[cursor];
     if (fact === undefined) break;
     for (const alias of aliases.get(fact.binding) ?? []) {
-      const selected = selectOwnership(fact.ownership, alias.first);
-      if (selected === undefined) continue;
-      retain(
-        alias.target,
+      const source = selectOwnership(fact.ownership, alias.sourceFirst);
+      if (source === undefined) continue;
+      const copied =
         alias.copyKeepsCache === undefined
-          ? selected
+          ? source
           : {
-              ...selected,
+              ...source,
               direct: false,
               shared:
-                selected.shared &&
-                (selected.first !== undefined || alias.copyKeepsCache),
-            },
-      );
+                source.shared && source.first !== "f" && alias.copyKeepsCache,
+            };
+      const selected = selectOwnership(copied, alias.first);
+      if (selected !== undefined) retain(alias.target, selected);
     }
   }
   const cached = new WeakMap<t.Node, readonly CachePath[]>();
@@ -175,6 +177,7 @@ function* indexViteAliasesSteps(
 ): Generator<void, ReadonlyMap<AliasVertex, readonly CacheAlias[]>> {
   const aliases = new Map<AliasVertex, CacheAlias[]>();
   const producers: t.Node[] = [];
+  const spreadFacts = new WeakMap<t.Node, SpreadCacheFact>();
   const enqueued = new WeakSet<t.Node>();
   const normalize = (node: t.Node): void => {
     if (enqueued.has(node)) return;
@@ -204,10 +207,21 @@ function* indexViteAliasesSteps(
       normalize(initializer.node);
       connect(initializer.node, {
         target: binding.bindingId,
-        first:
-          key === undefined ? undefined : key === null ? null : String(key),
+        first: copied
+          ? undefined
+          : key === undefined
+            ? undefined
+            : key === null
+              ? null
+              : String(key),
         ...(copied
           ? {
+              sourceFirst:
+                key === undefined
+                  ? undefined
+                  : key === null
+                    ? null
+                    : String(key),
               copyKeepsCache: semanticPropertyPathKeyMatches(
                 {
                   excludedKeys: initializer.copyExcludedKeys ?? [],
@@ -225,7 +239,7 @@ function* indexViteAliasesSteps(
     if (cursor % 1024 === 0) yield;
     const node = producers[cursor];
     if (node === undefined) break;
-    for (const input of aliasProducerInputs(node, state)) {
+    for (const input of aliasProducerInputs(node, state, spreadFacts)) {
       if (typeof input.source !== "string") normalize(input.source);
       connect(input.source, {
         target: node,
@@ -242,6 +256,7 @@ function* indexViteAliasesSteps(
 const aliasProducerInputs = (
   node: t.Node,
   state: JavaScriptSemanticAnalysisState,
+  spreadFacts: WeakMap<t.Node, SpreadCacheFact>,
 ): readonly {
   source: AliasVertex;
   first: CacheKey;
@@ -263,15 +278,22 @@ const aliasProducerInputs = (
     for (let index = root.properties.length - 1; index >= 0; index--) {
       const property = root.properties[index];
       if (property === undefined) continue;
-      if (t.isSpreadElement(property))
+      if (t.isSpreadElement(property)) {
         inputs.push({
           source: property.argument,
           first,
           copyKeepsCache: !overwritten,
         });
-      else {
+        if (spreadCacheFact(property.argument, spreadFacts) === "fresh")
+          overwritten = true;
+      } else {
         const key = semanticStaticPropertyKey(property.key, property.computed);
-        if (key === "f" || key === null) overwritten = true;
+        if (
+          key === "f" &&
+          t.isObjectProperty(property) &&
+          freshCacheReplacement(property.value)
+        )
+          overwritten = true;
       }
     }
     return inputs;
@@ -292,6 +314,68 @@ const aliasProducerInputs = (
       ? root.right
       : undefined;
   return source === undefined ? [] : [{ source, first }];
+};
+
+type SpreadCacheFact = "fresh" | "possible" | "absent";
+
+const freshCacheReplacement = (node: t.Node): boolean =>
+  t.isArrayExpression(node) ||
+  t.isObjectExpression(node) ||
+  t.isFunction(node) ||
+  t.isStringLiteral(node) ||
+  t.isNumericLiteral(node) ||
+  t.isBooleanLiteral(node) ||
+  t.isNullLiteral(node);
+
+/** Read later literal spread keys once; unknown keys never prove lost ownership. */
+const spreadCacheFact = (
+  node: t.Node,
+  facts: WeakMap<t.Node, SpreadCacheFact>,
+): SpreadCacheFact => {
+  const pending = [{ node, finish: false }];
+  while (pending.length > 0) {
+    const current = pending.pop();
+    if (current === undefined || facts.has(current.node)) continue;
+    if (!t.isObjectExpression(current.node)) {
+      facts.set(
+        current.node,
+        freshCacheReplacement(current.node) ? "absent" : "possible",
+      );
+      continue;
+    }
+    if (!current.finish) {
+      pending.push({ ...current, finish: true });
+      for (const property of current.node.properties)
+        if (t.isSpreadElement(property))
+          pending.push({ node: property.argument, finish: false });
+      continue;
+    }
+    let result: SpreadCacheFact = "absent";
+    for (let index = current.node.properties.length - 1; index >= 0; index--) {
+      const property = current.node.properties[index];
+      if (property === undefined) continue;
+      if (t.isSpreadElement(property)) {
+        result = facts.get(property.argument) ?? "possible";
+        if (result !== "absent") break;
+      } else {
+        const key = semanticStaticPropertyKey(property.key, property.computed);
+        if (key === null) {
+          result = "possible";
+          break;
+        }
+        if (key === "f") {
+          result =
+            t.isObjectProperty(property) &&
+            freshCacheReplacement(property.value)
+              ? "fresh"
+              : "possible";
+          break;
+        }
+      }
+    }
+    facts.set(current.node, result);
+  }
+  return facts.get(node) ?? "possible";
 };
 
 const joinOwnership = (
