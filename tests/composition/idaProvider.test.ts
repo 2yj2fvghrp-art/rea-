@@ -59,6 +59,9 @@ describe("IDA provider composition", () => {
         .find(({ operation }) => operation === "procedure_callers")?.available,
     ).toBe(false);
   });
+});
+
+describe("IDA provider snapshot freshness", () => {
   it("re-observes externally mutable state even when a document is explicit and a snapshot is imported", async () => {
     const { root, target } = await createIdaTarget();
     roots.push(root);
@@ -125,6 +128,9 @@ describe("IDA provider composition", () => {
     await session.close();
     expect(producer.closes).toBe(1);
   });
+});
+
+describe("IDA provider compatibility validation", () => {
   it("rejects unsupported target kinds and reports incomplete upstream profiles on first analysis", async () => {
     const { root, target } = await createIdaTarget();
     roots.push(root);
