@@ -44,6 +44,30 @@ const parseFunctionValueFixture = (
 };
 
 describe("Ghidra function-analysis result values", () => {
+  it("preserves producer-owned SEH relationship omissions and rejects malformed coverage", () => {
+    const coverage = {
+      status: "partial",
+      limitations: ["Registered handler belongs to an independent function."],
+    };
+    const wire = {
+      value: [],
+      limitations: coverage.limitations,
+      relationship_coverage: coverage,
+    };
+    expect(parseGhidraFunctionResult("procedure_callees", wire)).toMatchObject({
+      ok: true,
+      value: { relationshipCoverage: coverage },
+    });
+    expect(parseGhidraFunctionResult("procedure_callers", wire)).toMatchObject({
+      ok: false,
+    });
+    expect(
+      parseGhidraFunctionResult("procedure_callees", {
+        ...wire,
+        relationship_coverage: { status: "partial", limitations: [] },
+      }),
+    ).toMatchObject({ ok: false });
+  });
   it("preserves file-offset resolution in Evidence locations and rejects inexact offsets", () => {
     const selection = {
       file_offset: 0x210,

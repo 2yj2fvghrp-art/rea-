@@ -742,8 +742,8 @@ export class GhidraClient {
   ): Promise<void> {
     try {
       // best-effort cleanup: a rejected startup must not mask close/cleanup.
-      await starting?.catch(() => undefined);
-      await this.#cleanup(forceStop);
+      const started = await starting?.catch(() => undefined);
+      await this.#cleanup(forceStop, started?.ok === true);
     } finally {
       if (this.#startPromise === starting) this.#startPromise = undefined;
       if (this.#startupController === controller)
@@ -752,7 +752,7 @@ export class GhidraClient {
     }
   }
 
-  async #cleanup(forceStop = false): Promise<void> {
+  async #cleanup(forceStop = false, confirmedSession = false): Promise<void> {
     this.#closing = true;
     let forcedStopFailure: GhidraSessionError | undefined;
     try {
@@ -760,6 +760,7 @@ export class GhidraClient {
         this.#failure("process", "Ghidra session closed"),
       );
       const socket = this.#socket;
+      let shutdownConfirmed = false;
       if (!forceStop && socket !== undefined && !socket.destroyed) {
         const shutdown = await this.#wire
           .request("shutdown", {}, { timeoutMs: SHUTDOWN_TIMEOUT_MS })
@@ -768,7 +769,9 @@ export class GhidraClient {
               this.#failure("process", "Ghidra shutdown request failed", cause),
             ),
           );
-        if (!shutdown.ok || !isGhidraShutdownAcknowledgement(shutdown.value))
+        shutdownConfirmed =
+          shutdown.ok && isGhidraShutdownAcknowledgement(shutdown.value);
+        if (!shutdownConfirmed)
           this.#logger.warn(
             {
               status: shutdown.ok ? "invalid-acknowledgement" : "failed",
@@ -791,7 +794,20 @@ export class GhidraClient {
       if (this.#process !== undefined) {
         await this.#process.waitForExit(500);
         this.#processSnapshot = this.#process.snapshot();
-        const stopped = await this.#process.stop();
+        let stopped = await this.#process.stop();
+        if (
+          stopped.status === "incomplete" &&
+          shutdownConfirmed &&
+          confirmedSession
+        ) {
+          // A JVM exiting after an acknowledged shutdown may temporarily have
+          // unreadable ownership tokens. Wait on the retained child identity,
+          // then require a fresh verification of the entire owned group.
+          this.#process.ref();
+          if (await this.#process.waitForExit(SHUTDOWN_TIMEOUT_MS))
+            stopped = await this.#process.stop();
+          else this.#process.unref();
+        }
         this.#processSnapshot = this.#process.snapshot();
         if (stopped.status === "incomplete") {
           this.#options.onDiagnostic?.({

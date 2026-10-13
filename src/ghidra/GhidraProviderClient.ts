@@ -33,7 +33,6 @@ import {
   AnalysisTimeoutError,
 } from "../domain/analysisErrorCore.js";
 import type { AnalysisError } from "../domain/analysisErrorBase.js";
-import type { EvidenceLocation } from "../domain/evidence.js";
 import { jsonValueSchema, type JsonValue } from "../domain/jsonValue.js";
 import { ProviderAdapterError } from "../domain/providerAdapterError.js";
 import { err, ok, type Result } from "../domain/result.js";
@@ -44,6 +43,7 @@ import {
   isGhidraFunctionOperation,
   parseGhidraFunctionInput,
   parseGhidraFunctionResult,
+  type ParsedGhidraFunctionResult,
 } from "./GhidraFunctionValues.js";
 import {
   isGhidraInventoryOperation,
@@ -731,18 +731,21 @@ export const createGhidraProviderClient = (input: {
     operation: AnalysisOperation,
     normalized: JsonValue,
     rawResult: JsonValue,
-    observationLimitations: readonly string[] = [],
-    locations: readonly EvidenceLocation[] = [],
+    observation: Pick<
+      ParsedGhidraFunctionResult,
+      "limitations" | "locations" | "relationshipCoverage"
+    > = { limitations: [] },
   ) => {
-    const relationshipCoverage = relationshipCoverageFor(operation);
+    const relationshipCoverage =
+      observation.relationshipCoverage ?? relationshipCoverageFor(operation);
     return createAnalysisExecution(normalized, committedProfile.provider, {
       rawResult,
-      locations,
+      locations: observation.locations ?? [],
       analysisProfile: committedProfile,
       ...(relationshipCoverage === undefined ? {} : { relationshipCoverage }),
       limitations: [
         ...limitationsFor(operation),
-        ...observationLimitations,
+        ...observation.limitations,
         ...sessionLimitations(),
       ],
     });
@@ -836,14 +839,12 @@ export const createGhidraProviderClient = (input: {
           ),
         );
       let normalized: JsonValue;
-      let observationLimitations: readonly string[] = [];
-      let observationLocations: readonly EvidenceLocation[] = [];
+      let functionObservation: ParsedGhidraFunctionResult | undefined;
       if (isGhidraFunctionOperation(operation)) {
         const result = parseGhidraFunctionResult(operation, called.value);
         if (!result.ok) return result;
         normalized = result.value.value;
-        observationLimitations = result.value.limitations;
-        observationLocations = result.value.locations ?? [];
+        functionObservation = result.value;
       } else {
         const result = parseGhidraInventoryResult(operation, called.value);
         if (!result.ok) return result;
@@ -937,8 +938,7 @@ export const createGhidraProviderClient = (input: {
           operation,
           normalized,
           called.value,
-          observationLimitations,
-          observationLocations,
+          functionObservation,
         ),
       );
     },
