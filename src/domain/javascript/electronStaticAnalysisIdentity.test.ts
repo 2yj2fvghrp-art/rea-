@@ -198,3 +198,25 @@ it("preserves one initializer across variable redeclarations without accepting w
     analysis.electron.browser_windows.map(({ preload_path }) => preload_path),
   ).toEqual(["./redeclared.js"]);
 });
+
+it("marks a bound bridge object written through an alias as incomplete", () => {
+  const exposed = (write: string) =>
+    analyzeJavaScriptStaticSource(`
+      const { contextBridge } = require("electron");
+      const api = { tools: { copy() {} } };
+      ${write}
+      contextBridge.exposeInMainWorld("api", api);
+    `).electron.context_bridge_apis[0];
+  expect(exposed("")).toMatchObject({
+    api_status: "object-binding",
+    unknown_members: 0,
+  });
+  for (const write of [
+    "api.tools = {};",
+    "const alias = api; alias.tools = {};",
+  ])
+    expect(exposed(write)).toMatchObject({
+      api_status: "object-binding",
+      unknown_members: 1,
+    });
+});

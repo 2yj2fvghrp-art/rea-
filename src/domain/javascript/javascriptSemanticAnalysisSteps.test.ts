@@ -1,3 +1,4 @@
+import * as t from "@babel/types";
 import { expect, it } from "vitest";
 
 import {
@@ -124,11 +125,38 @@ new NativeWindow();
   let electronStep = electronSteps.next();
   expect(electronStep.done).toBe(false);
   while (electronStep.done !== true) electronStep = electronSteps.next();
-  expect([...electronStep.value]).toEqual([
-    [text.lastIndexOf("NativeWindow()"), ["BrowserWindow"]],
+  expect([...electronStep.value.callees]).toEqual([
+    [
+      text.lastIndexOf("NativeWindow()"),
+      {
+        path: ["BrowserWindow"],
+        consumed_members: 0,
+        identity: { basis: "module-binding" },
+      },
+    ],
   ]);
-  expect(electronStep.value).toEqual(
-    classifyParsedJavaScriptElectronBindings(parsed),
+  // Lexical-owner lookups are closures, so they are compared by their answers.
+  const { bindingId, reassigned, ...stepped } = electronStep.value;
+  const synchronous = classifyParsedJavaScriptElectronBindings(parsed);
+  const {
+    bindingId: synchronousBindingId,
+    reassigned: synchronousReassigned,
+    ...synchronousFacts
+  } = synchronous;
+  expect(stepped).toEqual(synchronousFacts);
+  const identifiers: t.Identifier[] = [];
+  traverseJavaScriptAst(parsed.program, {
+    enter: (node) => {
+      if (t.isIdentifier(node)) identifiers.push(node);
+    },
+  });
+  expect(
+    identifiers.map((node) => [bindingId(node), reassigned(node)]),
+  ).toEqual(
+    identifiers.map((node) => [
+      synchronousBindingId(node),
+      synchronousReassigned(node),
+    ]),
   );
 });
 
@@ -184,7 +212,11 @@ conditionalAlias.handle("conditional-alias:ping", () => "local");
   const parsed = parseJavaScriptSource(text, "aliases.js");
   if (parsed === null) throw new Error("Expected parsed source");
 
-  expect([...classifyParsedJavaScriptElectronBindings(parsed)]).toEqual([
+  expect(
+    [...classifyParsedJavaScriptElectronBindings(parsed).callees].map(
+      ([offset, { path }]) => [offset, path],
+    ),
+  ).toEqual([
     [text.indexOf("Win({"), ["BrowserWindow"]],
     [text.indexOf("bridge.exposeInMainWorld"), ["contextBridge"]],
     [text.indexOf('ipc.handle("main:ping"'), ["ipcMain"]],

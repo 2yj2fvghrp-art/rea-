@@ -82,3 +82,66 @@ describe("Electron option evidence", () => {
     );
   });
 });
+
+it("decodes HTML character references in embedded CSP declarations", () => {
+  const analysis = analyzeJavaScriptStaticSource(
+    `const html = '<meta http-equiv="Content-Security-Policy" content="script-src &#39;unsafe-inline&#39;; object-src &#39;none&#39;">';`,
+  );
+  expect(analysis.electron.content_security_policies).toContainEqual(
+    expect.objectContaining({
+      mechanism: "html-meta-string",
+      policy: "script-src 'unsafe-inline'; object-src 'none'",
+      concerns: [
+        expect.objectContaining({
+          directive: "script-src",
+          source: "'unsafe-inline'",
+        }),
+      ],
+    }),
+  );
+});
+
+describe("will-attach-webview preference writes", () => {
+  const attach = (body: string) =>
+    analyzeJavaScriptStaticSource(`
+      const { app } = require("electron");
+      app.on("web-contents-created", (_event, contents) => {
+        contents.on("will-attach-webview", (event, prefs, params) => {${body}});
+      });
+    `).electron.webview_attachments[0];
+
+  it("keeps the handler's own preload write", () => {
+    expect(
+      attach(`prefs.preload = "./real.cjs"; params.src = "about:blank";`),
+    ).toMatchObject({
+      preload_path: "./real.cjs",
+      writes: [
+        { target: "web-preferences", name: "preload" },
+        { target: "params", name: "src" },
+      ],
+      unknown_writes: 0,
+    });
+  });
+
+  it("does not take a preload from a nested function that may never run", () => {
+    expect(
+      attach(
+        `prefs.preload = "./real.cjs"; function unused() { prefs.preload = "./unused.cjs"; }`,
+      ),
+    ).toMatchObject({
+      preload_path: "./real.cjs",
+      writes: [{ name: "preload", value: { value: "./real.cjs" } }],
+      unknown_writes: 1,
+    });
+  });
+
+  it("does not report writes through a reassigned parameter as webview settings", () => {
+    expect(
+      attach(`prefs = {}; prefs.preload = "./other.cjs"; params.src = "x";`),
+    ).toMatchObject({
+      preload_path: null,
+      writes: [{ target: "params", name: "src" }],
+      unknown_writes: 1,
+    });
+  });
+});

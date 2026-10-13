@@ -277,9 +277,11 @@ describe("web bundle API classification parity", () => {
       ),
     ).toEqual(["/storage-named-xhr"]);
     const analysis = analyzeJavaScriptStaticSource(source);
-    expect(analysis.endpoints.map(({ value }) => value)).toEqual([
-      "/storage-named-xhr",
-    ]);
+    expect(
+      analysis.endpoints.flatMap(({ kind, value }) =>
+        kind === "data" ? [] : [value],
+      ),
+    ).toEqual(["/storage-named-xhr"]);
     expect(analysis.storage.map(({ kind }) => kind)).toEqual([
       "indexed-db",
       "indexed-db",
@@ -321,9 +323,11 @@ describe("web bundle API classification parity", () => {
       "/api",
     ]);
     const staticAnalysis = analyzeJavaScriptStaticSource(source);
-    expect(staticAnalysis.endpoints.map(({ value }) => value)).toEqual([
-      "/api",
-    ]);
+    expect(
+      staticAnalysis.endpoints.flatMap(({ kind, value }) =>
+        kind === "data" ? [] : [value],
+      ),
+    ).toEqual(["/api"]);
     expect(staticAnalysis.storage.map(({ kind }) => kind)).toEqual([
       "indexed-db",
     ]);
@@ -413,9 +417,13 @@ describe("web bundle configuration and navigation parity", () => {
         .observations.endpoints.map(({ value }) => value)
         .sort(),
     ).toEqual(expected);
+    // Static analysis also reports path-like getConfiguration arguments as
+    // data values; only request endpoints are compared with the web bundle.
     expect(
       analyzeJavaScriptStaticSource(source)
-        .endpoints.map(({ value }) => value)
+        .endpoints.flatMap(({ kind, value }) =>
+          kind === "data" ? [] : [value],
+        )
         .sort(),
     ).toEqual(expected);
   });
