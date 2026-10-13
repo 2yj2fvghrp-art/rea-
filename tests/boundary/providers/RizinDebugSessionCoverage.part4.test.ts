@@ -16,6 +16,41 @@ const { cleanup, makeProvider, start, startInjected, track } =
 afterEach(cleanup);
 
 it.skipIf(process.platform === "win32")(
+  "assembles a multi-chunk NUL frame once and preserves its command output",
+  async () => {
+    const chunk = Buffer.alloc(64 * 1024, 0x61);
+    const chunkCount = 32;
+    const outputBytes = chunk.length * chunkCount;
+    const injected = createInjectedProcess({
+      onWrite: (text, control) => {
+        const marker = /!echo (.+)\n/u.exec(text)?.[1];
+        if (marker !== undefined)
+          setImmediate(() => {
+            for (let index = 0; index < chunkCount; index += 1)
+              control.output(chunk);
+            control.output(Buffer.from([0]));
+            control.output(Buffer.from(`${marker}\0`));
+          });
+      },
+    });
+    const { manager, started } = await startInjected(injected.spawnProcess, {
+      frameTimeoutMs: 1000,
+    });
+    expect(started.ok).toBe(true);
+    if (!started.ok) return;
+
+    const result = await manager.execute(started.value.session_id, "chunked");
+
+    expect(result.ok).toBe(true);
+    if (result.ok) {
+      expect(Buffer.byteLength(result.value.result.output)).toBe(outputBytes);
+      expect(result.value.result.output).toBe("a".repeat(outputBytes));
+      expect(result.value.result.completion_status).toBe("complete");
+    }
+  },
+);
+
+it.skipIf(process.platform === "win32")(
   "discards an oversized frame split across deterministic stream chunks",
   async () => {
     const injected = createInjectedProcess({

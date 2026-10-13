@@ -1,6 +1,6 @@
 import { chmod, mkdtemp, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
-import { join } from "node:path";
+import { join, resolve } from "node:path";
 
 import { Client, InMemoryTransport } from "@modelcontextprotocol/client";
 import { McpServer } from "@modelcontextprotocol/server";
@@ -9,6 +9,7 @@ import { z } from "zod";
 
 import { AnalysisCapabilityUnavailableError } from "../../../src/domain/analysisErrorCore.js";
 import { thinMach } from "../../../src/domain/binaryTarget.fixture.js";
+import { evidenceSchema } from "../../../src/domain/evidence.js";
 import { err, ok } from "../../../src/domain/result.js";
 import {
   createRizinTestManager,
@@ -27,6 +28,93 @@ import {
   validateDebuggerStatusResponse,
   waitForStartedFile,
 } from "../../support/reverseDebuggerMcpTestHelpers.js";
+
+it.skipIf(process.platform === "win32")(
+  "reports Rizin launch provenance and lossy frame decoding through MCP",
+  async () => {
+    const directory = await mkdtemp(join(tmpdir(), "rea-rizin-provenance-"));
+    const provider = join(directory, "fake-rizin-provenance.mjs");
+    await writeFile(
+      provider,
+      `#!/usr/bin/env node
+process.stdout.write("\\0");
+let input = "";
+process.stdin.setEncoding("utf8");
+process.stdin.on("data", (chunk) => {
+  input += chunk;
+  for (;;) {
+    const boundary = input.indexOf("\\n");
+    if (boundary < 0) break;
+    const line = input.slice(0, boundary); input = input.slice(boundary + 1);
+    if (line === "dr") process.stdout.write(Buffer.from([0xff, 0]));
+    else if (line.startsWith("!echo ")) process.stdout.write(line.slice(6) + "\\0");
+  }
+});
+`,
+    );
+    await chmod(provider, 0o700);
+    const manager = createRizinTestManager({ REA_RIZIN_COMMAND: provider });
+    const server = new McpServer({
+      name: "rizin-evidence-provenance",
+      version: "1",
+    });
+    registerRizinDebugTools(
+      server,
+      manager,
+      silentLogger,
+      createToolResultDelivery(undefined),
+    );
+    const client = new Client({
+      name: "rizin-evidence-provenance",
+      version: "1",
+    });
+    const [clientTransport, serverTransport] =
+      InMemoryTransport.createLinkedPair();
+    const callerPath = "./relative/../rizin-fixture.bin";
+    try {
+      await server.connect(serverTransport);
+      await client.connect(clientTransport);
+      const started = await client.callTool({
+        name: "start_rizin_debug_session",
+        arguments: {
+          path: callerPath,
+          inferior_tty: await rizinTestInferiorTty(),
+        },
+      });
+      const sessionId = z
+        .object({ session_id: z.string().uuid() })
+        .parse(started.structuredContent).session_id;
+      const command = await client.callTool({
+        name: "rizin_debug_command",
+        arguments: { session_id: sessionId, command: "dr" },
+      });
+      expect(command.isError).not.toBe(true);
+      const evidence = evidenceSchema.parse(command.structuredContent);
+      expect(evidence.parameters.launch_provenance).toEqual({
+        caller_selected_path: callerPath,
+        resolved_path: resolve(callerPath),
+      });
+      expect(evidence.normalized_result).toMatchObject({
+        output_invalid_utf8: true,
+      });
+      expect(evidence.limitations).toContain(
+        "Launch provenance records the original and resolved startup paths; it does not establish the current target after unrestricted debugger commands.",
+      );
+
+      const status = await validateDebuggerStatusResponse(
+        client,
+        "rizin_debug_session_status",
+        sessionId,
+      );
+      expect(status.output_invalid_utf8).toBe(true);
+      expect(status.recent_output).toContain("�");
+    } finally {
+      await Promise.allSettled([client.close(), server.close()]);
+      await manager.closeAll().catch(() => undefined);
+      await rm(directory, { recursive: true, force: true });
+    }
+  },
+);
 
 it("admits Rizin startup across a bound analysis session", async () => {
   const [fixture] = await createBinarySessionTargets();

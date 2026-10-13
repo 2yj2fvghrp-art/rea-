@@ -6,6 +6,7 @@ import {
 } from "./RizinTestInferiorTty.js";
 import { rizinCommand } from "../../../src/rizin/RizinCommand.js";
 import { spawnOwnedProviderProcess } from "../../../src/process/ProviderProcess.js";
+import { stopOwnedDebuggerProcess } from "../../../src/process/ownedDebuggerSession.js";
 import {
   createRizinCoverageHarness,
   createInjectedProcess,
@@ -336,16 +337,40 @@ it.skipIf(process.platform === "win32")(
 );
 
 it.skipIf(process.platform === "win32")(
-  "retains sessions in status when close cannot confirm process cleanup",
+  "retains close failures and resolves their owner after cleanup retry",
   async () => {
     const provider = await makeProvider(
       'process.stdout.write("\\0"); process.stdin.resume();',
     );
+    let stopCalls = 0;
     const { manager, sessionId } = await start(provider, {
-      stopProcess: incompleteStop,
+      stopProcess: async (session, name, options) => {
+        stopCalls += 1;
+        if (stopCalls === 1) {
+          session.launched.process.kill("SIGTERM");
+          return {
+            status: "incomplete",
+            reason: "first stop result is uncertain",
+          };
+        }
+        await session.supervisor.waitForExit(1000);
+        return stopOwnedDebuggerProcess(session, name, options);
+      },
     });
-    expect((await manager.close(sessionId)).ok).toBe(false);
-    expect(manager.status(sessionId)?.state).toBe("closed");
+    const closed = await manager.close(sessionId);
+    expect(closed.ok).toBe(false);
+    if (!closed.ok) {
+      expect(closed.error.cleanupIncomplete).toBe(true);
+      expect(closed.error.cleanup?.resources).toEqual([sessionId]);
+      const retainedFailure = closed.error;
+      expect(await manager.retryCleanupFailures()).toEqual({
+        ok: true,
+        value: null,
+      });
+      expect(retainedFailure.cleanupIncomplete).toBe(false);
+    }
+    expect(stopCalls).toBe(2);
+    expect(manager.status(sessionId)).toBeUndefined();
   },
 );
 

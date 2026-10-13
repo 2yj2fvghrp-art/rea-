@@ -1,4 +1,5 @@
 import { chmod, mkdtemp, readFile, rm, writeFile } from "node:fs/promises";
+import { resolve } from "node:path";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 
@@ -121,8 +122,10 @@ process.stdin.on("data", (chunk) => {
     await chmod(provider, 0o700);
     const manager = createRizinTestManager({ REA_RIZIN_COMMAND: provider });
     managers.push(manager);
+    const callerSelectedPath = "./relative/../fixture.bin";
+    const resolvedPath = resolve(callerSelectedPath);
     const started = await manager.start({
-      path: "/tmp/fixture.bin",
+      path: callerSelectedPath,
       inferior_tty: inferiorTty,
     });
     expect(started.ok).toBe(true);
@@ -136,7 +139,15 @@ process.stdin.on("data", (chunk) => {
         session_id: started.value.session_id,
         command: "dr",
         inferior_tty: inferiorTty,
+        launch_provenance: {
+          caller_selected_path: callerSelectedPath,
+          resolved_path: resolvedPath,
+        },
       });
+    if (executed.ok)
+      expect(executed.value.evidence.limitations).toContain(
+        "Launch provenance records the original and resolved startup paths; it does not establish the current target after unrestricted debugger commands.",
+      );
   },
 );
 
@@ -351,8 +362,10 @@ process.stdin.on("data", (chunk) => {
       { frameTimeoutMs: 5_000 },
     );
     managers.push(manager);
+    const callerSelectedPath = "./cancelled/../fixture.bin";
+    const resolvedPath = resolve(callerSelectedPath);
     const started = await manager.start({
-      path: "/tmp/fixture.bin",
+      path: callerSelectedPath,
       inferior_tty: await rizinTestInferiorTty(),
     });
     expect(started.ok).toBe(true);
@@ -367,7 +380,17 @@ process.stdin.on("data", (chunk) => {
     );
 
     expect(result.ok).toBe(false);
-    if (!result.ok) expect(result.error._tag).toBe("AnalysisCancelledError");
+    if (!result.ok) {
+      expect(result.error._tag).toBe("AnalysisCancelledError");
+      expect(result.error.partialObservation).toMatchObject({
+        parameters: {
+          launch_provenance: {
+            caller_selected_path: callerSelectedPath,
+            resolved_path: resolvedPath,
+          },
+        },
+      });
+    }
     expect(manager.status(started.value.session_id)?.state).toBe("closed");
   },
 );
@@ -514,8 +537,10 @@ process.stdin.on("data", (chunk) => {
       },
     );
     managers.push(manager);
+    const callerSelectedPath = "./exit/../fixture.bin";
+    const resolvedPath = resolve(callerSelectedPath);
     const started = await manager.start({
-      path: "/tmp/fixture.bin",
+      path: callerSelectedPath,
       inferior_tty: await rizinTestInferiorTty(),
     });
     expect(started.ok).toBe(true);
@@ -538,6 +563,10 @@ process.stdin.on("data", (chunk) => {
         parameters: {
           command: "exit-now",
           session_id: started.value.session_id,
+          launch_provenance: {
+            caller_selected_path: callerSelectedPath,
+            resolved_path: resolvedPath,
+          },
         },
       });
       const partialEvidence = evidenceSchema.parse(

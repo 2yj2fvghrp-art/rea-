@@ -29,11 +29,16 @@ it.skipIf(process.platform === "win32")(
     if (result.ok) {
       expect(result.value.result.completion_status).toBe("unknown");
       expect(result.value.evidence.raw_result).toEqual(result.value.result);
+      expect(result.value.evidence.parameters.launch_provenance).toEqual({
+        caller_selected_path: "/tmp/injected",
+        resolved_path: "/tmp/injected",
+      });
       expect(result.value.evidence.limitations).toEqual([
         "The current debugger target identity is not established by the Rizin session identifier.",
         "The command timed out before its completion marker; retained output is partial and completion is unknown.",
         "The owned debugger session was stopped because output correlation could no longer be guaranteed.",
         "The command is unrestricted and may access local files, the shell, network, or mutate the target.",
+        "Launch provenance records the original and resolved startup paths; it does not establish the current target after unrestricted debugger commands.",
       ]);
     }
   },
@@ -255,6 +260,7 @@ it.skipIf(process.platform === "win32")(
         "The current debugger target identity is not established by the Rizin session identifier.",
         "Rizin exited before the command-completion marker; retained frame output is partial and command completion is unknown.",
         "The command is unrestricted and may access local files, the shell, network, or mutate the target.",
+        "Launch provenance records the original and resolved startup paths; it does not establish the current target after unrestricted debugger commands.",
       ]);
     }
   },
