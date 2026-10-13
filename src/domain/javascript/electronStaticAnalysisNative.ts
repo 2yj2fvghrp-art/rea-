@@ -83,7 +83,7 @@ const inspectTypeImport = (
   const request = typescriptImportTypeRequest(node, context.parentsByNode);
   if (request === null || !isNativeSpecifier(request.specifier, moduleKind))
     return;
-  const member = request.path[0];
+  const members = request.selection[0] ?? [];
   addBinding({
     context,
     node: request.locationNode,
@@ -91,8 +91,9 @@ const inspectTypeImport = (
     kind: "import",
     moduleKind,
     typeOnly: true,
-    members: member === undefined ? [] : [member],
-    namespaceAccess: member === undefined && !request.dynamicMemberAccess,
+    members,
+    namespaceAccess:
+      request.selection.length === 0 && !request.dynamicMemberAccess,
     dynamicMemberAccess: request.dynamicMemberAccess,
   });
 };

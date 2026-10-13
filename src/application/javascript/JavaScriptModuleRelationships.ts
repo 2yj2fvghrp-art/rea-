@@ -169,9 +169,7 @@ export function* addJavaScriptModuleRelationshipsSteps(
       else if (link.specifier !== null)
         addImportRelationship(input, source, omissions, {
           specifier: link.specifier,
-          importedPath:
-            link.importedPath ??
-            (link.importedName === null ? [] : [link.importedName]),
+          importedPath: link.importedName === null ? [] : [link.importedName],
         });
     }
   }
@@ -374,9 +372,7 @@ const moduleOriginForExport = (
         ? {}
         : { resolutionMode: link.resolutionMode }),
       specifier: link.specifier,
-      importedPath:
-        link.importedPath ??
-        (link.importedName === null ? [] : [link.importedName]),
+      importedPath: link.importedName === null ? [] : [link.importedName],
     };
   if (link.localName === null) return null;
   const program = ir.scopes.find(({ kind }) => kind === "program");
@@ -399,7 +395,7 @@ const relationshipProperties = (
   ...moduleResolutionModeProperties(link.resolutionMode),
   specifier: origin?.specifier ?? link.specifier,
   imported_name: origin?.importedPath.at(-1) ?? link.importedName,
-  imported_path: origin?.importedPath ?? link.importedPath ?? [],
+  imported_path: origin?.importedPath ?? [],
   local_name: link.localName,
   exported_name: link.exportedName,
   resolved_path: target?.path ?? null,

@@ -50,8 +50,13 @@ export const typescriptImportResolutionMode = (
   )
     return undefined;
   const kind = t.isImportDeclaration(node) ? node.importKind : node.exportKind;
-  if (kind !== "type") return undefined;
   const attributes = node.attributes;
+  if (kind !== "type")
+    return attributes?.some(
+      ({ key }) => semanticStaticPropertyKey(key, false) === "resolution-mode",
+    )
+      ? "compiler-dependent"
+      : undefined;
   if (attributes === null || attributes === undefined) return undefined;
   const attribute = attributes[0];
   return attributes.length === 1 &&
@@ -90,7 +95,7 @@ export const typescriptImportTypeRequest = (
   parents?: Pick<WeakMap<t.Node, t.Node>, "get">,
 ): {
   readonly specifier: string;
-  readonly path: readonly string[];
+  readonly selection: readonly (readonly string[])[];
   readonly dynamicMemberAccess: boolean;
   readonly locationNode: t.Node;
 } | null => {
@@ -102,6 +107,7 @@ export const typescriptImportTypeRequest = (
     qualifier = qualifier.left;
   }
   if (t.isIdentifier(qualifier)) names.unshift(qualifier.name);
+  const selection: string[][] = names.map((name) => [name]);
   let cursor: t.Node = node;
   let locationNode: t.Node = node;
   let dynamicMemberAccess = false;
@@ -116,29 +122,47 @@ export const typescriptImportTypeRequest = (
     }
     if (!t.isTSIndexedAccessType(parent) || parent.objectType !== cursor) break;
     locationNode = parent;
-    let indexType = parent.indexType;
-    while (t.isTSParenthesizedType(indexType))
-      indexType = indexType.typeAnnotation;
-    const literal = t.isTSLiteralType(indexType)
-      ? indexType.literal
-      : undefined;
-    const key =
-      literal === undefined ? undefined : readExactJavaScriptLiteral(literal);
-    if (
-      key === undefined ||
-      !key.found ||
-      (typeof key.value !== "string" && typeof key.value !== "number")
-    ) {
-      dynamicMemberAccess = true;
-      break;
-    }
-    names.push(String(key.value));
+    const keys = literalTypeIndexKeys(parent.indexType);
+    selection.push(keys.values);
+    if (!keys.complete) dynamicMemberAccess = true;
+    if (keys.values.length === 0) break;
     cursor = parent;
   }
   return {
     specifier: node.source.value,
-    path: names,
+    selection,
     dynamicMemberAccess,
     locationNode,
   };
+};
+
+/** Segment alternatives retain finite unions without allocating Cartesian paths. */
+const literalTypeIndexKeys = (
+  type: t.TSType,
+): { readonly values: string[]; readonly complete: boolean } => {
+  const pending = [type];
+  const values = new Set<string>();
+  let complete = true;
+  while (pending.length > 0) {
+    const current = pending.pop();
+    if (current === undefined) break;
+    if (t.isTSParenthesizedType(current)) pending.push(current.typeAnnotation);
+    else if (t.isTSUnionType(current))
+      for (let index = current.types.length - 1; index >= 0; index--) {
+        const arm = current.types[index];
+        if (arm !== undefined) pending.push(arm);
+      }
+    else {
+      const literal = t.isTSLiteralType(current)
+        ? readExactJavaScriptLiteral(current.literal)
+        : undefined;
+      if (
+        literal?.found &&
+        (typeof literal.value === "string" || typeof literal.value === "number")
+      )
+        values.add(String(literal.value));
+      else complete = false;
+    }
+  }
+  return { values: [...values], complete };
 };
