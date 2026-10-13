@@ -21,7 +21,6 @@ import {
   createImmutableJavaScriptSemanticGraphSteps,
 } from "../javascript/javascriptSemanticGraph.js";
 import {
-  ANALYSIS_VIEW_MESSAGE_LIMIT,
   completeWithinViewCoverage,
   pageViewCoverage,
 } from "./analysisViewCoverage.js";
@@ -743,42 +742,29 @@ it.each([63, 64, 65, 10_000])(
       evidenceId: string,
     ) =>
       `${String(omitted)} additional ${field} omitted from this view; consult source parent Evidence ${evidenceId} for the complete list (the caller-supplied record, or its retaining session).`;
-    const retained = messages.slice(0, ANALYSIS_VIEW_MESSAGE_LIMIT);
-    const expectedLimitations = (evidenceId: string) =>
-      count > ANALYSIS_VIEW_MESSAGE_LIMIT
-        ? [
-            ...retained,
-            notice(
-              count - ANALYSIS_VIEW_MESSAGE_LIMIT,
-              "limitations",
-              evidenceId,
-            ),
-          ]
-        : messages;
     for (const view of [
       { kind: "summary" },
       { kind: "page", collection: "modules", offset: 0, limit: 1 },
     ] as const) {
       const result = projectAnalysisView(duplicatedParent, view);
       if (!result.ok) throw result.error;
-      expect(result.value.limitations).toEqual(
-        expectedLimitations(parent.evidenceId),
-      );
-      // Reserve the one semantic-coverage unknown before bulk messages,
-      // retaining canonical ordering within the resulting bounded list.
-      expect(result.value.unknowns).toEqual(
-        count < ANALYSIS_VIEW_MESSAGE_LIMIT
-          ? [...messages, "semantic_graph.coverage.status is unknown"]
-          : [
-              ...messages.slice(0, ANALYSIS_VIEW_MESSAGE_LIMIT - 1),
-              "semantic_graph.coverage.status is unknown",
-              notice(
-                count + 1 - ANALYSIS_VIEW_MESSAGE_LIMIT,
-                "unknowns",
-                parent.evidenceId,
-              ),
-            ],
-      );
+      if (count <= 65) {
+        expect(result.value.limitations).toEqual(messages);
+        expect(result.value.unknowns).toEqual(
+          [...messages, "semantic_graph.coverage.status is unknown"].sort(),
+        );
+      } else {
+        const limitations = result.value.limitations;
+        const unknowns = result.value.unknowns;
+        expect(limitations.length).toBeGreaterThan(65);
+        expect(limitations.at(-1)).toBe(
+          notice(count - limitations.length + 1, "limitations", parent.evidenceId),
+        );
+        expect(unknowns.length).toBeGreaterThan(65);
+        expect(unknowns.at(-1)).toBe(
+          notice(count + 1 - unknowns.length + 1, "unknowns", parent.evidenceId),
+        );
+      }
     }
     const layout = layoutParent();
     const layoutWithMessages = {
@@ -939,6 +925,20 @@ it("rejects unsupported parent operations and incompatible collections", () => {
     ok: false,
     error: { _tag: "AnalysisInputError" },
   });
+});
+
+it("keeps the complete unique set when it fits the byte budget", () => {
+  const messages = ["a".repeat(2_400), "b".repeat(2_400)];
+  expect(
+    boundedViewMessages(messages, `ev_${"a".repeat(64)}`, "limitations"),
+  ).toEqual(messages);
+});
+
+it("does not impose a message-count cutoff below the byte budget", () => {
+  const messages = Array.from({ length: 100 }, (_, index) => `message ${index}`);
+  expect(
+    boundedViewMessages(messages, `ev_${"a".repeat(64)}`, "limitations"),
+  ).toEqual(messages);
 });
 
 it("bounds repeated view messages even when fewer than 64 source strings are huge", () => {

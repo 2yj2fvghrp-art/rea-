@@ -29,9 +29,6 @@ export const pageViewCoverage = (
   };
 };
 
-/** Maximum distinct limitation or unknown messages carried by one view. */
-export const ANALYSIS_VIEW_MESSAGE_LIMIT = 64;
-
 /** Per-field repeated MCP message budget, independent of the selected page. */
 export const ANALYSIS_VIEW_MESSAGE_BYTE_LIMIT = 256 * 1024;
 
@@ -51,13 +48,18 @@ export const boundedViewMessages = (
   const unique = uniqueSorted([...priority, ...values]);
   const notice = (omitted: number): string =>
     `${String(omitted)} additional ${field} omitted from this view; consult source parent Evidence ${parentEvidenceId} for the complete list (the caller-supplied record, or its retaining session).`;
-  // Reserve the largest possible notice before selecting any source strings.
+  const totalBytes = unique.reduce(
+    (total, value) => total + messageWireBytes(value),
+    0,
+  );
+  if (totalBytes <= ANALYSIS_VIEW_MESSAGE_BYTE_LIMIT) return unique;
+
+  // Reserve notice space only after proving the complete source set does not fit.
   let remaining =
     ANALYSIS_VIEW_MESSAGE_BYTE_LIMIT - messageWireBytes(notice(unique.length));
   const retained = new Set<string>();
   for (const value of [...priority, ...unique]) {
     if (retained.has(value)) continue;
-    if (retained.size === ANALYSIS_VIEW_MESSAGE_LIMIT) break;
     const bytes = messageWireBytes(value);
     if (bytes > remaining) continue;
     retained.add(value);
