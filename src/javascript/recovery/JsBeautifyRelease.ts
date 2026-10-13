@@ -31,5 +31,5 @@ export const JSBEAUTIFY_LIMITATIONS = [
   "A file is published only when jsbeautify exits 0 and, for deobfuscation, both of its generated-output re-parse checks (phases 19.6 and 21.5) report success. Re-parsing proves syntax, not behaviour.",
   "Classic scripts keep their top-level names (jsbeautify --source-type auto); .cjs inputs are parsed as CommonJS and .mjs inputs as modules.",
   "The caller-supplied binary is identified by path, SHA-256 and version banner only; REA does not audit or pin its source.",
-  "Linux adapter: one worker per file, 8 GiB address-space ceiling, 300-second deadline for the whole operation, 64 MiB total input, 256 MiB output, 10000 output entries and 64 MiB per diagnostic stream.",
+  "Linux adapter: one worker per file, 8 GiB address-space ceiling per process, 300-second deadline for the whole operation, 64 MiB total input, 256 MiB output, 10000 output entries and 64 MiB per diagnostic stream. Limits are not aggregate process-memory quotas.",
 ] as const;

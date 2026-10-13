@@ -88,7 +88,7 @@ Builds of jsbeautify before `9949993` reserve a worker stack of
 2 KiB per input byte regardless of address-space limits (a 2.4 MB esbuild
 bundle peaks at 0.33 GB RSS but aborts below 3 GiB); later builds cap the stack
 at a quarter of the limit. This engine runs under an 8 GiB address-space
-ceiling, a 300-second operation deadline, 256 MiB of output and 64 MiB per
+ceiling per process, a 300-second operation deadline, 256 MiB of output and 64 MiB per
 diagnostic stream. `detected_formats` lists the bundlers and obfuscators the
 phase log's `<name> check: detected` lines report (esbuild, Bun, webpack,
 Turbopack, Akamai BMP, Angular).
@@ -182,12 +182,14 @@ equivalence remain unknown. No network fetching occurs.
 
 ## Resource policy and verification
 
-Each Wakaru operation uses one worker, a 1 GiB address-space ceiling and a 120-second
-deadline; it accepts up to 64 MiB of total input across all selected files and
+Each Wakaru operation uses one worker, a 1 GiB address-space ceiling per process
+and a 120-second deadline; it accepts up to 64 MiB of total input across all selected files and
 128 MiB/10000 entries of staged
 output, with 8 MiB per diagnostic/report stream. Exceeding a limit is an explicit
 failure with rollback. These limits apply per operation and do not claim aggregate
-host containment across concurrent callers.
+host containment across concurrent callers. The `prlimit` address-space ceiling
+applies to each process separately, including helpers an engine starts; it is
+not an aggregate memory quota.
 
 See [testing.md](testing.md#javascript-source-recovery) for the focused real
 Wakaru CLI/MCP lane and its source-owned compiler fixtures. Other host platforms
