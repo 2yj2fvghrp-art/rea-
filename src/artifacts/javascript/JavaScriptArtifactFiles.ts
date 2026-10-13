@@ -480,8 +480,7 @@ const createUnanalyzedArtifactLookup = (
   };
   const isOpaque = (occurrence: ArtifactOccurrence): boolean =>
     occurrence.entry_kind === "file" &&
-    relevantKind(occurrence.logical_path) === undefined &&
-    !containerIds.has(occurrence.logical_path);
+    relevantKind(occurrence.logical_path) === undefined;
   return {
     get(path) {
       if (requested.has(path)) return requested.get(path);
