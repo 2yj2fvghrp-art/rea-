@@ -6,8 +6,9 @@ export const resolveWindowsProviderExecutable = (
   executable: string,
   environment: Readonly<NodeJS.ProcessEnv>,
 ): string => {
-  if (win32.isAbsolute(executable)) return executable;
-  if (executable.includes("/") || executable.includes("\\"))
+  const root = win32.parse(executable).root;
+  if (win32.isAbsolute(executable) && root.length > 1) return executable;
+  if (root !== "" || executable.includes("/") || executable.includes("\\"))
     return resolve(executable);
 
   const pathValue = environment.PATH ?? environment.Path ?? environment.path;
