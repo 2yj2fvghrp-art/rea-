@@ -389,11 +389,12 @@ describe("native command failure capture and limits", () => {
     // "é" is two bytes and straddles the excerpt boundary, so it is dropped whole.
     const stdout = `${"x".repeat(NATIVE_FAILURE_DIAGNOSTIC_BYTES - 1)}é${"y".repeat(1024)}`;
     const stderr = "z".repeat(NATIVE_FAILURE_DIAGNOSTIC_BYTES + 1024);
+    // Build the output in the child: one Linux argument is limited to 128 KiB.
     const result = await runner.run(
       "file",
       [
         "-e",
-        `process.stdout.write(${JSON.stringify(stdout)}, () => process.stderr.write(${JSON.stringify(stderr)}, () => process.exit(3)))`,
+        `const stdout = "x".repeat(${String(NATIVE_FAILURE_DIAGNOSTIC_BYTES - 1)}) + "\u00e9" + "y".repeat(1024); const stderr = "z".repeat(${String(NATIVE_FAILURE_DIAGNOSTIC_BYTES + 1024)}); process.stdout.write(stdout, () => process.stderr.write(stderr, () => process.exit(3)));`,
       ],
       {},
     );
