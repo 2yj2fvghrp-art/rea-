@@ -806,7 +806,9 @@ it("reconciliation retains unknown workers without asserting page containment", 
     provider.identity(),
   );
   const projected = projectRuntimeCaptures(parseRuntimeCaptures([evidence]));
-  for (const worker of projected.entities.filter(({ kind }) => kind === "worker")) {
+  for (const worker of projected.entities.filter(
+    ({ kind }) => kind === "worker",
+  )) {
     expect(
       projected.edges.some(
         ({ target_node_id }) => target_node_id === worker.node.node_id,
