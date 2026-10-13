@@ -103,7 +103,7 @@ export const summarizeElectronBoundaries = (
   );
   const nativeBindings = analysis.files.flatMap(({ file, javascript: value }) =>
     (value?.electron.native_addon_bindings ?? [])
-      .filter((finding) => finding.type_only !== true)
+      .filter((finding) => finding.type_only === false)
       .map((finding) => ({
         file,
         finding,
