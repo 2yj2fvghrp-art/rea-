@@ -585,47 +585,52 @@ it("projects CArchive type n entries as symlinks", async () => {
   expect(await readFile(join(output, "data.bin"))).toEqual(payload);
 });
 
-it("retains the file owner after a failed close", async () => {
-  const path = await writeArchive(
-    "close-owner",
-    cArchiveExecutable({
-      layout: "2.1",
-      pythonVersion: 309,
-      pythonLibrary: "libpython3.9.so",
-      members: [
-        {
-          name: "data.bin",
-          typeCode: "x",
-          payload: Buffer.from("data"),
-          compress: false,
-        },
-      ],
-    }),
-  );
-  const reader = new PyInstallerArtifactReader(path);
-  for await (const entry of reader.entries()) void entry;
-  const originalClose = OwnedFileHandle.prototype.close;
-  const owners: OwnedFileHandle[] = [];
-  const closeFailure = new Error("close failed");
-  let attempts = 0;
-  const close = vi
-    .spyOn(OwnedFileHandle.prototype, "close")
-    .mockImplementation(async function (this: OwnedFileHandle) {
-      owners.push(this);
-      attempts += 1;
-      if (attempts === 1) throw closeFailure;
-      await originalClose.call(this);
-    });
-  try {
-    await expect(reader.close()).rejects.toBe(closeFailure);
-    await reader.close();
-    expect(attempts).toBe(2);
-    expect(owners[0]).toBe(owners[1]);
-  } finally {
-    close.mockRestore();
-    await reader.close();
-  }
-});
+it.each([false, true])(
+  "retains the file owner after a failed close (temporary PYZ: %s)",
+  async (temporaryPyz) => {
+    const path = await writeArchive(
+      "close-owner",
+      cArchiveExecutable({
+        layout: "2.1",
+        pythonVersion: 309,
+        pythonLibrary: "libpython3.9.so",
+        members: [
+          {
+            name: temporaryPyz ? "PYZ.pyz" : "data.bin",
+            typeCode: temporaryPyz ? "z" : "x",
+            payload: temporaryPyz
+              ? pyzArchive({ magic: PYTHON_39_MAGIC, modules: [] })
+              : Buffer.from("data"),
+            compress: temporaryPyz,
+          },
+        ],
+      }),
+    );
+    const reader = new PyInstallerArtifactReader(path);
+    for await (const entry of reader.entries()) void entry;
+    const originalClose = OwnedFileHandle.prototype.close;
+    const owners: OwnedFileHandle[] = [];
+    const closeFailure = new Error("close failed");
+    let attempts = 0;
+    const close = vi
+      .spyOn(OwnedFileHandle.prototype, "close")
+      .mockImplementation(async function (this: OwnedFileHandle) {
+        owners.push(this);
+        attempts += 1;
+        if (attempts === 1) throw closeFailure;
+        await originalClose.call(this);
+      });
+    try {
+      await expect(reader.close()).rejects.toBe(closeFailure);
+      await reader.close();
+      expect(attempts).toBe(temporaryPyz ? 3 : 2);
+      expect(owners[0]).toBe(owners[1]);
+    } finally {
+      close.mockRestore();
+      await reader.close();
+    }
+  },
+);
 
 it("retains the descriptor owner when admission cleanup fails", async () => {
   const directory = await createTestTempDirectory("rea-pyinstaller-admission-");
@@ -896,6 +901,48 @@ it("opens selected PYZ modules lazily and permits repeat reads without retaining
     await reader.close();
   }
 });
+
+it.each([false, true])(
+  "lists a large file-backed PYZ and reads a selected module (outer compression: %s)",
+  async (compress) => {
+    const original = pyzArchive({
+      magic: PYTHON_39_MAGIC,
+      modules: [
+        { name: "selected", typeCode: 0, body: Buffer.from("selected module") },
+      ],
+    });
+    const toc = original.readUInt32BE(8);
+    // Unreferenced image padding is legal and must not become retained module bytes.
+    const image = Buffer.concat([
+      original.subarray(0, toc),
+      Buffer.alloc(64 * 1024 * 1024),
+      original.subarray(toc),
+    ]);
+    image.writeUInt32BE(toc + 64 * 1024 * 1024, 8);
+    const path = await writeArchive(
+      "large-pyz",
+      cArchiveExecutable({
+        layout: "2.1",
+        pythonVersion: 309,
+        members: [{ name: "PYZ.pyz", typeCode: "z", payload: image, compress }],
+      }),
+    );
+    const reader = new PyInstallerArtifactReader(path);
+    try {
+      const entries = [];
+      for await (const entry of reader.entries()) entries.push(entry);
+      const selected = entries.find(
+        (entry) => entry.path === "PYZ.pyz/selected.pyc",
+      );
+      if (selected === undefined) throw new Error("Missing selected module");
+      expect(await buffer(await reader.open(selected))).toEqual(
+        derived(Buffer.from("selected module")),
+      );
+    } finally {
+      await reader.close();
+    }
+  },
+);
 
 it("uses known PYZ magic for separate CArchive scripts when the marshal table stays opaque", async () => {
   const script = Buffer.from("entry script");

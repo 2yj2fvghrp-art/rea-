@@ -1,7 +1,15 @@
 import { deflateSync } from "node:zlib";
+import { open, writeFile } from "node:fs/promises";
+import { join } from "node:path";
 import { expect, it } from "vitest";
 
-import { inflateBounded, parsePyzArchive } from "./PyzArchive.js";
+import {
+  inflateBounded,
+  parsePyzArchive,
+  readPyzArchive,
+  MAX_PYZ_TABLE_BYTES,
+} from "./PyzArchive.js";
+import { createTestTempDirectory } from "../../../tests/fixtures/temporaryDirectory.js";
 import { PYTHON_39_MAGIC, pyzArchive } from "./CArchive.fixture.js";
 
 it("lists modules from a supported PYZ and leaves an unknown magic opaque", () => {
@@ -63,4 +71,31 @@ it("stops a zlib stream that expands past the supplied output bound", async () =
   expect(inflated.ok).toBe(false);
   if (inflated.ok) return;
   expect(inflated.error.reason).toBe("limit");
+});
+
+it("classifies a truncated zlib stream as malformed rather than over budget", async () => {
+  const compressed = deflateSync(Buffer.from("complete module"));
+  const result = await inflateBounded(compressed.subarray(0, -2), 1024);
+  expect(result).toMatchObject({ ok: false, error: { reason: "format" } });
+});
+
+it("rejects an oversized sparse PYZ table before allocating its bytes", async () => {
+  const root = await createTestTempDirectory("rea-pyz-table-budget-");
+  const path = join(root, "image.pyz");
+  const header = Buffer.alloc(12);
+  header.write("PYZ\0");
+  PYTHON_39_MAGIC.copy(header, 4);
+  header.writeUInt32BE(12, 8);
+  await writeFile(path, header);
+  const handle = await open(path, "r+");
+  try {
+    const size = 12 + MAX_PYZ_TABLE_BYTES + 1;
+    await handle.truncate(size);
+    expect(await readPyzArchive(handle, 0, size)).toMatchObject({
+      ok: false,
+      error: { reason: "limit" },
+    });
+  } finally {
+    await handle.close();
+  }
 });

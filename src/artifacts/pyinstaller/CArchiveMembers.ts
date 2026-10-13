@@ -1,3 +1,4 @@
+import type { FileHandle } from "node:fs/promises";
 import { copyArtifactEntry, type ArtifactEntry } from "../ArtifactReader.js";
 import type { CArchiveEntry, PyInstallerCookie } from "./CArchiveLayout.js";
 import type { PyzArchive, PyzEntry } from "./PyzArchive.js";
@@ -21,7 +22,9 @@ export interface PyInstallerMember {
       }
     | {
         readonly kind: "pyz";
-        readonly compressed: Buffer;
+        readonly handle: FileHandle;
+        readonly offset: number;
+        readonly length: number;
         readonly header: Buffer | undefined;
       }
     | undefined;
@@ -149,7 +152,13 @@ export const projectPyzMember = (
   item: PyzEntry,
   encrypted: boolean,
   pythonMagic: Buffer | undefined,
-  compressed: Buffer | undefined,
+  range:
+    | {
+        readonly handle: FileHandle;
+        readonly offset: number;
+        readonly length: number;
+      }
+    | undefined,
 ): PyInstallerMember => {
   const located = pyzMemberLocation(
     canonicalMemberName(container.name).path,
@@ -204,10 +213,7 @@ export const projectPyzMember = (
       limitations,
       adapterKey: `pyz:${located.path}`,
     }),
-    read:
-      compressed === undefined
-        ? undefined
-        : { kind: "pyz", compressed, header },
+    read: range === undefined ? undefined : { kind: "pyz", ...range, header },
   };
 };
 

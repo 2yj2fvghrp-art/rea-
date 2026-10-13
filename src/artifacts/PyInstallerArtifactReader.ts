@@ -1,5 +1,10 @@
-import { Readable } from "node:stream";
-import { lstat, type FileHandle } from "node:fs/promises";
+import { Readable, Transform } from "node:stream";
+import { pipeline } from "node:stream/promises";
+import { createWriteStream } from "node:fs";
+import { createInflate } from "node:zlib";
+import { tmpdir } from "node:os";
+import { join } from "node:path";
+import { lstat, mkdtemp, open, rm, type FileHandle } from "node:fs/promises";
 
 import { artifactDecompressionBudgetBytes } from "../domain/artifactDecompressionBudget.js";
 import { OwnedFileHandle } from "../filesystem/OwnedFileHandle.js";
@@ -34,14 +39,15 @@ import {
 } from "./pyinstaller/CArchiveMembers.js";
 import {
   inflateBounded,
-  parsePyzArchive,
+  readPyzArchive,
   type PyzArchive,
 } from "./pyinstaller/PyzArchive.js";
 import type { PyInstallerFailure } from "./pyinstaller/PyInstallerFailure.js";
 
 interface PyzImage {
   readonly archive: PyzArchive;
-  readonly bytes: Buffer;
+  readonly handle: FileHandle;
+  readonly start: number;
 }
 
 interface LoadedArchive {
@@ -61,6 +67,8 @@ export class PyInstallerArtifactReader implements ArtifactReader {
   #budget = 0;
   #charged = 0;
   #facts: readonly string[] = [];
+  #temporaryRoot: string | undefined;
+  readonly #temporaryHandles = new Set<OwnedFileHandle>();
   readonly #members = new Map<string, PyInstallerMember>();
   readonly #openedPyzSizes = new Map<string, number>();
 
@@ -127,6 +135,14 @@ export class PyInstallerArtifactReader implements ArtifactReader {
   }
 
   async close(): Promise<void> {
+    for (const owner of this.#temporaryHandles) {
+      await owner.close();
+      this.#temporaryHandles.delete(owner);
+    }
+    if (this.#temporaryRoot !== undefined) {
+      await rm(this.#temporaryRoot, { recursive: true, force: true });
+      this.#temporaryRoot = undefined;
+    }
     await this.#owner?.close();
     this.#owner = undefined;
     this.#source = undefined;
@@ -221,16 +237,89 @@ export class PyInstallerArtifactReader implements ArtifactReader {
     for (const entry of toc) {
       if (entry.typeCode !== "z") continue;
       abortIfNeeded(signal);
-      const bytes = await this.#readDeclared(
-        handle,
-        cookie.archiveStart,
-        entry,
+      const source =
+        entry.compressionFlag === 0
+          ? { handle, start: cookie.archiveStart + entry.offset }
+          : await this.#spoolPyz(handle, cookie.archiveStart, entry, signal);
+      const parsed = await readPyzArchive(
+        source.handle,
+        source.start,
+        entry.uncompressedSize,
+        signal,
       );
-      const parsed = parsePyzArchive(bytes);
       if (!parsed.ok) throw failure(parsed.error);
-      images.set(entry.name, { archive: parsed.value, bytes });
+      images.set(entry.name, { archive: parsed.value, ...source });
     }
     return images;
+  }
+
+  async #spoolPyz(
+    handle: FileHandle,
+    archiveStart: number,
+    entry: CArchiveEntry,
+    signal?: AbortSignal,
+  ): Promise<{ readonly handle: FileHandle; readonly start: number }> {
+    if (entry.compressedSize === 0)
+      throw new ArtifactReaderFailure(
+        "format",
+        "Compressed PYZ image has no zlib bytes",
+      );
+    this.#temporaryRoot ??= await mkdtemp(join(tmpdir(), "rea-pyz-"));
+    const path = join(this.#temporaryRoot, String(this.#temporaryHandles.size));
+    let bytes = 0;
+    const bounded = new Transform({
+      transform(chunk: Buffer, _encoding, callback) {
+        bytes += chunk.length;
+        callback(
+          bytes > entry.uncompressedSize
+            ? new ArtifactReaderFailure(
+                "limit",
+                "PYZ image exceeds its declared decompression budget",
+              )
+            : null,
+          chunk,
+        );
+      },
+    });
+    try {
+      await pipeline(
+        handle.createReadStream({
+          start: archiveStart + entry.offset,
+          end: archiveStart + entry.offset + entry.compressedSize - 1,
+          autoClose: false,
+        }),
+        createInflate(),
+        bounded,
+        createWriteStream(path, { flags: "wx", mode: 0o600 }),
+        signal === undefined ? {} : { signal },
+      );
+    } catch (cause: unknown) {
+      abortIfNeeded(signal);
+      if (cause instanceof ArtifactReaderFailure) throw cause;
+      if (
+        cause instanceof Error &&
+        "code" in cause &&
+        (cause.code === "Z_BUF_ERROR" || cause.code === "Z_DATA_ERROR")
+      )
+        throw new ArtifactReaderFailure(
+          "format",
+          "Compressed PYZ image is not a complete zlib stream",
+          { cause },
+        );
+      throw new ArtifactReaderFailure(
+        "io",
+        "Could not spool compressed PYZ image",
+        { cause },
+      );
+    }
+    if (bytes !== entry.uncompressedSize)
+      throw new ArtifactReaderFailure(
+        "integrity",
+        "Decompressed PYZ image size disagrees with its table entry",
+      );
+    const opened = await open(path, "r");
+    this.#temporaryHandles.add(new OwnedFileHandle(opened));
+    return { handle: opened, start: 0 };
   }
 
   #project(
@@ -267,7 +356,11 @@ export class PyInstallerArtifactReader implements ArtifactReader {
             image.archive.pythonMagic,
             item.namespace || encrypted
               ? undefined
-              : image.bytes.subarray(item.offset, item.offset + item.length),
+              : {
+                  handle: image.handle,
+                  offset: image.start + item.offset,
+                  length: item.length,
+                },
           ),
         );
     }
@@ -313,7 +406,8 @@ export class PyInstallerArtifactReader implements ArtifactReader {
       const remaining =
         previousSize ??
         this.#budget - this.#charged - (read.header?.length ?? 0);
-      const inflated = await inflateBounded(read.compressed, remaining);
+      const compressed = await readExact(read.handle, read.offset, read.length);
+      const inflated = await inflateBounded(compressed, remaining);
       if (!inflated.ok) throw failure(inflated.error);
       if (previousSize === undefined) {
         this.#charge(inflated.value.length + (read.header?.length ?? 0));

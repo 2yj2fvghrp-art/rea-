@@ -18,6 +18,12 @@ compressed lengths, so uncompressed declared sizes and decoded source spans
 remain unknown. Entry scripts use type `s`.
 Runtime options use type `o`, and the option text is the entry name.
 
+Stored PYZ images are read through file ranges. Outer-compressed images stream
+to private temporary files under the aggregate decompression budget and are
+removed when the reader closes. Only the header and marshal table are loaded
+for listing; the table has a separate 16 MiB transient memory budget. A table
+over that budget returns a resource failure before allocation.
+
 A PYZ archive is a nested container when its Python bytecode magic is a final
 magic for Python 3.7, 3.8, 3.9, 3.10, 3.11, 3.12, 3.13, or 3.14. The table of
 contents supplies module, package, data, and namespace entries. A PYZ whose
