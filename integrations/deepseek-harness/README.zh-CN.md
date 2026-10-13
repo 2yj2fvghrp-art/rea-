@@ -4,6 +4,71 @@
 截至 2026-10-13，npm 的 `@deepseek-ai/dsh@latest` 指向 `0.2.0-rc.2`，
 而上游 `master` 仍在快速迭代。安装 REA 时建议使用正式发布、版本固定的插件压缩包。
 
+## Desktop 已安装，但没有启用：修复 dsh.profile.bundles
+
+适用的典型症状：Desktop 中的 `package.json` 已声明 `dsh-rea-bundle`，
+插件安装日志显示成功，但 `dsh.profile.bundles` 没有这个名字，
+`cordis.yml` 内找不到 `rea-launcher` / `rea-mcp`，会话中也没有
+`mcp__rea__*` 工具。
+
+**这不是重新安装或 REA MCP 引擎故障。** 当前 Harness 插件管理器把
+**安装**与**立即启用**作为两个独立操作；关闭安装成功对话框而没有
+点「立即启用」，可能留下一个已安装、但处于关闭状态的 bundle。
+
+推荐先打开 **DeepSeek Harness Desktop → 插件 → 已安装插件 →
+dsh-rea-bundle**，将该包的开关**开启**，不是去修改 `rea-agents`
+的普通 npm 依赖。然后**完全退出并重新启动 Desktop**，重新打开一个
+会话检查 REA 工具。
+
+### 如果界面找不到开关：使用安全激活脚本（仅本机 macOS）
+
+此脚本在当前仓库的
+[`scripts/activate-installed.mjs`](scripts/activate-installed.mjs)。
+它不会连接服务器，不会执行 pnpm、不会重新下载或重装 REA。
+默认 `--status` **只读**；只有显式 `--activate` 才会在备份
+`~/.dsh/profiles/desktop/package.json` 后，将
+`dsh-rea-bundle` **追加一次**到原有 `dsh.profile.bundles`
+尾部。已有插件和顺序、其他依赖、锁文件、`allowBuilds` 都保持不变。
+如果包未安装、插件元数据损坏、数组不合法，脚本会拒绝修改。
+
+在 Mac 的终端执行（可先打开链接阅读脚本再运行）：
+
+```sh
+curl -fL --retry 3 \
+  -o "$HOME/Downloads/rea-desktop-activate.mjs" \
+  https://raw.githubusercontent.com/xxxxxwater/rea/main/integrations/deepseek-harness/scripts/activate-installed.mjs
+
+node "$HOME/Downloads/rea-desktop-activate.mjs" --status
+
+# 先从菜单中完全退出 DeepSeek Harness Desktop，然后执行：
+node "$HOME/Downloads/rea-desktop-activate.mjs" --activate
+
+# 重新打开 Desktop，等它生成 cordis.yml，再执行：
+node "$HOME/Downloads/rea-desktop-activate.mjs" --verify
+```
+
+其中 `node` 使用 Mac 本机已有的 Node.js（满足插件运行版本要求），
+不是全局 `dsh` 命令；**不要执行 `dsh --profile desktop`**。
+`--activate` 成功后会打印精确的 `package.json.rea-backup-...`
+备份路径；再次运行不会添加重复条目或再次生成备份。
+如果需要回滚，在**完全退出 Desktop** 后从这份原样备份恢复
+`package.json`。如果仅想关闭插件，更推荐直接使用 Desktop 的开关。
+
+### 验证层次
+
+| 检查 | 预期结果 |
+| --- | --- |
+| `package.json.dependencies` | 有 `dsh-rea-bundle` |
+| `dsh.profile.bundles` | 有且仅有一个 `dsh-rea-bundle` |
+| 重启生成的 `cordis.yml` | 有 `rea-launcher` 与 `rea-mcp` |
+| Desktop 的 Loader / 新会话 | `rea-mcp` 成功启动，出现 `mcp__rea__*` 工具 |
+
+`--verify` 只检查已启用与合成配置，不保证 MCP 子进程与工具真的就绪。
+如果前三项通过却仍无 REA 工具，应检查 Desktop 插件详情中的
+`rea-mcp` 启动错误、所需的本机权限与 MCP 客户端状态，而不是重新安装。
+**170** 是之前安装的 `rea-agents@6.4.0` 在该次握手返回的工具数量，
+并非所有 Harness 版本都必须恰好暴露 170 个工具。
+
 ## Desktop「添加插件」直接安装（推荐）
 
 **直接复制整行地址到 DeepSeek Harness Desktop → 插件 → 添加插件**：
@@ -45,11 +110,11 @@ Desktop 正在安装**整个 REA GitHub 仓库的 CLI**，不是 Harness 插件�
 
 ```sh
 mkdir -p "$HOME/.dsh/plugin-packages"
-curl -fL --retry 3 -o "$HOME/.dsh/plugin-packages/dsh-rea-bundle-0.1.0.tgz" \
-  https://github.com/xxxxxwater/rea/releases/download/dsh-v0.1.0/dsh-rea-bundle-0.1.0.tgz
-printf '%s  %s\n' '03a525a9b266bb4b43ae7c92b79b7a9752b0414bf338edb025ee1ce8e3c6500e' "$HOME/.dsh/plugin-packages/dsh-rea-bundle-0.1.0.tgz" \
+curl -fL --retry 3 -o "$HOME/.dsh/plugin-packages/dsh-rea-bundle-0.2.0.tgz" \
+  https://github.com/xxxxxwater/rea/releases/download/dsh-v0.2.0/dsh-rea-bundle-0.2.0.tgz
+printf '%s  %s\n' '011e78aebde2b71577286869b65719af83de888e01313445e744999d78844630' "$HOME/.dsh/plugin-packages/dsh-rea-bundle-0.2.0.tgz" \
   | shasum -a 256 -c -
-printf '%s\n' "$HOME/.dsh/plugin-packages/dsh-rea-bundle-0.1.0.tgz"
+printf '%s\n' "$HOME/.dsh/plugin-packages/dsh-rea-bundle-0.2.0.tgz"
 ```
 
 校验显示 `OK` 后，打开 **DeepSeek Harness Desktop → 插件 → 添加插件**，
@@ -77,7 +142,7 @@ bash integrations/deepseek-harness/scripts/prepare-desktop-install.sh
 `dsh`，完全退出 Desktop 后，也可执行：
 
 ```sh
-dsh plugin --profile desktop add "$HOME/.dsh/plugin-packages/dsh-rea-bundle-0.1.0.tgz"
+dsh plugin --profile desktop add "$HOME/.dsh/plugin-packages/dsh-rea-bundle-0.2.0.tgz"
 ```
 
 注意：通过 npm 全局安装的普通 `dsh` 可能拒绝 `desktop`
@@ -92,15 +157,15 @@ Profile（它只属于 Electron 应用）。遇到这种提示时改用应用内
 # Node.js: ^22.19, ^24.11, or >=26; macOS/Linux
 npm install --global @deepseek-ai/dsh@latest pnpm@11
 
-curl -fL --retry 3 --output dsh-rea-bundle-0.1.0.tgz https://github.com/xxxxxwater/rea/releases/download/dsh-v0.1.0/dsh-rea-bundle-0.1.0.tgz
-printf '%s  %s\n' '03a525a9b266bb4b43ae7c92b79b7a9752b0414bf338edb025ee1ce8e3c6500e' 'dsh-rea-bundle-0.1.0.tgz' | shasum -a 256 -c -
+curl -fL --retry 3 --output dsh-rea-bundle-0.2.0.tgz https://github.com/xxxxxwater/rea/releases/download/dsh-v0.2.0/dsh-rea-bundle-0.2.0.tgz
+printf '%s  %s\n' '011e78aebde2b71577286869b65719af83de888e01313445e744999d78844630' 'dsh-rea-bundle-0.2.0.tgz' | shasum -a 256 -c -
 
-dsh plugin --profile web add ./dsh-rea-bundle-0.1.0.tgz
+dsh plugin --profile web add ./dsh-rea-bundle-0.2.0.tgz
 dsh --profile web --dump-config
 dsh --profile web
 ```
 
-其中 SHA-256 为 GitHub Release `dsh-v0.1.0` 的附件摘要。校验失败时应停止安装；
+其中 SHA-256 为 GitHub Release `dsh-v0.2.0` 的附件摘要。校验失败时应停止安装；
 不要绕过校验。最后的 `dsh --profile web` 将启动 Web 版 Harness。
 可以通过 `dsh --version` 查看本机版本、
 `npm view @deepseek-ai/dsh dist-tags --json` 查看 npm 当前标签。

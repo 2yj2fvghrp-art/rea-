@@ -95,6 +95,13 @@ dsh plugin --profile web add 'github:xxxxxwater/rea#dsh-plugin-v0.2.0'
 dsh --profile web --dump-config
 ```
 
+After a successful install, **enable the bundle** in
+**Desktop → Plugins → Installed plugins → dsh-rea-bundle**.
+A dependency in `package.json` alone does **not** mean it is selected
+in `dsh.profile.bundles`. If the toggle is unavailable, the
+[local-only activation and verification script](integrations/deepseek-harness/README.md#desktop-installed-the-bundle-but-did-not-activate-it)
+backs up the Desktop profile without reinstalling REA or touching other plugins.
+
 Alternatively, install the `dsh-rea-bundle-0.2.0.tgz` asset from the
 `dsh-v0.2.0` GitHub Release. The Desktop profile is app-managed, not the
 CLI's `web` profile. See

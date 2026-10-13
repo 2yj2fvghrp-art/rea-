@@ -86,6 +86,12 @@ Git 安装期构建脚本。不要输入不带标签的
 
 另一种安装来源是 GitHub Release `dsh-v0.2.0` 的
 `dsh-rea-bundle-0.2.0.tgz` 文件。两种方式任选一个。
+安装显示成功但**工具没有出现**时，还需要在
+**「插件 → 已安装插件 → dsh-rea-bundle」** 点开关启用。
+`dependencies` 有包名不代表 `dsh.profile.bundles` 已启用。
+如 UI 无法启用，使用[本机安全激活与验证脚本](integrations/deepseek-harness/README.zh-CN.md#desktop-已安装但没有启用修复-dshprofilebundles)；
+不会重新安装 REA 或修改其他插件。
+
 普通 CLI 的 `web` Profile 与 Desktop 的 `desktop` Profile 分离；
 安装、旧 `rea-mcp` 配置迁移与排错详情见
 `integrations/deepseek-harness/README.zh-CN.md`。

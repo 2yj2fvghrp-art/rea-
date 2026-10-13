@@ -243,6 +243,24 @@ Harness integration, with live DeepSeek API compatibility remaining unverified.
 See the [Harness MCP guide](https://github.com/deepseek-ai/deepseek-harness/blob/639ed015397290b3745d163aafe02ffee4aa3f84/packages/mcp/mcp-client/README.md)
 for its native configuration contract.
 
+### Desktop bundle installed but disabled
+
+An installed `dsh-rea-bundle` dependency does not imply the bundle has
+been added to `~/.dsh/profiles/desktop/package.json`'s
+`dsh.profile.bundles`. The upstream plugin manager offers
+**Enable now** separately from install. If the installed bundle is not
+selected, `cordis.yml` will have no `rea-launcher` / `rea-mcp`, and
+the Desktop session will have no `mcp__rea__*` tools.
+
+Use **Desktop → Plugins → Installed plugins → dsh-rea-bundle → Enable**
+and restart. If that UI control is unavailable, the
+[reviewable local-only activation script](../integrations/deepseek-harness/README.md#desktop-installed-the-bundle-but-did-not-activate-it)
+checks the installed files, backs up the manifest, then appends only
+the missing bundle name. It is opt-in; default mode only reports status.
+Run `--verify` after restart to check the generated Cordis file.
+Do **not** reinstall the bundle, change pnpm `allowBuilds`, or erase the
+Desktop profile to fix a disabled bundle.
+
 ### DeepSeek Harness Desktop: fix `ERR_PNPM_GIT_DEP_PREPARE_NOT_ALLOWED`
 
 **Cause.** If the error names `rea-agents@6.4.0` and downloads a Git archive
@@ -257,11 +275,11 @@ the root package to `allowBuilds`: it still would not be a Harness bundle.
 
 ```sh
 mkdir -p "$HOME/.dsh/plugin-packages"
-curl -fL --retry 3 -o "$HOME/.dsh/plugin-packages/dsh-rea-bundle-0.1.0.tgz" \
-  https://github.com/xxxxxwater/rea/releases/download/dsh-v0.1.0/dsh-rea-bundle-0.1.0.tgz
-printf '%s  %s\n' '03a525a9b266bb4b43ae7c92b79b7a9752b0414bf338edb025ee1ce8e3c6500e' "$HOME/.dsh/plugin-packages/dsh-rea-bundle-0.1.0.tgz" \
+curl -fL --retry 3 -o "$HOME/.dsh/plugin-packages/dsh-rea-bundle-0.2.0.tgz" \
+  https://github.com/xxxxxwater/rea/releases/download/dsh-v0.2.0/dsh-rea-bundle-0.2.0.tgz
+printf '%s  %s\n' '011e78aebde2b71577286869b65719af83de888e01313445e744999d78844630' "$HOME/.dsh/plugin-packages/dsh-rea-bundle-0.2.0.tgz" \
   | shasum -a 256 -c -
-printf '%s\n' "$HOME/.dsh/plugin-packages/dsh-rea-bundle-0.1.0.tgz"
+printf '%s\n' "$HOME/.dsh/plugin-packages/dsh-rea-bundle-0.2.0.tgz"
 ```
 
 1. Open **DeepSeek Harness Desktop → Plugins → Add plugin** (the sidebar's
@@ -293,7 +311,7 @@ the application menu **Manage dsh Command…**, fully quit Desktop and
 optionally run:
 
 ```sh
-dsh plugin --profile desktop add "$HOME/.dsh/plugin-packages/dsh-rea-bundle-0.1.0.tgz"
+dsh plugin --profile desktop add "$HOME/.dsh/plugin-packages/dsh-rea-bundle-0.2.0.tgz"
 ```
 
 A standalone `npm install -g @deepseek-ai/dsh` launcher may reject this
