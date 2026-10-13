@@ -53,6 +53,7 @@ import {
 } from "./javascriptSourceParser.js";
 
 import { createJavaScriptRpcScan } from "./javascriptRpcEndpoints.js";
+import { semanticImportEqualsSpecifier } from "./javascriptSemanticProjection.js";
 
 /** Parse one JavaScript artifact and recover static structure only. */
 export const analyzeJavaScriptStaticSource = (
@@ -73,9 +74,15 @@ export const analyzeParsedJavaScriptStaticSource = (
   source: string,
   file: ParsedJavaScriptSource,
   openReceiverFacts?: ReadonlyMap<number, JavaScriptOpenReceiverFact>,
+  staticImportResolutionMode: "import" | "require" = "import",
 ): JavaScriptStaticAnalysis =>
   completeSemanticSteps(
-    analyzeParsedJavaScriptStaticSourceSteps(source, file, openReceiverFacts),
+    analyzeParsedJavaScriptStaticSourceSteps(
+      source,
+      file,
+      openReceiverFacts,
+      staticImportResolutionMode,
+    ),
   );
 
 /** Static analysis that yields during its source traversal; results are unchanged. */
@@ -83,6 +90,7 @@ export function* analyzeParsedJavaScriptStaticSourceSteps(
   source: string,
   file: ParsedJavaScriptSource,
   openReceiverFacts?: ReadonlyMap<number, JavaScriptOpenReceiverFact>,
+  staticImportResolutionMode: "import" | "require" = "import",
 ): Generator<void, JavaScriptStaticAnalysis> {
   const accumulator = createJavaScriptAnalysisAccumulator(source.length);
   const bindings = yield* indexJavaScriptBindingsSteps(file.program);
@@ -96,6 +104,7 @@ export function* analyzeParsedJavaScriptStaticSourceSteps(
     {
       source,
       accumulator,
+      staticImportResolutionMode,
       ...(openReceiverFacts === undefined ? {} : { openReceiverFacts }),
       electronBindings: electronIdentity.bindings,
       rpcScan: createJavaScriptRpcScan(source, clientRoots),
@@ -231,16 +240,25 @@ const inspectNode = (
 ): void => {
   const { source, accumulator } = findings;
   const resolutionMode = typescriptImportResolutionMode(node);
-  inspectElectronStaticNode(node, findings, resolutionMode);
+  inspectElectronStaticNode(
+    node,
+    findings,
+    resolutionMode ?? findings.staticImportResolutionMode,
+  );
   if (t.isCallExpression(node)) {
     inspectBundlerBootstrap(source, node, accumulator, bindings);
-    inspectBundlerRegistration(source, node, accumulator);
-    inspectEsbuildWrapper(source, node, accumulator);
-    inspectCall(source, node, findings);
+    inspectBundlerRegistration(source, node, accumulator, bindings);
+    inspectEsbuildWrapper(source, node, accumulator, bindings);
+    inspectCall(source, node, findings, bindings);
   } else if (t.isOptionalCallExpression(node)) {
-    inspectCall(source, node, findings);
-  } else if (t.isNewExpression(node)) inspectCall(source, node, findings);
-  if (
+    inspectCall(source, node, findings, bindings);
+  } else if (t.isNewExpression(node))
+    inspectCall(source, node, findings, bindings);
+  if (t.isTSImportEqualsDeclaration(node)) {
+    const specifier = semanticImportEqualsSpecifier(node);
+    if (specifier !== null)
+      addReference(findings, { node, kind: "require", specifier });
+  } else if (
     (t.isImportDeclaration(node) || t.isExportAllDeclaration(node)) &&
     node.source !== undefined
   ) {

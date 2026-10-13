@@ -30,10 +30,25 @@ const nativeSource = [
   'import type { NativeMode as Imported } from "native-mode/addon.node" with { "resolution-mode": "import" };',
   'export type { NativeMode as NativeReexport } from "native-mode/addon.node" with { "resolution-mode": "require" };',
   'export type * from "native-mode/addon.node" with { "resolution-mode": "import" };',
+  'type InlineRequired = import("native-mode/addon.node", { with: { "resolution-mode": "require" } }).NativeMode;',
+  'type InlineImported = import("native-mode/addon.node", { with: { "resolution-mode": "import" } }).NativeMode;',
+  'type NestedNative = import("native-mode/addon.node", { with: { "resolution-mode": "import" } }).Shapes.NativeMode;',
+  'type NativeNamespace = typeof import("native-mode/addon.node", { with: { "resolution-mode": "require" } });',
   'const first: Required = { source: "require" };',
   'const second: Imported = { source: "import" };',
-  "console.log(JSON.stringify([first.source, second.source]));",
+  'const third: InlineRequired = { source: "require" };',
+  'const fourth: InlineImported = { source: "import" };',
+  'const nested: NestedNative = { source: "import" };',
+  "const namespace: NativeNamespace = {}; void namespace;",
+  "console.log(JSON.stringify([first.source, second.source, third.source, fourth.source, nested.source]));",
 ].join("\n");
+const nativeDefaultSource = (mode: "import" | "require") =>
+  [
+    'type DefaultNative = import("native-mode/addon.node").NativeMode;',
+    `const value: DefaultNative = { source: "${mode}" };`,
+    "console.log(JSON.stringify(value.source));",
+  ].join("\n");
+
 export const modeSourceFiles = {
   "cts/inline.cts": inlineSource,
   "cts/script.ts": inlineSource,
@@ -41,6 +56,8 @@ export const modeSourceFiles = {
   "cts/unresolved.cts": unresolvedSource,
   "cts/native.mts": nativeSource,
   "cts/recovered.cts": recoveredSource,
+  "cts/native-default.cts": nativeDefaultSource("require"),
+  "cts/native-default.mts": nativeDefaultSource("import"),
 };
 
 export const modePackageFiles = {
@@ -58,9 +75,9 @@ export const modePackageFiles = {
     },
   }),
   "node_modules/native-mode/require.d.cts":
-    'export interface NativeMode { source: "require"; }',
+    'export interface NativeMode { source: "require"; } export namespace Shapes { interface NativeMode { source: "require"; } }',
   "node_modules/native-mode/import.d.mts":
-    'export interface NativeMode { source: "import"; }',
+    'export interface NativeMode { source: "import"; } export namespace Shapes { interface NativeMode { source: "import"; } }',
   // Opaque inventory fixtures: resolve their paths, never execute native code.
   "node_modules/native-mode/require.node": "source-owned native placeholder",
   "node_modules/native-mode/import.node": "source-owned native placeholder",
@@ -110,6 +127,7 @@ export const expectReviewModeEvidence = (
         ]);
   }
   expectInlineTypeEvidence(graph);
+  expectNativeDefaultEvidence(graph);
   expectRecoveredTypeEvidence(graph);
   const native = graph.nodes
     .flatMap(({ observations }) => observations)
@@ -126,12 +144,17 @@ export const expectReviewModeEvidence = (
     [2, "import"],
     [3, "require"],
     [4, "import"],
+    [5, "require"],
+    [6, "import"],
+    [7, "import"],
+    [8, "require"],
   ] as const)
     expect.soft(native).toContainEqual(
       expect.objectContaining({
         properties: expect.objectContaining({
           resolved_path: `node_modules/native-mode/${mode}.node`,
           native_export_verification: "not-performed",
+          ...nativeQualifierProperties(line),
         }),
         evidence: expect.objectContaining({
           artifact: expect.objectContaining({
@@ -145,6 +168,51 @@ export const expectReviewModeEvidence = (
         }),
       }),
     );
+};
+
+const expectNativeDefaultEvidence = (
+  graph: Awaited<ReturnType<typeof analyzeJavaScriptDirectory>>["graph"],
+): void => {
+  for (const [file, mode] of [
+    ["native-default.cts", "require"],
+    ["native-default.mts", "import"],
+  ] as const) {
+    const observations = graph.nodes
+      .flatMap(({ observations }) => observations)
+      .filter(
+        ({ properties, evidence }) =>
+          properties.specifier === "native-mode/addon.node" &&
+          "native_export_verification" in properties &&
+          evidence.location.available &&
+          evidence.location.value.kind === "source-range" &&
+          evidence.location.value.source === `cts/${file}`,
+      );
+    expect.soft(observations).toMatchObject([
+      {
+        properties: {
+          resolved_path: `node_modules/native-mode/${mode}.node`,
+          requested_members: ["NativeMode"],
+          native_export_verification: "not-performed",
+        },
+        evidence: {
+          artifact: {
+            sha256: createHash("sha256")
+              .update(nativeDefaultSource(mode))
+              .digest("hex"),
+          },
+          location: { value: { start: { line: 1 } } },
+        },
+      },
+    ]);
+  }
+};
+
+const nativeQualifierProperties = (line: number) => {
+  if (line === 5 || line === 6) return { requested_members: ["NativeMode"] };
+  if (line === 7)
+    return { requested_members: ["Shapes"], namespace_access: false };
+  if (line === 8) return { requested_members: [], namespace_access: true };
+  return {};
 };
 
 const expectInlineTypeEvidence = (

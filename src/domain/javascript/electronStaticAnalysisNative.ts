@@ -18,6 +18,7 @@ import {
   semanticStaticPropertyKey,
 } from "./javascriptAstValues.js";
 import type { JavaScriptFindingContext } from "./javascriptStaticAnalysisState.js";
+import { typescriptImportTypeName } from "./typescriptImportResolutionMode.js";
 
 interface NativeBindingInput {
   readonly context: JavaScriptFindingContext;
@@ -41,8 +42,33 @@ export const inspectElectronNativeNode = (
     inspectNamedExport(node, context, resolutionMode);
   else if (t.isExportAllDeclaration(node))
     inspectExportAll(node, context, resolutionMode);
+  else if (t.isTSImportType(node))
+    inspectTypeImport(node, context, resolutionMode);
   else if (t.isVariableDeclarator(node)) inspectRequireBinding(node, context);
   else if (t.isAssignmentExpression(node)) inspectReExport(node, context);
+};
+
+const inspectTypeImport = (
+  node: t.TSImportType,
+  context: JavaScriptFindingContext,
+  moduleKind: "import" | "require",
+): void => {
+  if (
+    !t.isStringLiteral(node.source) ||
+    !isNativeSpecifier(node.source.value, moduleKind)
+  )
+    return;
+  const member = typescriptImportTypeName(node)?.split(".", 1)[0];
+  addBinding({
+    context,
+    node,
+    specifier: node.source.value,
+    kind: "import",
+    moduleKind,
+    members: member === undefined ? [] : [member],
+    namespaceAccess: member === undefined,
+    dynamicMemberAccess: false,
+  });
 };
 
 const inspectImport = (

@@ -384,6 +384,7 @@ const relationshipProperties = (
 ) => ({
   module_link_kind: link.kind,
   ...moduleResolutionModeProperties(link.resolutionMode),
+  ...typeNamespaceExportProperties(link.exportedTypeName),
   specifier: origin?.specifier ?? link.specifier,
   imported_name: origin?.importedPath.at(-1) ?? link.importedName,
   imported_path: origin?.importedPath ?? [],
@@ -397,6 +398,9 @@ const relationshipProperties = (
       ? jsonStatus(target.file)
       : null,
 });
+
+const typeNamespaceExportProperties = (name: string | undefined) =>
+  name === undefined ? {} : { exported_type_name: name };
 
 const relationshipEvidence = (
   input: RelationshipInput,

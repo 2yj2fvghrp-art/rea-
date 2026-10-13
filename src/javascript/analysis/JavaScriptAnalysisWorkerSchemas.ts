@@ -535,6 +535,7 @@ const coverage = z
 const moduleLink = z
   .strictObject({
     resolutionMode: z.enum(["import", "require"]).optional(),
+    exportedTypeName: z.string().optional(),
     kind: z.enum([
       "import",
       "type-import",
@@ -550,9 +551,10 @@ const moduleLink = z
     callableId: z.string().nullable(),
     location: range,
   })
-  .transform(({ resolutionMode, ...rest }) => ({
+  .transform(({ resolutionMode, exportedTypeName, ...rest }) => ({
     ...rest,
     ...(resolutionMode === undefined ? {} : { resolutionMode }),
+    ...(exportedTypeName === undefined ? {} : { exportedTypeName }),
   }));
 const definitionKind = z.enum([
   "import",

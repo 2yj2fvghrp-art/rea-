@@ -367,7 +367,7 @@ const collectNamedExports = (
       addModuleLink(
         state,
         {
-          kind: node.source == null ? "export" : "re-export",
+          ...declarationExportProperties(node, specifier),
           ...(resolutionMode === undefined ? {} : { resolutionMode }),
           specifier: node.source?.value ?? null,
           importedName: t.isExportNamespaceSpecifier(specifier)
@@ -377,12 +377,29 @@ const collectNamedExports = (
             node.source == null && t.isExportSpecifier(specifier)
               ? propertyName(specifier.local)
               : null,
-          exportedName: propertyName(specifier.exported),
           location: range(specifier),
         },
         node,
       );
 };
+
+const declarationExportProperties = (
+  node: t.ExportNamedDeclaration,
+  specifier: t.ExportSpecifier | t.ExportNamespaceSpecifier,
+): Pick<
+  JavaScriptSemanticModuleLink,
+  "kind" | "exportedName" | "exportedTypeName"
+> =>
+  t.isExportNamespaceSpecifier(specifier) && node.exportKind === "type"
+    ? {
+        kind: "type-import",
+        exportedName: null,
+        exportedTypeName: propertyName(specifier.exported),
+      }
+    : {
+        kind: node.source == null ? "export" : "re-export",
+        exportedName: propertyName(specifier.exported),
+      };
 
 const collectRequireLink = (
   node: t.VariableDeclarator,
@@ -695,19 +712,26 @@ export const semanticReferenceRole = (
   return "read";
 };
 
-const isDeclarationIdentifier = (node: t.Identifier, parent: t.Node): boolean =>
-  (t.isVariableDeclarator(parent) && patternContains(parent.id, node)) ||
-  ((t.isFunctionDeclaration(parent) || t.isFunctionExpression(parent)) &&
-    parent.id === node) ||
-  (t.isFunction(parent) &&
-    parent.params.some((value) => patternContains(value, node))) ||
-  ((t.isClassDeclaration(parent) || t.isClassExpression(parent)) &&
-    parent.id === node) ||
-  (t.isImportSpecifier(parent) &&
-    (parent.local === node || parent.imported === node)) ||
-  (t.isImportDefaultSpecifier(parent) && parent.local === node) ||
-  (t.isImportNamespaceSpecifier(parent) && parent.local === node) ||
-  (t.isCatchClause(parent) && parent.param === node);
+const isDeclarationIdentifier = (
+  node: t.Identifier,
+  parent: t.Node,
+): boolean => {
+  if (t.isTSImportEqualsDeclaration(parent)) return parent.id === node;
+  return (
+    (t.isVariableDeclarator(parent) && patternContains(parent.id, node)) ||
+    ((t.isFunctionDeclaration(parent) || t.isFunctionExpression(parent)) &&
+      parent.id === node) ||
+    (t.isFunction(parent) &&
+      parent.params.some((value) => patternContains(value, node))) ||
+    ((t.isClassDeclaration(parent) || t.isClassExpression(parent)) &&
+      parent.id === node) ||
+    (t.isImportSpecifier(parent) &&
+      (parent.local === node || parent.imported === node)) ||
+    (t.isImportDefaultSpecifier(parent) && parent.local === node) ||
+    (t.isImportNamespaceSpecifier(parent) && parent.local === node) ||
+    (t.isCatchClause(parent) && parent.param === node)
+  );
+};
 
 const isNonReferenceKey = (node: t.Identifier, parent: t.Node): boolean =>
   ((t.isMemberExpression(parent) || t.isOptionalMemberExpression(parent)) &&

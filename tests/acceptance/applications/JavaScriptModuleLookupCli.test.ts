@@ -195,6 +195,8 @@ const expectCtsRuntime = async (root: string): Promise<void> => {
       join(root, "cts/script.ts"),
       join(root, "cts/same.cts"),
       join(root, "cts/native.mts"),
+      join(root, "cts/native-default.cts"),
+      join(root, "cts/native-default.mts"),
       join(root, "cts/runtime-dep.js"),
     ],
     { cwd: root, timeout: 10_000 },
@@ -211,7 +213,9 @@ const expectCtsRuntime = async (root: string): Promise<void> => {
   expect(JSON.parse(resolution.stdout)).toEqual(["import", "require"]);
   for (const [file, expected] of [
     ["inline.cjs", ["import", "require", "nested-import", "import"]],
-    ["native.mjs", ["require", "import"]],
+    ["native.mjs", ["require", "import", "require", "import", "import"]],
+    ["native-default.cjs", "require"],
+    ["native-default.mjs", "import"],
   ] as const) {
     const result = await execute(process.execPath, [file], {
       cwd: emitted,
@@ -477,8 +481,9 @@ const expectCtsResolutionModes = (
   expect(direct).toContainEqual(
     expect.objectContaining({
       properties: expect.objectContaining({
-        module_link_kind: "re-export",
-        exported_name: "Types",
+        module_link_kind: "type-import",
+        exported_name: null,
+        exported_type_name: "Types",
         imported_name: "*",
         imported_path: ["*"],
         resolution_mode: "import",
