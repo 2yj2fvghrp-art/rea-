@@ -81,6 +81,7 @@ import ghidra.program.model.listing.Function;
 import ghidra.program.model.listing.FunctionIterator;
 import ghidra.program.model.listing.Instruction;
 import ghidra.program.model.listing.InstructionIterator;
+import ghidra.program.model.listing.Listing;
 import ghidra.program.model.listing.Variable;
 import ghidra.program.model.mem.MemoryBlock;
 import ghidra.program.model.mem.MemoryBlockSourceInfo;
@@ -405,7 +406,7 @@ public final class ReaGhidraBridge extends HeadlessScript {
             case "xrefs" -> xrefs(request.params);
             case "analyze_function" -> {
                 FunctionAnalysisObservation observation = analyzeFunctionObservation(request.params);
-                yield functionObservation(observation.dossier(), observation.limitations());
+                yield callRelationshipObservation(observation.dossier(), observation.limitations());
             }
             case "set_address_name", "set_addresses_names" -> {
                 if (!descriptor.transport.equals("unix-socket"))
@@ -1016,7 +1017,7 @@ public final class ReaGhidraBridge extends HeadlessScript {
         for (Function item : ordered) {
             result.add(canonicalAddress(item.getEntryPoint()));
         }
-        return functionObservation(
+        return callRelationshipObservation(
             result,
             noReturnCallLimitations(
                 currentProgram.getListing().getInstructions(function.getBody(), true)
@@ -1490,6 +1491,13 @@ public final class ReaGhidraBridge extends HeadlessScript {
         InstructionScan scan = scanInstructions(function, Integer.MAX_VALUE);
         DecompileResults decompilation = decompile(function);
         String pseudocode = decompiledText(decompilation);
+        JsonObject availability = new JsonObject();
+        availability.add("pseudocode", facetAvailability(
+            pseudocode != null,
+            function.isExternal() ? "Ghidra does not decompile external functions."
+                : function.getBody().isEmpty() ? "Ghidra has no function body to decompile."
+                : "Ghidra completed decompilation without returning pseudocode."
+        ));
         if (pseudocode == null) {
             pseudocode = "";
         }
@@ -1500,7 +1508,7 @@ public final class ReaGhidraBridge extends HeadlessScript {
         List<Reference> outgoingReferences = collectReferences(function, "outgoing");
         JsonArray incoming = referenceEdges(incomingReferences);
         JsonArray outgoing = referenceEdges(outgoingReferences);
-        JsonArray comments = comments(scan.instructions);
+        JsonArray comments = comments(function);
         JsonArray callers = procedureIdentities(function.getCallingFunctions(monitor));
         JsonArray callees = procedureIdentities(function.getCalledFunctions(monitor));
         JsonArray referencedStrings = referencedStrings(outgoingReferences);
@@ -1536,6 +1544,15 @@ public final class ReaGhidraBridge extends HeadlessScript {
             nativeApiBoundary(function, decompilation)
         );
         result.add("native_value_flow", nativeValueFlow(decompilation));
+        // Successful full queries distinguish collected empty sets from missing facts.
+        // Availability does not claim that Ghidra resolved every runtime relationship.
+        for (String facet : List.of("comments", "callers", "callees", "references", "strings_names", "cfg")) {
+            availability.add(facet, facetAvailability(true, null));
+        }
+        availability.add("assembly", facetAvailability(
+            !scan.truncated(), "The function instruction scan was truncated."
+        ));
+        result.add("facet_availability", availability);
         JsonArray limitations = new JsonArray();
         limitations.add(
             "Unresolved computed or indirect flows without target addresses are not represented as reference edges."
@@ -1572,6 +1589,7 @@ public final class ReaGhidraBridge extends HeadlessScript {
             limitations.add("Ghidra decompiler diagnostic: " + decompilation.getErrorMessage());
         }
         result.add("limitations", limitations);
+        monitor.checkCancelled();
         return new FunctionAnalysisObservation(result, boundaryLimitations);
     }
 
@@ -3276,6 +3294,28 @@ public final class ReaGhidraBridge extends HeadlessScript {
         return result;
     }
 
+    private static JsonObject facetAvailability(boolean available, String reason) {
+        JsonObject result = new JsonObject();
+        result.addProperty("available", available);
+        if (!available) result.addProperty("reason", reason);
+        return result;
+    }
+
+    private JsonObject callRelationshipObservation(JsonElement value, List<String> limitations)
+            throws Exception {
+        monitor.checkCancelled();
+        JsonObject result = functionObservation(value, limitations);
+        JsonObject coverage = new JsonObject();
+        coverage.addProperty("status", "complete");
+        JsonArray diagnostics = new JsonArray();
+        diagnostics.add(
+            "Only resolved Ghidra call references are returned; unresolved computed or indirect calls remain unknown, while function classifications distinguish thunks and externals."
+        );
+        coverage.add("diagnostics", diagnostics);
+        result.add("relationship_coverage", coverage);
+        return result;
+    }
+
     private List<String> noReturnCallLimitations(Iterable<Instruction> instructions)
             throws Exception {
         List<String> limitations = new ArrayList<>();
@@ -3545,23 +3585,29 @@ public final class ReaGhidraBridge extends HeadlessScript {
         return result;
     }
 
-    private static JsonArray comments(List<Instruction> instructions) {
+    private JsonArray comments(Function function) throws Exception {
+        Listing listing = currentProgram.getListing();
+        AddressSet scope = new AddressSet(function.getBody());
+        scope.add(function.getEntryPoint());
+        AddressIterator addresses = listing.getCommentAddressIterator(scope, true);
         TreeMap<String, JsonObject> observed = new TreeMap<>();
-        for (Instruction instruction : instructions) {
+        while (addresses.hasNext()) {
+            monitor.checkCancelled();
+            Address address = addresses.next();
             for (CommentType type : CommentType.values()) {
-                String text = instruction.getComment(type);
+                String text = listing.getComment(type, address);
                 if (text == null || text.isEmpty()) {
                     continue;
                 }
                 String kind = type == CommentType.EOL ? "inline" : "comment";
                 JsonObject item = new JsonObject();
-                item.addProperty("address", canonicalAddress(instruction.getAddress()));
+                item.addProperty("address", canonicalAddress(address));
                 item.addProperty("kind", kind);
                 item.addProperty("text", text);
-                String key = canonicalAddress(instruction.getAddress()) + "\u0000" +
+                String key = canonicalAddress(address) + "\u0000" +
                     kind + "\u0000" + type.name() + "\u0000" + text;
                 observed.put(key, item);
-                    }
+            }
         }
         JsonArray result = new JsonArray();
         observed.values().forEach(result::add);

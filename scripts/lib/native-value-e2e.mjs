@@ -215,6 +215,27 @@ async function verifyNativeValueAdapters(
     const functionEvidence = parseEvidence(analyzed.structuredContent);
     assert.equal(functionEvidence.operation, "analyze_function");
     assert.equal(functionEvidence.provider.id, "ghidra");
+    assert.deepEqual(
+      functionEvidence.normalized_result.facet_availability,
+      Object.fromEntries(
+        [
+          "pseudocode",
+          "assembly",
+          "comments",
+          "callers",
+          "callees",
+          "references",
+          "strings_names",
+          "cfg",
+        ].map((facet) => [facet, { available: true }]),
+      ),
+    );
+    assert.equal(functionEvidence.relationship_coverage?.status, "complete");
+    assert.ok(
+      functionEvidence.relationship_coverage.diagnostics.some((diagnostic) =>
+        diagnostic.includes("indirect calls remain unknown"),
+      ),
+    );
     const functionProfile = analysisProfileSchema.parse(
       functionEvidence.analysis_profile,
     );

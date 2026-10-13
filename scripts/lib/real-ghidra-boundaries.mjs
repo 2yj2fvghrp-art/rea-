@@ -131,6 +131,11 @@ export async function verifyGhidraBoundaries(
   const externalDossier = await call("analyze_function", {
     procedure: external.address,
   });
+  assert.equal(externalDossier.pseudocode, "");
+  assert.deepEqual(externalDossier.facet_availability.pseudocode, {
+    available: false,
+    reason: "Ghidra does not decompile external functions.",
+  });
   const externalEntry = await call("resolve_containing_procedure", {
     address: external.address,
   });

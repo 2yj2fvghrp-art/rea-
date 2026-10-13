@@ -863,7 +863,16 @@ describe("Ghidra relationship coverage", () => {
         Promise.resolve(
           ok(
             operation === "procedure_callees"
-              ? { value: ["0x2000"], limitations: [] }
+              ? {
+                  value: ["0x2000"],
+                  limitations: [],
+                  relationship_coverage: {
+                    status: "complete",
+                    diagnostics: [
+                      "Only resolved Ghidra call references are returned; unresolved computed or indirect calls remain unknown, while function classifications distinguish thunks and externals.",
+                    ],
+                  },
+                }
               : { value: [], limitations: [] },
           ),
         ),
