@@ -257,7 +257,6 @@ rea_many_forwarding:
     ret
 .size rea_many_forwarding, .-rea_many_forwarding
 
-.section .note.GNU-stack,"",@progbits
 
 
 .globl rea_forward_clear_and, rea_forward_clear_test
@@ -287,3 +286,5 @@ rea_long_entry_prefix:
     .endr
     ret
 .size rea_long_entry_prefix, .-rea_long_entry_prefix
+
+.section .note.GNU-stack,"",@progbits

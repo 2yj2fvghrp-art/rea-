@@ -89,6 +89,11 @@ describe("native API inspection", () => {
     });
     const inspection = projectNativeApiInspection(retained);
     expect(inspection.boundary).not.toHaveProperty("prototype_diagnostics");
+    expect(
+      inspection.substeps.flatMap(({ observations }) => observations),
+    ).not.toContain(
+      "instruction/prototype diagnostics and their unresolved assumptions",
+    );
     expect(inspection.residual_unknowns).toContain(
       "Instruction/prototype consistency was not recorded in this Evidence.",
     );

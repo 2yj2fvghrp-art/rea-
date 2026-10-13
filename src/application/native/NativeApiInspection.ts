@@ -50,7 +50,11 @@ export const projectNativeApiInspection = (
               "return and parameter boundary types",
               "confidence and inference evidence",
               "jump-table dispatch, data, and target addresses",
-              "instruction/prototype diagnostics and their unresolved assumptions",
+              ...("prototype_diagnostics" in boundary
+                ? [
+                    "instruction/prototype diagnostics and their unresolved assumptions",
+                  ]
+                : []),
             ]
           : [boundary.reason],
       },
