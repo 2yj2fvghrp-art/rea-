@@ -2116,6 +2116,26 @@ describe("url-reference directory and empty-segment semantics", () => {
   });
 });
 
+describe("suffix-only non-runtime URL references", () => {
+  it.each(["", "?cache=1", "#worker"])(
+    "rejects URL reference %s without a path or known base document",
+    (declaredPath) => {
+      expect(
+        resolve({
+          declaredPath,
+          sourcePath: "dist/app.mjs",
+          context: "url-reference",
+          files: fileMap([file("dist/app.mjs", "root")]),
+        }),
+      ).toMatchObject({
+        declared_path: declaredPath,
+        resolution_status: "rejected",
+        resolved_path: null,
+      });
+    },
+  );
+});
+
 describe("url-reference JavaScript artifact path resolution", () => {
   it.each([
     ["C|?cache=1#entry", "dist/C|"],

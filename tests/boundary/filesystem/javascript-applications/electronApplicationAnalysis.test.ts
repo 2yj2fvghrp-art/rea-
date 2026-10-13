@@ -202,51 +202,7 @@ utilityProcess.fork("./service.js");
 
   const result = await reconstructJavaScriptArtifact({ input_path: root });
   const graph = parseJavaScriptApplicationGraph(result.graph);
-  const renderers = graph.nodes
-    .filter(({ kind }) => kind === "electron-renderer")
-    .map(({ observations }) => observations[0]?.properties);
-  expect(renderers).toEqual(
-    expect.arrayContaining([
-      expect.objectContaining({
-        declared_path: "file:///renderer/index.html",
-        resolved_path: "renderer/index.html",
-        resolution_status: "resolved",
-      }),
-      expect.objectContaining({
-        declared_path: "./renderer/other.html?theme=dark#home",
-        resolved_path: "renderer/other.html",
-        resolution_status: "resolved",
-      }),
-      expect.objectContaining({
-        declared_path: "renderer/bare.html",
-        resolved_path: "renderer/bare.html",
-        resolution_status: "resolved",
-      }),
-      expect.objectContaining({
-        declared_path: "#home",
-        resolved_path: null,
-        resolution_status: "unavailable",
-      }),
-    ]),
-  );
-  for (const declaredPath of ["#home", ""]) {
-    const renderer = graph.nodes.find(
-      ({ kind, observations }) =>
-        kind === "electron-renderer" &&
-        observations[0]?.properties.declared_path === declaredPath,
-    );
-    expect(renderer?.observations[0]?.properties).toMatchObject({
-      resolved_path: null,
-      resolution_status: "unavailable",
-    });
-    expect(
-      graph.edges.some(
-        (edge) =>
-          edge.source_node_id === renderer?.node_id &&
-          edge.relation === "maps_to",
-      ),
-    ).toBe(false);
-  }
+  expectSuffixOnlyRenderersUnresolved(graph);
   expectExactRendererPaths(graph);
   const roles = graph.nodes.filter(({ kind }) => kind === "electron-preload");
   const roleByDeclaration = new Map(
@@ -335,6 +291,46 @@ utilityProcess.fork("./service.js");
 
 type Reconstruction = Awaited<ReturnType<typeof reconstructJavaScriptArtifact>>;
 type ApplicationGraph = ReturnType<typeof parseJavaScriptApplicationGraph>;
+
+const expectSuffixOnlyRenderersUnresolved = (graph: ApplicationGraph): void => {
+  const renderers = new Map(
+    graph.nodes
+      .filter(({ kind }) => kind === "electron-renderer")
+      .map((renderer) => [
+        renderer.observations[0]?.properties.declared_path,
+        renderer,
+      ]),
+  );
+  expect(renderers.get("file:///renderer/index.html")?.observations[0]?.properties)
+    .toMatchObject({
+      resolved_path: "renderer/index.html",
+      resolution_status: "resolved",
+    });
+  expect(renderers.get("./renderer/other.html?theme=dark#home")?.observations[0]?.properties)
+    .toMatchObject({
+      resolved_path: "renderer/other.html",
+      resolution_status: "resolved",
+    });
+  expect(renderers.get("renderer/bare.html")?.observations[0]?.properties)
+    .toMatchObject({
+      resolved_path: "renderer/bare.html",
+      resolution_status: "resolved",
+    });
+  for (const declaredPath of ["#home", ""]) {
+    const renderer = renderers.get(declaredPath);
+    expect(renderer?.observations[0]?.properties).toMatchObject({
+      resolved_path: null,
+      resolution_status: "unavailable",
+    });
+    expect(
+      graph.edges.some(
+        (edge) =>
+          edge.source_node_id === renderer?.node_id &&
+          edge.relation === "maps_to",
+      ),
+    ).toBe(false);
+  }
+};
 
 const expectExactRendererPaths = (graph: ApplicationGraph): void => {
   const renderers = new Map(

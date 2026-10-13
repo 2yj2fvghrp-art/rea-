@@ -385,7 +385,9 @@ const contextualCandidate = (
       ? unresolvedCandidate("unavailable", [
           "A suffix-only runtime URL requires the window's current document URL; the calling script does not establish that base.",
         ])
-      : input.sourcePath;
+      : unresolvedCandidate("rejected", [
+          "The URL reference contains no pathname, and its base document is not established by this analysis.",
+        ]);
   if (context === "module-specifier" && /^file:/iu.test(declared)) {
     const fileUrl = fileUrlPath(declared);
     if (fileUrl === null)
