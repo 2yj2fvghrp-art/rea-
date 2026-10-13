@@ -7,6 +7,10 @@ JSON measurements belong outside the checkout. This document keeps the measured
 findings, verification scope and revision references; the scripts and `corpus.json`
 keep the reproduction inputs. Generated `results/` is ignored.
 
+Follow-up: [latest-main capability audit](latest-main-audit.md) records the
+Flutter, SQLite, TShark and sigrok priorities and the first shipped Dart AOT
+baseline, preserving existing controls before introducing another selector.
+
 Follow-up: [native PE/DOS entry views and real model verification](native-entry-views.md)
 records the post-merge native continuation, including a small-function case where
 four selected replies cost more bytes than the complete dossier.
