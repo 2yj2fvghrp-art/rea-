@@ -328,14 +328,42 @@ discovery. Each candidate's capability sets describe that possible provider;
 they do not select it. The top-level `capabilities` describe the current route,
 while `analysis_provider_binding` identifies the concrete selected route. These
 fields are not interchangeable. Target-free discovery is sorted by provider ID,
-reports host availability and `unknown` target support, and does not create an
-analysis client. `open_binary.provider_id` accepts a concrete provider ID or
-`auto`; it uses the same parser and selection policy as CLI `--provider` and
-`REA_ANALYSIS_PROVIDER`. A successful deep open exposes one immutable provider,
-concrete version, selection source, and complete analysis profile through
-`analysis_provider_binding`. Ambiguity and unknown, unavailable, or unsupported
-choices return typed selection details. A selected provider is never replaced
+reports host availability, `eligibility: "unevaluated"`, and `unknown` target
+support, and does not create an analysis client. `open_binary.provider_id`
+accepts a concrete provider ID or `auto`; it uses the same parser and selection
+policy as CLI `--provider` and `REA_ANALYSIS_PROVIDER`. A successful deep open
+exposes one immutable provider, concrete version, selection source, and complete
+analysis profile through `analysis_provider_binding`.
+
+`binary_session.analysis_provider_selection_state` reports the deterministic
+selection outcome for the reported target. It is `bound` when a deep provider
+was selected, `unbound` when no configured provider is eligible, and
+`selection_required` when two or more are eligible; it is `null` before any
+target is resolved. `analysis_provider_candidates[].eligibility` is `eligible`
+only when host availability, target compatibility, and a resolved
+identity-matched analysis profile all hold for that target, `ineligible` when one
+of those was decided against the provider, and `unevaluated` when REA did not
+resolve that candidate's profile for this selection. `unevaluated` is an
+omission, not a rejection, and only the candidates a selection needs are probed.
+
+A `selection_required` target is admitted without a binding and without starting
+an analysis engine. REA holds no provider ranking and does not choose when
+several providers are eligible: the caller selects one by reopening the same
+target with a concrete `provider_id`, which is validated and bound through the
+existing serialized transition. A deep operation attempted before that choice
+returns a typed `ProviderSelectionError` with `selection_reason: "ambiguous"` and
+the candidate IDs. Unknown, unavailable, unsupported, or unverifiable choices
+return typed selection details, and a selected provider is never replaced
 automatically after a runtime failure.
+
+Every admitted target transition also retains one deterministic
+`rea.provider-selection` Evidence record: the objective per-candidate
+availability, target-support, eligibility, and rejection facts; the deterministic
+REA decision (state, rule, selection source, and selected provider); and an
+explicit `caller_rationale: null`, because REA does not record or reconstruct the
+caller's reasoning. The record carries no analysis profile, is attributed to the
+REA selection policy rather than to an engine, is never registered as a snapshot
+replay binding, and is not duplicated by an equivalent reopen.
 
 Every successful target transition allocates `binary_session.analysis_run.run_id`
 before any provider startup. `process_lineage` is `not_observed` until a dynamic

@@ -31,48 +31,54 @@ afterEach(async () => {
   directory = undefined;
 });
 
+/** Connected MCP session over two configured deep providers for one target. */
+const selectionHarness = async () => {
+  directory = await createTestTempDirectory("rea-provider-mcp-");
+  const target = join(directory, "fixture.hop");
+  await writeFile(target, "fixture");
+  const starts: string[] = [];
+  const session = composeBinarySession(
+    new AnalysisProviderRegistry([
+      candidate("beta", starts),
+      candidate("alpha", starts),
+    ]),
+  );
+  const server = createServer(
+    { kind: "session", session },
+    { logger: silentLogger },
+  );
+  const mcp = new Client({ name: "provider-selection", version: "1.0.0" });
+  const [clientTransport, serverTransport] =
+    InMemoryTransport.createLinkedPair();
+  resources.push(mcp, server);
+  await server.connect(serverTransport);
+  await mcp.connect(clientTransport);
+  return { mcp, target, starts };
+};
+
 describe("provider selection over MCP", () => {
-  it("keeps open_binary and binary_session binding semantics exact", async () => {
-    directory = await createTestTempDirectory("rea-provider-mcp-");
-    const target = join(directory, "fixture.hop");
-    await writeFile(target, "fixture");
-    const starts: string[] = [];
-    const session = composeBinarySession(
-      new AnalysisProviderRegistry([
-        candidate("beta", starts),
-        candidate("alpha", starts),
-      ]),
-    );
-    const server = createServer(
-      { kind: "session", session },
-      { logger: silentLogger },
-    );
-    const mcp = new Client({ name: "provider-selection", version: "1.0.0" });
-    const [clientTransport, serverTransport] =
-      InMemoryTransport.createLinkedPair();
-    resources.push(mcp, server);
-    await server.connect(serverTransport);
-    await mcp.connect(clientTransport);
+  it("reports target-free discovery and rejects a malformed selector", async () => {
+    const { mcp, target, starts } = await selectionHarness();
 
     const before = structured(
-      await mcp.callTool({
-        name: "binary_session",
-        arguments: {},
-      }),
+      await mcp.callTool({ name: "binary_session", arguments: {} }),
     );
     expect(before.result).toMatchObject({
       open: false,
+      analysis_provider_selection_state: null,
       analysis_run: null,
       analysis_provider_binding: null,
       analysis_provider_candidates: [
         {
           provider: { id: "alpha" },
           target_support: { status: "unknown" },
+          eligibility: "unevaluated",
           selected: false,
         },
         {
           provider: { id: "beta" },
           target_support: { status: "unknown" },
+          eligibility: "unevaluated",
           selected: false,
         },
       ],
@@ -85,15 +91,54 @@ describe("provider selection over MCP", () => {
     });
     expect(malformed.isError).toBe(true);
     expect(starts).toEqual([]);
+  });
 
-    const ambiguous = await mcp.callTool({
+  it("admits a multi-candidate target in the selection-required state", async () => {
+    const { mcp, target, starts } = await selectionHarness();
+
+    // Two eligible providers: automatic selection admits the target without
+    // binding or starting an engine, and reports that a decision is required.
+    const undecided = await mcp.callTool({
       name: "open_binary",
       arguments: { path: target },
     });
-    expect(ambiguous.isError).toBe(true);
-    expect(structured(ambiguous)).toMatchObject({
+    expect(undecided.isError).not.toBe(true);
+    expect(structured(undecided).result).toMatchObject({
+      path: target,
+      sha256: expect.stringMatching(/^[a-f0-9]{64}$/u),
+    });
+    expect(starts).toEqual([]);
+
+    const pending = structured(
+      await mcp.callTool({ name: "binary_session", arguments: {} }),
+    );
+    expect(pending.result).toMatchObject({
+      open: true,
+      analysis_provider_selection_state: "selection_required",
+      analysis_provider_binding: null,
+      analysis_provider_candidates: [
+        {
+          provider: { id: "alpha" },
+          eligibility: "eligible",
+          selected: false,
+        },
+        {
+          provider: { id: "beta" },
+          eligibility: "eligible",
+          selected: false,
+        },
+      ],
+    });
+    expect(starts).toEqual([]);
+
+    // A deep operation before the caller decides stays typed and actionable.
+    const premature = await mcp.callTool({
+      name: "address_name",
+      arguments: {},
+    });
+    expect(premature.isError).toBe(true);
+    expect(structured(premature)).toMatchObject({
       error: {
-        code: "capability_unavailable",
         details: {
           selection_reason: "ambiguous",
           requested_provider_id: "auto",
@@ -102,6 +147,10 @@ describe("provider selection over MCP", () => {
       },
     });
     expect(starts).toEqual([]);
+  });
+
+  it("binds an explicitly selected provider and keeps it stable", async () => {
+    const { mcp, target, starts } = await selectionHarness();
 
     const opened = await mcp.callTool({
       name: "open_binary",
@@ -122,13 +171,11 @@ describe("provider selection over MCP", () => {
     expect(starts).toEqual(["beta"]);
 
     const status = structured(
-      await mcp.callTool({
-        name: "binary_session",
-        arguments: {},
-      }),
+      await mcp.callTool({ name: "binary_session", arguments: {} }),
     );
     expect(status.result).toMatchObject({
       open: true,
+      analysis_provider_selection_state: "bound",
       analysis_run: {
         run_id: expect.stringMatching(
           /^[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/u,
@@ -140,8 +187,16 @@ describe("provider selection over MCP", () => {
         selection_source: "request",
       },
       analysis_provider_candidates: [
-        { provider: { id: "alpha" }, selected: false },
-        { provider: { id: "beta", version: "1" }, selected: true },
+        {
+          provider: { id: "alpha" },
+          eligibility: "unevaluated",
+          selected: false,
+        },
+        {
+          provider: { id: "beta", version: "1" },
+          eligibility: "eligible",
+          selected: true,
+        },
       ],
     });
 
@@ -154,12 +209,8 @@ describe("provider selection over MCP", () => {
       error: { details: { selection_reason: "unknown_provider" } },
     });
     expect(
-      structured(
-        await mcp.callTool({
-          name: "binary_session",
-          arguments: {},
-        }),
-      ).result,
+      structured(await mcp.callTool({ name: "binary_session", arguments: {} }))
+        .result,
     ).toMatchObject({
       analysis_provider_binding: { provider: { id: "beta" } },
     });

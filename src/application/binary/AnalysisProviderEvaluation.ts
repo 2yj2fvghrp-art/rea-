@@ -63,6 +63,7 @@ export const evaluateAnalysisProviderCandidate = async (
             candidate,
             status: {
               ...status,
+              eligibility: "ineligible" as const,
               targetSupport: {
                 status: "unsupported" as const,
                 code: "target_format_unsupported" as const,
@@ -100,7 +101,11 @@ export const evaluateAnalysisProviderCandidate = async (
           "Resolved analysis profile has mismatched provider identity",
         ),
       );
-    return ok({ candidate, status, profile });
+    return ok({
+      candidate,
+      status: { ...status, eligibility: "eligible" },
+      profile,
+    });
   } catch (cause: unknown) {
     void cause;
     return ok(
@@ -125,6 +130,7 @@ const rejectedProfile = (
   candidate,
   status: {
     ...status,
+    eligibility: "ineligible",
     availability: {
       status: "unavailable",
       code: "version_unresolved",
