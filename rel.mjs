@@ -1,35 +1,38 @@
 #!/usr/bin/env node
 import { spawnSync } from "node:child_process";
 import { resolve, dirname } from "node:path";
+import { existsSync } from "node:fs";
 import { fileURLToPath } from "node:url";
 import { classifyTarget, renderPlan, availableCategories } from "./rel/intake.mjs";
+import { runStaticAnalysis } from "./rel/analyze-static.mjs";
 
 const repo = dirname(fileURLToPath(import.meta.url));
-const help = `REL — understand software without learning every analysis tool first.
-
-Usage:
-  node rel.mjs demo                  Preview our controlled demo
-  node rel.mjs demo --run --out DIR  Run the real REA engine on our demo only
-  node rel.mjs inspect TARGET       Identify a local artifact or website URL
-  node rel.mjs inspect TARGET --question "How does search work?"
-  node rel.mjs inspect TARGET --json
-  node rel.mjs types                 Show the current analysis categories
-
-Defaults are PREVIEW-ONLY. This command never fetches websites, installs providers,
-changes agent configuration, or executes unknown target programs. --run is only
-accepted for the source-owned demonstration; output must be outside the fork.
-`;
+const help = [
+  "REL — a simple front door to the local REA analysis engine.",
+  "",
+  "node rel.mjs types                              Supported target families",
+  "node rel.mjs inspect TARGET --question TEXT     Classify without running tools",
+  "node rel.mjs demo                               Preview our own lab",
+  "node rel.mjs demo --run --out DIR                Run our verified lab",
+  "node rel.mjs analyze TARGET --authorized --out DIR [--question TEXT]",
+  "                                                Static JavaScript/Electron folder or ASAR",
+  "node rel.mjs codex                              Check Codex project setup",
+  "",
+  "All output goes outside the REL repository. Other target families use REA's",
+  "documented providers/MCP tools, not a fabricated universal analyzer.",
+].join("\n");
 
 function options(args) {
-  const values = { json: false, run: false, out: null, question: null, positional: [] };
-  for (let i=0;i<args.length;i++) {
+  const values = { json: false, run: false, authorized: false, out: null, question: null, positional: [] };
+  for (let i = 0; i < args.length; i++) {
     const arg = args[i];
     if (arg === "--json") values.json = true;
     else if (arg === "--run") values.run = true;
+    else if (arg === "--authorized") values.authorized = true;
     else if (["--out", "--question", "-q"].includes(arg)) {
-      if (!args[i+1] || args[i+1].startsWith("--")) throw new Error(`${arg} requires a value.`);
+      if (!args[i + 1] || args[i + 1].startsWith("--")) throw new Error(arg + " requires a value.");
       values[arg === "--out" ? "out" : "question"] = args[++i];
-    } else if (arg.startsWith("-")) throw new Error(`Unknown option: ${arg}`);
+    } else if (arg.startsWith("-")) throw new Error("Unknown option: " + arg);
     else values.positional.push(arg);
   }
   return values;
@@ -38,38 +41,47 @@ function options(args) {
 try {
   const args = process.argv.slice(2);
   if (args.length === 0 || args.includes("--help") || args.includes("-h")) {
-    console.log(help); process.exit(0);
-  }
-  const settings = options(args);
-  let [mode, target] = settings.positional;
-  if (mode === "types" && settings.positional.length === 1 && !settings.run && !settings.out) {
-    const list = availableCategories();
-    console.log(settings.json ? JSON.stringify(list, null, 2) : list.map((x) => `${x.label} — ${x.capability}`).join("\n"));
-  } else if (mode === "demo" && settings.positional.length === 1) {
-    const lab = resolve(repo, "experiments/rel-first-lab");
-    if (settings.run) {
-      if (!settings.out) throw new Error("Demo execution requires --out DIR outside the REL repository.");
-      if (settings.json) throw new Error("--json is available for preview only; the real run saves its own reports.");
-      console.log("Running the source-owned REL lab with the locally built REA CLI (not another project).");
-      const result = spawnSync(process.execPath, [resolve(repo, "experiments/rel-first-lab/run-real-analysis.mjs"), resolve(settings.out)], {cwd:repo,stdio:"inherit",timeout:240000});
-      if (result.error || result.status !== 0) throw new Error(`REL demo run failed (exit ${result.status}, signal ${result.signal ?? "none"}): ${result.error?.message ?? "see output above"}`);
-    } else {
-      if (settings.out) throw new Error("--out is only meaningful with demo --run.");
-      const plan = classifyTarget(lab);
-      console.log(settings.json ? JSON.stringify({ ...plan, question:settings.question, safe_demo:true },null,2) : renderPlan(plan, settings.question)+"\n\nTo actually test REA here: node rel.mjs demo --run --out /tmp/rel-evidence");
-    }
+    console.log(help);
   } else {
-    if (mode === "inspect") {
-      if (!target || settings.positional.length !== 2) throw new Error("Usage: node rel.mjs inspect TARGET");
+    const settings = options(args);
+    const [mode, target] = settings.positional;
+    if (mode === "types" && settings.positional.length === 1) {
+      if (settings.run || settings.authorized || settings.out) throw new Error("types is preview-only.");
+      const list = availableCategories();
+      console.log(settings.json ? JSON.stringify(list, null, 2) : list.map((x) => x.label + " — " + x.capability).join("\n"));
+    } else if (mode === "codex" && settings.positional.length === 1) {
+      if (settings.run || settings.authorized || settings.out || settings.json) throw new Error("codex has no execution flags.");
+      console.log("REL / Codex workspace configuration: " + (existsSync(resolve(repo, ".codex/config.toml")) ? "present" : "not found"));
+      console.log("REA compiled MCP runtime: " + (existsSync(resolve(repo, "dist/mcp/main.js")) ? "built" : "missing — run npm ci && npm run build:cached"));
+      console.log("Open this REL checkout from its root in a trusted Codex workspace; check /mcp and use $rel-investigator.");
+      console.log("Project settings are not your personal Codex config. Only this REL fork was changed.");
+    } else if (mode === "demo" && settings.positional.length === 1) {
+      const lab = resolve(repo, "experiments/rel-first-lab");
+      if (settings.run) {
+        if (!settings.out || settings.authorized || settings.json) throw new Error("Use demo --run --out DIR, without --authorized or --json.");
+        const child = spawnSync(process.execPath, [resolve(repo, "experiments/rel-first-lab/run-real-analysis.mjs"), resolve(settings.out)], {cwd:repo,stdio:"inherit",timeout:240000});
+        if (child.error || child.status !== 0) throw new Error("REL demo run failed; see output and logs.");
+      } else {
+        if (settings.out || settings.authorized) throw new Error("Demo preview does not accept --out or --authorized.");
+        const plan = classifyTarget(lab);
+        console.log(settings.json ? JSON.stringify({...plan, safe_demo:true},null,2) : renderPlan(plan, settings.question) + "\n\nTo run: node rel.mjs demo --run --out /tmp/rel-evidence");
+      }
+    } else if (mode === "analyze" && target && settings.positional.length === 2) {
+      if (settings.run) throw new Error("analyze uses --authorized (not --run).");
+      const result = runStaticAnalysis({target, out:settings.out, authorized:settings.authorized, question:settings.question});
+      console.log(settings.json ? JSON.stringify(result, null, 2) : "REL static analysis verified: " + result.nodes + " graph nodes, " + result.edges + " edges.\nEvidence: " + result.evidence_id + "\nReport: " + result.report);
     } else {
-      if (settings.positional.length !== 1) throw new Error("Choose one target, not several.");
-      target = mode;
+      if (mode === "inspect") {
+        if (!target || settings.positional.length !== 2) throw new Error("Usage: node rel.mjs inspect TARGET");
+      } else {
+        if (settings.positional.length !== 1) throw new Error("Choose a single supported command or target.");
+      }
+      if (settings.run || settings.authorized || settings.out) throw new Error("Only analyze --authorized or demo --run can launch the trusted static analyzer.");
+      const plan = classifyTarget(mode === "inspect" ? target : mode);
+      console.log(settings.json ? JSON.stringify({...plan, question:settings.question, execution:"preview-only"},null,2) : renderPlan(plan, settings.question));
     }
-    if (settings.run || settings.out) throw new Error("Analysis execution is only enabled for the REL-owned demo in this version. Inspection is preview-only.");
-    const plan = classifyTarget(target);
-    console.log(settings.json ? JSON.stringify({...plan,question:settings.question,execution:"preview-only"},null,2) : renderPlan(plan, settings.question));
   }
 } catch (error) {
-  console.error(`REL: ${error.message}`);
+  console.error("REL: " + error.message);
   process.exitCode = 2;
 }

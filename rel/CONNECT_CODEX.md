@@ -1,6 +1,6 @@
 # Connect REL to Codex
 
-REL has two distinct interfaces. The beginner CLI (`node rel.mjs`) currently previews arbitrary targets and can run **only the source-owned demo**. The existing REA MCP server (`node scripts/rea.mjs mcp`) exposes the engine's *full* toolset to a capable agent.
+REL has two distinct interfaces. The beginner CLI (`node rel.mjs`) previews arbitrary target families and can analyze an explicitly authorized JavaScript/Electron directory or ASAR statically. The existing REA MCP server (`node scripts/rea.mjs mcp`) exposes the engine's *full* toolset to a capable agent.
 
 **This document is a guide, not a claim that your machine or personal Codex session has been configured.** All steps below are optional and affect only the environment where you run them. Current development work remains limited to this REL repository.
 
@@ -36,30 +36,28 @@ Start with:
 
 > Explain the REL codebase to me in plain English. Stay within this REL fork. Start with `node rel.mjs types` and `node rel.mjs demo`. Identify the supported functions, what is preview-only and which deeper REA tools require installation or permission. Do not make changes.
 
-### Option B: explicitly register our local REA engine as a Codex MCP server
+### Option B: use our committed project-scoped Codex MCP entry (preferred)
 
-**This alters Codex's local MCP configuration; do not run unless you want the connection.** Use this only after Step 1 has built the repo. From the checkout:
+We have committed `../.codex/config.toml` and the `../.agents/skills/rel-investigator/SKILL.md` skill **inside this REL fork**. This is a repository change, not a mutation of your personal Codex installation. Codex reads project-scoped configuration only for trusted workspaces.
+
+From the checkout root, after installing dependencies and building:
 
 ```sh
-codex mcp add rel -- node "$PWD/scripts/rea.mjs" mcp
+node rel.mjs codex
 codex mcp list
 ```
 
-Alternatively, edit your Codex config yourself. Replace both placeholders with the **absolute path** to the checkout on the machine that actually runs Codex:
+Open or restart Codex **from the REL repo root**. Check `/mcp` and look for `rel_rea`. Try `$rel-investigator` to load the project skill. The Codex CLI/IDE needs to have the checkout available locally; a remote/cloud Codex instance needs its own copy and build.
 
-```toml
-[mcp_servers.rel]
-command = "node"
-args = ["/ABSOLUTE/PATH/Reverse-Engineering-Life-REL-/scripts/rea.mjs", "mcp"]
-cwd = "/ABSOLUTE/PATH/Reverse-Engineering-Life-REL-"
-startup_timeout_sec = 30
+Our project's MCP server runs `node scripts/rea.mjs mcp` with `cwd = "."`. It exposes the **full** underlying REA tool catalog, including potentially side-effecting capabilities when available. Keep Codex approvals active and restrict work to your stated authorized target. `node rel.mjs analyze TARGET --authorized --out NEW_DIR` provides a separately gated static-only JavaScript path.
+
+If you choose to register a global server for other workspaces instead, the optional command remains:
+
+```sh
+codex mcp add rel -- node "$PWD/scripts/rea.mjs" mcp
 ```
 
-Use either `codex mcp add` **or** manual configuration, not both. Codex CLI and its IDE extension share the MCP configuration for the relevant environment. Restart the Codex session/extension; use `codex mcp list` and the Codex terminal UI `/mcp` command to check that the server appears.
-
-MCP means **Model Context Protocol**. Codex starts the node server and exchanges structured requests/results. The `mcp` command by itself is **not a normal chat screen**—it uses stdio transport. Your chat interface remains Codex.
-
-**Important:** this MCP connection exposes the underlying REA tools, including operations that may execute or attach to software when appropriately configured. It is not limited by the preview-only restriction in `rel.mjs`. Keep Codex's normal approvals/sandboxing enabled, and specify target authorization and allowable operations in your prompt. Adding the MCP server does **not** itself prove every provider (e.g., Hopper/Ghidra/browser) is ready.
+But **do not do that for this fork by default**; project configuration already handles our trusted REL workspace. A global entry can create duplicate tools or expose powerful tools in unintended workspaces. No such global registration was performed here.
 
 ## Step 3 — ask the AI a scoped question
 
@@ -93,4 +91,4 @@ Sources: [OpenAI MCP setup guide](https://learn.chatgpt.com/docs/extend/mcp?surf
 
 ## Where we're going
 
-A future REL action such as **Understand** should ask for a target and question, check tool availability and permission, execute a supported analysis, then return a bounded plain-English finding and retained Evidence. **That one-prompt workflow isn't implemented by `rel.mjs` yet.** Codex + REA MCP is our first practical AI-driven workflow while we build the simplified orchestration.
+A future REL action such as **Understand** should ask for a target and question, check tool availability and permission, execute a supported analysis, then return a bounded plain-English finding and retained Evidence. **That one-prompt workflow is not automatically implemented by `rel.mjs` yet.** Codex + REA MCP is our first practical AI-driven workflow while we build the simplified orchestration.

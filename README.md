@@ -30,10 +30,10 @@ REL is **not an AI model and not a replacement for the underlying reverse-engine
 
 ### What actually works today?
 
-- **Works:** `node rel.mjs types`, `node rel.mjs inspect TARGET`, `node rel.mjs demo` — safe target identification and preview.
+- **Works:** `node rel.mjs types`, `node rel.mjs inspect TARGET`, `node rel.mjs demo` — safe target identification and preview. `node rel.mjs codex` checks the local Codex integration prerequisites.
 - **Verified:** `node rel.mjs demo --run --out DIR` builds on our source-owned example to invoke the *real*, locally built REA JavaScript analyzer, save full Evidence, and generate a smaller readable report after the build.
 - **Existing upstream capability:** Advanced REA CLI and MCP workflows for JavaScript/Electron, native binaries, managed code, app packages, websites, captured traffic and more. Many require additional dependencies or authority.
-- **Not yet built into REL Simple Mode:** Arbitrary-target `--run`, an interactive REL dashboard, a one-command natural-language agent, automatic reconstruction, or a guaranteed “reverse engineer anything” result.
+- **New experimental path:** `node rel.mjs analyze TARGET --authorized --out DIR` runs read-only static analysis on an authorized JavaScript/Electron directory or ASAR. **Not yet built:** automatic execution across every format, an interactive REL dashboard, or guaranteed reconstruction.
 
 A previous real-engine check on our own lab produced **43 application graph nodes and 65 relationships**. See [the recorded proof](experiments/rel-first-lab/VERIFIED_RESULTS.md). That is a successful *small-sample* test, not a universal capability claim.
 
@@ -71,7 +71,16 @@ cat "$OUT/REL_EVIDENCE_REPORT.md"
 
 The runner saves the complete `evidence.json`, REA's `view-evidence.json`, a `summary.json` and a readable report **outside the repository**. It does not analyze any other project.
 
-**4. Use the full upstream REA CLI from the fork** when you need a supported advanced operation:
+**4. Investigate another authorized JavaScript directory or ASAR** (static only, never runs the supplied app; creates a new results directory outside the repo):
+
+```sh
+node rel.mjs inspect /absolute/path/to/authorized/app
+node rel.mjs analyze /absolute/path/to/authorized/app --authorized --out /tmp/rel-investigation-001 --question "How are its modules connected?"
+```
+
+The authorization flag is required. This is implemented in the fork, but the new generic analyzer acceptance check must pass on GitHub before we call the flow verified. Other file types still require choosing the appropriate REA provider.
+
+**5. Use the full upstream REA CLI from the fork** when you need a supported advanced operation:
 
 ```sh
 node scripts/rea.mjs --help
@@ -83,26 +92,24 @@ These commands run the **local fork**. In contrast, `npx rea-agents` downloads/r
 
 ## Use REL with Codex or another AI agent
 
-**Yes—Codex can use the underlying REA tools through MCP.** It can also read the code and this repository's `AGENTS.md` when the local checkout is open as its workspace. Those are different things:
+**Yes—Codex can use the underlying REA tools through MCP.** REL now includes [a repo-local Codex configuration](.codex/config.toml) and [the rel-investigator skill](.agents/skills/rel-investigator/SKILL.md), which Codex can load when you open a trusted REL checkout. It can also read the code and this repository's `AGENTS.md` when the local checkout is open as its workspace. Those are different things:
 
 - **Repository context** tells Codex what REL is, what commands exist and how we work. It is *not* new model training.
 - **MCP registration** gives Codex a tool connection to the locally built REA server, which exposes more than the simple `rel.mjs` preview.
 - **A prompt** tells Codex your investigation question and the allowed target. Without a working checkout/connection, it cannot inspect arbitrary files on your machine.
 
-### The basic connection (optional; you choose when to run it)
+### Codex in our fork (project-scoped)
 
-After `npm ci` and `npm run build:cached`, from the REL checkout:
+When you open **this checkout from its root** in Codex and trust the project, Codex can load our committed [`.codex/config.toml`](.codex/config.toml) and [REL investigator skill](.agents/skills/rel-investigator/SKILL.md). Build the local fork first with `npm ci && npm run build:cached`, and verify:
 
 ```sh
-codex mcp add rel -- node "$PWD/scripts/rea.mjs" mcp
+node rel.mjs codex
 codex mcp list
 ```
 
-Then restart your Codex session/extension, open the **REL repo workspace**, and check `/mcp` in the Codex terminal interface to see the connected server.
+Check `/mcp` inside the Codex terminal UI and invoke `$rel-investigator` by name if desired. **No global Codex settings are changed by this PR**, and this GitHub change doesn't prove your own Mac, IDE, or cloud workspace is connected. Codex only reads trusted project-scoped config when it has the actual checkout and runtime. The project config starts the **full REA MCP server**, so keep normal Codex approvals enabled; the simplified CLI's static-only restrictions do not cover all MCP tools.
 
-This **changes your local Codex MCP configuration**, so it is an *optional step you run yourself*. We have **not** registered REL on your machine or checked your personal Codex environment. MCP exposes REA's **full** tool catalog: before using runtime tools on real software, review target permissions, resource requirements and possible side effects.
-
-For a reversible, project-aware configuration, exact path guidance, test prompts and troubleshooting, read **[CONNECT_CODEX.md](rel/CONNECT_CODEX.md)**. The Codex MCP command format is documented by [OpenAI](https://learn.chatgpt.com/docs/extend/mcp?surface=cli).
+Use the **[Codex integration guide](rel/CONNECT_CODEX.md)** for the difference between project-scoped and optional global registration, missing toolchain troubleshooting, and supported hosts. `npx rea-agents` still invokes upstream's published package, not this fork.
 
 **Try asking Codex, while working in this fork:**
 
@@ -151,6 +158,9 @@ Four human actions: **Understand**, **Map**, **Compare**, **Reconstruct**. These
 | --- | --- |
 | [`rel.mjs`](rel.mjs) | Beginner terminal entry point |
 | [`rel/intake.mjs`](rel/intake.mjs) | Read-only target classification |
+| [`rel/analyze-static.mjs`](rel/analyze-static.mjs) | Authorized static JavaScript analysis and bounded report |
+| [`.codex/config.toml`](.codex/config.toml) | Project-scoped Codex MCP connection |
+| [`rel-investigator skill`](.agents/skills/rel-investigator/SKILL.md) | Codex-native investigation workflow |
 | [`rel/CONNECT_CODEX.md`](rel/CONNECT_CODEX.md) | Optional Codex/MCP setup |
 | [`experiments/rel-first-lab/`](experiments/rel-first-lab/) | Safe demo and saved verification |
 | [`REL_START_HERE.md`](REL_START_HERE.md) | Learning milestones |
@@ -160,6 +170,6 @@ Four human actions: **Understand**, **Map**, **Compare**, **Reconstruct**. These
 
 ## Project boundaries and attribution
 
-REL is a fork-specific learning and usability layer. **At this stage we are changing only this REL repository**, not integrating your other projects. Run investigations only on targets you own or are authorized to inspect. The `rel.mjs` shortcut is preview-only for arbitrary targets; directly connecting the underlying MCP is a separate, potentially more powerful tool connection.
+REL is a fork-specific learning and usability layer. **At this stage we are changing only this REL repository**, not integrating your other projects. Run investigations only on targets you own or are authorized to inspect. The `rel.mjs` shortcut only runs explicit, authorized, static JavaScript targets; directly connecting the underlying MCP is a separate, potentially more powerful tool connection.
 
 Based on **[morluto/rea](https://github.com/morluto/rea)**. Original README preserved in [`UPSTREAM_REA_README.md`](UPSTREAM_REA_README.md); original [MIT license](LICENSE), [third-party notices](THIRD_PARTY_NOTICES.md), and upstream technical docs remain available. This fork isn't affiliated with or published as the original REA npm package.

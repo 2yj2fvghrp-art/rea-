@@ -15,7 +15,7 @@ node rel.mjs inspect https://example.org --question "What does this page load?"
 node rel.mjs inspect /path/to/app --json
 ```
 
-Only the **source-owned REL demo** can currently execute analysis through this simplified entry point:
+After building, the source-owned REL demo can execute, and another **explicitly authorized static JavaScript/Electron directory or ASAR** can be analyzed without launching it:
 
 ```sh
 npm ci
@@ -25,7 +25,7 @@ node rel.mjs demo --run --out /tmp/rel-demo-evidence
 
 That command delegates to our already verified [Phase 2 REA runner](../experiments/rel-first-lab/REAL_ANALYZER.md). It runs the built **fork** on fictional local data, saves full analyzer Evidence, asks REA for its compact analysis view, and generates a readable report. Choose an output directory outside the repository.
 
-Other `inspect` targets—including website URLs—are **preview only**. `--run` intentionally rejects them rather than opening programs, running unknown code, contacting websites or making unsupported analysis claims. The type classifier reads directory names or the first 32 bytes of a local regular file only; filenames are clues, not verified program behavior.
+For an authorized extracted JavaScript application, use `node rel.mjs analyze /absolute/app/path --authorized --out /tmp/rel-investigation-001`. Other `inspect` targets—including website URLs—are **preview only**. `--run` intentionally rejects them rather than opening programs, running unknown code, contacting websites or making unsupported analysis claims. The type classifier reads directory names or the first 32 bytes of a local regular file only; filenames are clues, not verified program behavior.
 
 ## Capabilities, not overpromises
 
@@ -61,3 +61,7 @@ Advanced drill-down or reconstruction when verified
 Future friendly actions could include **Understand**, **Map**, **Compare versions**, and **Recreate feature**. Those are design directions, **not implemented modes** today. REA already implements many deeper analysis workflows; REL should reuse them rather than invent weaker duplicates.
 
 No other user projects, remote sites or accounts are in scope for our present development. No global REA setup, provider installs, deployment, uncontrolled execution, or modifications to any repository besides this REL fork.
+
+## Codex integration in this fork
+
+A trusted local Codex workspace can load [the REL-specific MCP configuration](../.codex/config.toml) and [the rel-investigator skill](../.agents/skills/rel-investigator/SKILL.md). The server exposes the full underlying REA tools—more than the simplified static-only CLI. Check `node rel.mjs codex` and `/mcp` in Codex. This is not model training or a modification to your global Codex configuration.
