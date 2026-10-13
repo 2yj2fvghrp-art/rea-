@@ -196,3 +196,24 @@ describe("legacy NIB hierarchy preservation", () => {
     });
   });
 });
+
+it("examines repeated legacy copies before merging disputed parents", () => {
+  const legacy = [
+    {
+      objectID: "1",
+      children: [
+        { objectID: "7", children: [{ objectID: "8", children: [] }] },
+      ],
+    },
+    { objectID: "1", children: [{ objectID: "7", children: [] }] },
+  ];
+  mergeNibHierarchies(legacy, [], () => true, 20_000, new Set(["7"]));
+  expect(
+    legacy
+      .filter((node) => node.objectID === "1")
+      .every((node) => node.children.length === 0),
+  ).toBe(true);
+  expect(legacy.find((node) => node.objectID === "7")?.children).toEqual([
+    { objectID: "8", children: [] },
+  ]);
+});
