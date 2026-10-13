@@ -31,6 +31,8 @@ const OPENCODE_ORIGINAL = `{
   },
 }\n`;
 
+const CLIENT_CONFIG_ORIGINAL = '{"existing":true}\n';
+
 const CODEX_ORIGINAL = [
   "# Keep Codex preferences and their spelling.",
   'model = "gpt-5"',
@@ -424,7 +426,8 @@ const assertClientConfig = async (cli, configPath) => {
   )
     throw new Error("packaged client readback failed");
   if (
-    !(await readFile(`${configPath}.rea.backup`, "utf8")).includes("existing")
+    (await readFile(`${configPath}.rea.backup`, "utf8")) !==
+    CLIENT_CONFIG_ORIGINAL
   )
     throw new Error("packaged client backup failed");
 };
@@ -470,7 +473,7 @@ const assertCodexSymlink = async ({
     !codex.startsWith(CODEX_ORIGINAL) ||
     (await readFile(`${codexConfig}.rea.backup`, "utf8")) !== CODEX_ORIGINAL ||
     (await readFile(`${cursorConfig}.rea.backup`, "utf8")) !==
-      '{"existing":true}\n'
+      CLIENT_CONFIG_ORIGINAL
   )
     throw new Error("packaged setup did not preserve config symlinks");
 };
@@ -679,7 +682,7 @@ const verifyUninstall = async ({
     (await readFile(`${opencodeConfig}.rea.backup`, "utf8")) !==
       OPENCODE_ORIGINAL ||
     (await readFile(`${cursorConfig}.rea.backup`, "utf8")) !==
-      '{"existing":true}\n' ||
+      CLIENT_CONFIG_ORIGINAL ||
     (await readFile(`${codexConfig}.rea.backup`, "utf8")) !== CODEX_ORIGINAL
   )
     throw new Error(
