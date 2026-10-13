@@ -1,12 +1,9 @@
 import { describe, expect, it } from "vitest";
-import {
-  solcArtifactSchema,
-  type CompilerSelection,
-} from "../domain/evm/solcArtifact.js";
+import { solcArtifactSchema, type CompilerSelection } from "./solcArtifact.js";
 import {
   SOLC_JSON_LIMITS,
   selectSolcArtifact,
-} from "./SolcArtifactSelection.js";
+} from "./solcArtifactSelection.js";
 
 const selection: CompilerSelection = {
   source_unit: "src/雪~.sol",
@@ -184,6 +181,60 @@ describe("exact recorded solc artifact selection", () => {
   });
 });
 
+it.each([
+  "lib.sol:L",
+  "/lib.sol:L",
+  "./lib.sol:L",
+  "@pkg/lib.sol:L",
+  "_".repeat(36),
+])(
+  "retains fixed-width legacy placeholders with opaque source prefix %s",
+  (name) => {
+    const placeholder = `__${name.padEnd(36, "_")}__`;
+    const result = successful(carrier(placeholder));
+    expect(result.bytes).toBeNull();
+    expect(result.artifact.status).toBe("unlinked");
+    expect(result.artifact.placeholders).toEqual([
+      { start: 0, length: 20, value: placeholder },
+    ]);
+    expect(solcArtifactSchema.parse(result.artifact)).toEqual(result.artifact);
+  },
+);
+
+it.each(["雪.sol", "é.sol", "😀.sol"])(
+  "keeps UTF-8 legacy widths separate from JSON text coordinates for %s",
+  (source) => {
+    const name = `${source}:L`;
+    const placeholder = `__${name}${"_".repeat(36 - Buffer.byteLength(name, "utf8"))}__`;
+    expect(Buffer.byteLength(placeholder, "utf8")).toBe(40);
+    const object = `60${placeholder}60${placeholder}00`;
+    const text = carrier(object, {
+      linkReferences: {
+        [source]: {
+          L: [
+            { start: 1, length: 20 },
+            { start: 22, length: 20 },
+          ],
+        },
+      },
+      immutableReferences: { "1": [{ start: 42, length: 1 }] },
+    });
+    const result = successful(text);
+    expect(result.byteLength).toBe(43);
+    expect(result.bytes).toBeNull();
+    expect(result.artifact.object).toBe(object);
+    expect(result.artifact.placeholders).toEqual([
+      { start: 1, length: 20, value: placeholder },
+      { start: 22, length: 20, value: placeholder },
+    ]);
+    expect(solcArtifactSchema.parse(result.artifact)).toEqual(result.artifact);
+    const range = result.artifact.object_range;
+    expect(range && JSON.parse(text.slice(range.start, range.end))).toBe(
+      object,
+    );
+  },
+);
+
 describe("malformed compiler carriers", () => {
   it.each([
     '{"contracts":{},"contracts":{}}',
@@ -195,6 +246,7 @@ describe("malformed compiler carriers", () => {
     carrier("6"),
     carrier("60 ff"),
     carrier("__broken__"),
+    carrier(`__$${"g".repeat(34)}$__`),
     carrier("6000", {
       immutableReferences: { "1": [{ start: 1, length: 2 }] },
     }),

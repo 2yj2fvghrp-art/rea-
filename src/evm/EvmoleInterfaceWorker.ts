@@ -3,11 +3,13 @@ import { readFile, writeFile } from "node:fs/promises";
 import { z } from "zod";
 import { evmCompilerSelection } from "../domain/evm/evmInterface.js";
 import type { SolcArtifact } from "../domain/evm/solcArtifact.js";
+import { jsonParts } from "../domain/jsonSerialization.js";
+import { err, ok, type Result } from "../domain/result.js";
 import {
   decodeEvmBytecodeCarrier,
   EvmCarrierFailure,
 } from "./EvmBytecodeCarrier.js";
-import { selectSolcArtifact } from "./SolcArtifactSelection.js";
+import { selectSolcArtifact } from "../domain/evm/solcArtifactSelection.js";
 import { evmWorkerRequestSchema } from "./EvmInterfaceWorkerContract.js";
 import { projectEvmoleInterface } from "./EvmoleInterfaceAdapter.js";
 import { inspectSolidityMetadata } from "./SolidityMetadata.js";
@@ -17,6 +19,26 @@ import {
 } from "./EvmoleRelease.js";
 
 class UnsupportedContainer extends Error {}
+
+/** Admit bounded encoded parts before allocating a complete worker reply. */
+const encodeReply = (
+  reply: unknown,
+): Result<string, { reason: "output-limit"; message: string }> => {
+  const parts: string[] = [];
+  let bytes = 0;
+  for (const part of jsonParts(reply)) {
+    bytes += Buffer.byteLength(part);
+    if (bytes > EVM_INTERFACE_LIMITS.outputBytes) {
+      parts.length = 0;
+      return err({
+        reason: "output-limit",
+        message: "Complete interface evidence exceeds the 16 MiB reply budget.",
+      });
+    }
+    parts.push(part);
+  }
+  return ok(parts.join(""));
+};
 
 const main = async (): Promise<void> => {
   const requestPath = process.argv[2];
@@ -28,39 +50,47 @@ const main = async (): Promise<void> => {
   let reply: unknown;
   let compilerFailureContext:
     | {
-        compiler_diagnostics: SolcArtifact["diagnostics"];
+        compiler_diagnostics?: SolcArtifact["diagnostics"];
         carrier_sha256: string;
       }
     | undefined;
   try {
     const carrier = await readFile(request.snapshot_path);
     const compilerSelection = evmCompilerSelection(request.encoding);
+    if (compilerSelection !== undefined)
+      compilerFailureContext = {
+        carrier_sha256: createHash("sha256").update(carrier).digest("hex"),
+      };
     const selected =
       compilerSelection === undefined
         ? null
         : selectSolcArtifact(carrier, compilerSelection);
     if (selected !== null && !selected.ok) {
+      if (
+        selected.error.compiler_diagnostics !== undefined &&
+        compilerFailureContext !== undefined
+      )
+        compilerFailureContext = {
+          ...compilerFailureContext,
+          compiler_diagnostics: selected.error.compiler_diagnostics,
+        };
       reply = {
         ok: false,
         reason: selected.error.reason,
         message: selected.error.message,
-        ...(selected.error.compiler_diagnostics === undefined
-          ? {}
-          : {
-              compiler_diagnostics: selected.error.compiler_diagnostics,
-              carrier_sha256: createHash("sha256")
-                .update(carrier)
-                .digest("hex"),
-            }),
+        ...compilerFailureContext,
       };
     } else {
       const compilerArtifact = selected?.ok
         ? selected.value.artifact
         : undefined;
-      if (compilerArtifact !== undefined)
+      if (
+        compilerArtifact !== undefined &&
+        compilerFailureContext !== undefined
+      )
         compilerFailureContext = {
+          ...compilerFailureContext,
           compiler_diagnostics: compilerArtifact.diagnostics,
-          carrier_sha256: createHash("sha256").update(carrier).digest("hex"),
         };
       let bytes: Uint8Array | null;
       if (selected?.ok) bytes = selected.value.bytes;
@@ -73,9 +103,7 @@ const main = async (): Promise<void> => {
           ? {}
           : {
               compiler_artifact: compilerArtifact,
-              carrier_sha256: createHash("sha256")
-                .update(carrier)
-                .digest("hex"),
+              carrier_sha256: compilerFailureContext?.carrier_sha256,
             };
       if (bytes === null) {
         reply = {
@@ -83,11 +111,7 @@ const main = async (): Promise<void> => {
           version: "0.9.3",
           bytecode: {
             sha256: null,
-            bytes:
-              compilerArtifact?.object === null ||
-              compilerArtifact === undefined
-                ? null
-                : compilerArtifact.object.length / 2,
+            bytes: selected?.ok ? selected.value.byteLength : null,
             hex: null,
             metadata: null,
           },
@@ -147,13 +171,28 @@ const main = async (): Promise<void> => {
       ...compilerFailureContext,
     };
   }
-  let encoded = JSON.stringify(reply);
-  if (Buffer.byteLength(encoded) > EVM_INTERFACE_LIMITS.outputBytes)
-    encoded = JSON.stringify({
+  const admitted = encodeReply(reply);
+  let encoded: string;
+  if (admitted.ok) encoded = admitted.value;
+  else {
+    const failure = encodeReply({
       ok: false,
-      reason: "output-limit",
-      message: "Complete interface evidence exceeds the 16 MiB reply budget.",
+      ...admitted.error,
+      ...compilerFailureContext,
     });
+    encoded = failure.ok
+      ? failure.value
+      : JSON.stringify({
+          ok: false,
+          ...admitted.error,
+          ...(compilerFailureContext === undefined
+            ? {}
+            : {
+                carrier_sha256: compilerFailureContext.carrier_sha256,
+                compiler_diagnostics_omitted: "reply-budget",
+              }),
+        });
+  }
   try {
     await writeFile(request.reply_path, encoded, { flag: "wx", mode: 0o600 });
   } catch (cause: unknown) {

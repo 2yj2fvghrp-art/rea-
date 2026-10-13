@@ -2,7 +2,7 @@ import { createHash } from "node:crypto";
 import { expect, it } from "vitest";
 import { evmInterfaceFixture } from "../../tests/fixtures/evm/interface.js";
 import type { EvmInterface } from "../domain/evm/evmInterface.js";
-import { selectSolcArtifact } from "./SolcArtifactSelection.js";
+import { selectSolcArtifact } from "../domain/evm/solcArtifactSelection.js";
 import {
   projectAnalysisView,
   type AnalysisViewParent,
@@ -56,7 +56,7 @@ const compilerParent = (object?: string): AnalysisViewParent => {
           : createHash("sha256")
               .update(Buffer.from(decodedHex, "hex"))
               .digest("hex"),
-      bytes: object === undefined ? null : object.length / 2,
+      bytes: selected.value.byteLength,
     },
     compiler_artifact: selected.value.artifact,
     inference_status:
@@ -77,7 +77,11 @@ const compilerParent = (object?: string): AnalysisViewParent => {
   };
 };
 
-it.each([undefined, "__$" + "a".repeat(34) + "$__"])(
+it.each([
+  undefined,
+  "__$" + "a".repeat(34) + "$__",
+  `__雪.sol:L${"_".repeat(27)}__`,
+])(
   "retains compiler diagnostics and unknown inference coverage for object %s",
   (object) => {
     const parent = compilerParent(object);

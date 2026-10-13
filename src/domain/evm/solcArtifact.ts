@@ -1,4 +1,5 @@
 import { z } from "zod";
+import { inspectSolcBytecodeObject } from "./solcBytecodeObject.js";
 
 /** Exact compiler identities; source-unit names are not filesystem paths. */
 export const compilerSelectionSchema = z.strictObject({
@@ -7,11 +8,6 @@ export const compilerSelectionSchema = z.strictObject({
   bytecode_kind: z.enum(["creation", "deployed"]),
 });
 export type CompilerSelection = z.infer<typeof compilerSelectionSchema>;
-
-/** Admitted fixed-width modern hash or legacy named-library link placeholder. */
-export const isSolcLinkPlaceholder = (value: string): boolean =>
-  /^__\$[0-9a-fA-F]{34}\$__$/.test(value) ||
-  /^__[a-zA-Z_$][a-zA-Z0-9_.$:/\\-]{35}__$/.test(value);
 
 const coordinate = z.number().int().nonnegative().max(Number.MAX_SAFE_INTEGER);
 /** JSON syntax coordinates in the strictly decoded original carrier. */
@@ -151,8 +147,11 @@ export const solcArtifactSchema = z
     const issue = (message: string) =>
       context.addIssue({ code: "custom", message });
     if (value.object !== null) {
-      if (value.object.length % 2 !== 0)
-        issue("Compiler object has incomplete byte units");
+      const examined = inspectSolcBytecodeObject(value.object);
+      if (!examined.ok) {
+        issue(examined.error);
+        return;
+      }
       for (const span of [
         ...(value.link_references ?? []),
         ...(value.immutable_references ?? []),
@@ -160,32 +159,22 @@ export const solcArtifactSchema = z
         if (
           !Number.isSafeInteger(span.start + span.length) ||
           span.length === 0 ||
-          span.start + span.length > value.object.length / 2
+          span.start + span.length > examined.value.byteLength
         )
           issue("Reference span exceeds compiler object");
       }
-      let end = 0;
-      for (const placeholder of value.placeholders) {
-        if (
-          placeholder.start < end ||
-          placeholder.length !== 20 ||
-          !isSolcLinkPlaceholder(placeholder.value) ||
-          value.object.slice(
-            placeholder.start * 2,
-            (placeholder.start + placeholder.length) * 2,
-          ) !== placeholder.value
-        )
-          issue("Placeholder span differs from compiler object");
-        if (
-          !/^(?:[0-9a-fA-F]{2})*$/.test(
-            value.object.slice(end * 2, placeholder.start * 2),
-          )
-        )
-          issue("Compiler object contains invalid bytes outside placeholders");
-        end = placeholder.start + placeholder.length;
-      }
-      if (!/^(?:[0-9a-fA-F]{2})*$/.test(value.object.slice(end * 2)))
-        issue("Compiler object contains invalid trailing bytes");
+      if (
+        examined.value.placeholders.length !== value.placeholders.length ||
+        examined.value.placeholders.some((placeholder, index) => {
+          const recorded = value.placeholders[index];
+          return (
+            recorded?.start !== placeholder.start ||
+            recorded.length !== placeholder.length ||
+            recorded.value !== placeholder.value
+          );
+        })
+      )
+        issue("Placeholder span differs from compiler object");
     }
   });
 export type SolcArtifact = z.infer<typeof solcArtifactSchema>;

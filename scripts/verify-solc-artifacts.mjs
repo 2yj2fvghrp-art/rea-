@@ -1,6 +1,6 @@
 #!/usr/bin/env node
 import assert from "node:assert/strict";
-import { execFile } from "node:child_process";
+import { execFile, spawn } from "node:child_process";
 import { createHash } from "node:crypto";
 import { readFile, writeFile } from "node:fs/promises";
 import { isAbsolute, join } from "node:path";
@@ -13,6 +13,14 @@ import { PrivateRuntimeRoot } from "../dist/process/PrivateRuntimeRoot.js";
 import { parseEvidence } from "../dist/domain/evidence.js";
 import { mcpTextValue } from "./lib/mcp-verifier-results.mjs";
 import { createVerifierRun, completeVerifierRun } from "./lib/verifier-run.mjs";
+import {
+  waitForEvmVerifierWorker,
+  assertEvmVerifierWorkerReleased,
+} from "./lib/evm-verifier-cancellation.mjs";
+import {
+  observeProcessStartIdentity,
+  signalProcessWithStartIdentity,
+} from "../dist/process/ProcessOwnershipObservation.js";
 import {
   createSolcFixtureOutputs,
   sourceUnit,
@@ -269,6 +277,35 @@ try {
       }
     }
   }
+  // Identical contract names and basenames remain distinct compiler identities.
+  for (const mode of ["cli", "mcp"]) {
+    const digests = [];
+    for (const unit of ["a/Same.sol", "b/Same.sol"]) {
+      const exact = {
+        source_unit: unit,
+        contract_name: "Same",
+        bytecode_kind: "deployed",
+      };
+      const report = (
+        await inspect(mode, linkedPath, "solc-json", { selection: exact })
+      ).normalized_result;
+      assert.equal(
+        report.bytecode.hex,
+        linked.contracts[unit].Same.evm.deployedBytecode.object,
+      );
+      assert.equal(report.compiler_artifact.selection.source_unit, unit);
+      digests.push(report.bytecode.sha256);
+    }
+    assert.notEqual(digests[0], digests[1]);
+    await inspect(mode, linkedPath, "solc-json", {
+      selection: {
+        source_unit: "Same.sol",
+        contract_name: "Same",
+        bytecode_kind: "deployed",
+      },
+      expectedError: true,
+    });
+  }
   for (const kind of ["creation", "deployed"]) {
     const selection = {
       source_unit: sourceUnit,
@@ -365,6 +402,236 @@ try {
       failedCompile.errors,
     );
   }
+  // Synthetic boundary fixtures exercise representation capacity and legacy names;
+  // they do not establish output from an old compiler.
+  const warning = { severity: "warning", message: "Retained capacity warning" };
+  const placeholder = `__$${"a".repeat(34)}$__`;
+  const expanded = {
+    contracts: {
+      [sourceUnit]: {
+        LinkedFixture: {
+          evm: {
+            deployedBytecode: {
+              object: placeholder,
+              linkReferences: {
+                ["x".repeat(900_000) + '\\"雪😀\ud800']: {
+                  L: Array.from({ length: 20 }, () => ({
+                    start: 0,
+                    length: 20,
+                  })),
+                },
+              },
+            },
+          },
+        },
+      },
+    },
+    errors: [warning],
+  };
+  const expandedPath = join(root.path, "expanded-reference-identities.json");
+  const expandedText = JSON.stringify(expanded);
+  assert.ok(Buffer.byteLength(expandedText) < 1024 * 1024);
+  await writeFile(expandedPath, expandedText);
+  for (const mode of ["cli", "mcp"]) {
+    const failure = await inspect(mode, expandedPath, "solc-json", {
+      selection,
+      expectedError: true,
+      expectedCategory: "execution_failure",
+    });
+    const diagnostics = (mode === "mcp" ? failure.error : failure).details
+      .diagnostics;
+    assert.equal(
+      diagnostics.carrier_sha256,
+      sha256(await readFile(expandedPath)),
+    );
+    assert.deepEqual(diagnostics.compiler_selection, selection);
+    assert.deepEqual(
+      diagnostics.compiler_diagnostics.map(({ raw_json }) =>
+        JSON.parse(raw_json),
+      ),
+      [warning],
+    );
+  }
+  // Cancel after real worker admission, then prove exit/root cleanup and recovery.
+  const cliChild = spawn(
+    process.execPath,
+    [
+      entrypoint,
+      "inspect-evm-interface",
+      expandedPath,
+      "solc-json",
+      "--source-unit",
+      selection.source_unit,
+      "--contract-name",
+      selection.contract_name,
+      "--bytecode-kind",
+      selection.bytecode_kind,
+      "--json",
+    ],
+    { env: environment, stdio: ["ignore", "pipe", "pipe"] },
+  );
+  let cliOutput = "",
+    cliDiagnostics = "",
+    cliSettled = false;
+  cliChild.stdout.on("data", (chunk) => (cliOutput += chunk.toString()));
+  cliChild.stderr.on("data", (chunk) => (cliDiagnostics += chunk.toString()));
+  const cliCompleted = new Promise((resolve, reject) => {
+    cliChild.once("error", reject);
+    cliChild.once("close", (code) => {
+      cliSettled = true;
+      resolve(code);
+    });
+  });
+  const cliIdentity = await observeProcessStartIdentity(cliChild.pid);
+  assert.equal(cliIdentity?.state, "readable");
+  const cliWorker = await waitForEvmVerifierWorker(
+    cliChild.pid,
+    () => cliSettled,
+  );
+  assert.equal(
+    await signalProcessWithStartIdentity(
+      cliChild.pid,
+      cliIdentity.identity,
+      "SIGINT",
+    ),
+    "signaled",
+  );
+  assert.equal(await cliCompleted, 130);
+  assert.equal(JSON.parse(cliOutput).code, "cancelled");
+  for (const line of cliDiagnostics.split("\n").filter(Boolean)) {
+    const log = JSON.parse(line);
+    assert.equal(log.application, "rea");
+    assert.equal(log.mode, "cli");
+    assert.equal(typeof log.level, "number");
+  }
+  await assertEvmVerifierWorkerReleased(cliWorker);
+  cases++;
+  const controller = new AbortController();
+  let mcpSettled = false;
+  const cancelled = client
+    .callTool(
+      {
+        name: "inspect_evm_interface",
+        arguments: {
+          path: expandedPath,
+          encoding: { kind: "solc-json", ...selection },
+        },
+      },
+      { signal: controller.signal },
+    )
+    .then(
+      (value) => {
+        mcpSettled = true;
+        return { value };
+      },
+      (error) => {
+        mcpSettled = true;
+        return { error };
+      },
+    );
+  const mcpWorker = await waitForEvmVerifierWorker(
+    transport.pid,
+    () => mcpSettled,
+  );
+  controller.abort(new Error("Owned compiler inspection cancellation"));
+  assert.match(
+    (await cancelled).error?.message ?? "",
+    /Owned compiler inspection cancellation/u,
+  );
+  await inspect("mcp", linkedPath, "solc-json", { selection });
+  await assertEvmVerifierWorkerReleased(mcpWorker);
+  cases++;
+  for (const name of [
+    "/lib.sol:L",
+    "./lib.sol:L",
+    "@pkg/lib.sol:L",
+    "_".repeat(36),
+  ]) {
+    const legacy = structuredClone(unlinked);
+    const legacyObject = `__${name.padEnd(36, "_")}__`;
+    legacy.contracts[sourceUnit].LinkedFixture.evm.deployedBytecode = {
+      object: legacyObject,
+    };
+    const legacyPath = join(root.path, `legacy-${cases}.json`);
+    await writeFile(legacyPath, JSON.stringify(legacy));
+    for (const mode of ["cli", "mcp"]) {
+      const report = (
+        await inspect(mode, legacyPath, "solc-json", { selection })
+      ).normalized_result;
+      assert.equal(report.inference_status, "unavailable");
+      assert.equal(report.compiler_artifact.object, legacyObject);
+      assert.equal(report.compiler_artifact.status, "unlinked");
+    }
+  }
+  for (const source of ["雪.sol", "é.sol", "😀.sol"]) {
+    const name = `${source}:L`;
+    const placeholder = `__${name}${"_".repeat(36 - Buffer.byteLength(name, "utf8"))}__`;
+    const object = `60${placeholder}60${placeholder}00`;
+    const path = join(root.path, `unicode-legacy-${cases}.json`);
+    await writeFile(
+      path,
+      JSON.stringify({
+        contracts: {
+          [source]: {
+            C: {
+              evm: {
+                deployedBytecode: {
+                  object,
+                  linkReferences: {
+                    [source]: {
+                      L: [
+                        { start: 1, length: 20 },
+                        { start: 22, length: 20 },
+                      ],
+                    },
+                  },
+                  immutableReferences: { 1: [{ start: 42, length: 1 }] },
+                },
+              },
+            },
+          },
+        },
+      }),
+    );
+    for (const mode of ["cli", "mcp"]) {
+      const report = (
+        await inspect(mode, path, "solc-json", {
+          selection: {
+            source_unit: source,
+            contract_name: "C",
+            bytecode_kind: "deployed",
+          },
+        })
+      ).normalized_result;
+      assert.equal(report.bytecode.bytes, 43);
+      assert.equal(report.bytecode.metadata, null);
+      assert.equal(report.inference_status, "unavailable");
+      assert.equal(report.compiler_artifact.object, object);
+      assert.deepEqual(report.compiler_artifact.placeholders, [
+        { start: 1, length: 20, value: placeholder },
+        { start: 22, length: 20, value: placeholder },
+      ]);
+      assert.equal(report.compiler_artifact.immutable_references[0].start, 42);
+    }
+  }
+  for (const [name, text] of [
+    ["depth", "[".repeat(129) + "0" + "]".repeat(129)],
+    ["nodes", `{"unused":[${"0,".repeat(65_536)}0]}`],
+  ]) {
+    const path = join(root.path, `capacity-${name}.json`);
+    await writeFile(path, text);
+    for (const mode of ["cli", "mcp"]) {
+      const failure = await inspect(mode, path, "solc-json", {
+        selection,
+        expectedError: true,
+        expectedCategory: "resource_constraint",
+      });
+      const diagnostics = (mode === "mcp" ? failure.error : failure).details
+        .diagnostics;
+      assert.equal(diagnostics.carrier_sha256, sha256(await readFile(path)));
+      assert.deepEqual(diagnostics.compiler_selection, selection);
+    }
+  }
   const invalidReferences = structuredClone(linked);
   invalidReferences.contracts[
     sourceUnit
@@ -426,6 +693,31 @@ try {
     linked.contracts[sourceUnit].LinkedFixture.metadata.length,
   );
   const bundlePath = join(root.path, "retained.json");
+  const unavailable = await inspect("mcp", unlinkedPath, "solc-json", {
+    selection,
+    detail: "summary",
+  });
+  const unavailableView = unavailable.normalized_result;
+  assert.equal(unavailableView.summary.inference_status, "unavailable");
+  assert.equal(unavailableView.coverage.status, "unknown");
+  assert.equal(unavailableView.coverage.total, null);
+  assert.equal(unavailableView.coverage.exhausted, null);
+  const unavailableHex = await client.callTool({
+    name: "inspect_analysis_view",
+    arguments: {
+      source: {
+        kind: "retained-evidence",
+        evidence_id: unavailableView.parent_evidence_id,
+      },
+      view: { kind: "evm", facet: "bytecode_hex" },
+    },
+  });
+  assert.equal(unavailableHex.isError, true);
+  assertTypedFailure(
+    JSON.parse(mcpTextValue(unavailableHex)).error,
+    "invalid_input",
+  );
+  cases++;
   const exported = await client.callTool({
     name: "export_evidence_bundle",
     arguments: { path: bundlePath },
@@ -443,6 +735,17 @@ try {
   assert.deepEqual(
     parent.normalized_result.compiler_artifact.selection,
     selection,
+  );
+  const unavailableParent = bundle.records.find(
+    ({ evidence_id }) => evidence_id === unavailableView.parent_evidence_id,
+  );
+  assert.equal(
+    unavailableParent.normalized_result.inference_status,
+    "unavailable",
+  );
+  assert.equal(
+    unavailableParent.normalized_result.compiler_artifact.object,
+    unlinked.contracts[sourceUnit].LinkedFixture.evm.deployedBytecode.object,
   );
   cases++;
 } catch (cause) {
@@ -497,6 +800,10 @@ function assertTypedFailure(value, expectedCategory) {
     value.code,
     expectedCategory === "unsupported_target"
       ? "unsupported_target"
-      : "invalid_request",
+      : expectedCategory === "execution_failure"
+        ? "unreadable_output"
+        : expectedCategory === "resource_constraint"
+          ? "resource_constraint"
+          : "invalid_request",
   );
 }

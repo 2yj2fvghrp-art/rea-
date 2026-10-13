@@ -3,6 +3,7 @@ import { createHash } from "node:crypto";
 
 import { localPathStringSchema } from "../localPath.js";
 import { solidityMetadataSchema } from "./solidityMetadata.js";
+import { inspectSolcBytecodeObject } from "./solcBytecodeObject.js";
 import {
   compilerSelectionSchema,
   solcArtifactSchema,
@@ -115,6 +116,10 @@ export const evmInterfaceSchema = z
           "Metadata range must match the terminal length suffix in selected bytecode.",
       });
     const compiler = value.compiler_artifact;
+    const compilerObject =
+      compiler?.object == null
+        ? null
+        : inspectSolcBytecodeObject(compiler.object);
     const concrete =
       value.bytecode.hex !== null &&
       value.bytecode.sha256 !== null &&
@@ -127,8 +132,11 @@ export const evmInterfaceSchema = z
         (compiler.status === "concrete") !== concrete ||
         (compiler.status === "concrete" ? "examined" : "unavailable") !==
           value.inference_status ||
-        (compiler.object === null ? null : compiler.object.length / 2) !==
-          value.bytecode.bytes ||
+        (compilerObject === null
+          ? null
+          : compilerObject.ok
+            ? compilerObject.value.byteLength
+            : undefined) !== value.bytecode.bytes ||
         (compiler.status === "concrete" &&
           (compiler.object?.toLowerCase() !== value.bytecode.hex ||
             createHash("sha256")

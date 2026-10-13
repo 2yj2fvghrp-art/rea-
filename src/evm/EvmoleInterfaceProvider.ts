@@ -287,6 +287,12 @@ export class EvmoleInterfaceProvider implements EvmInterfacePort {
                 ...(reply.compiler_diagnostics === undefined
                   ? {}
                   : { compiler_diagnostics: reply.compiler_diagnostics }),
+                ...(reply.compiler_diagnostics_omitted === undefined
+                  ? {}
+                  : {
+                      compiler_diagnostics_omitted:
+                        reply.compiler_diagnostics_omitted,
+                    }),
               };
         if (reply.reason === "unsupported")
           throw new AnalysisUnsupportedTargetError(
@@ -321,6 +327,7 @@ export class EvmoleInterfaceProvider implements EvmInterfacePort {
         if (reply.reason === "output-limit")
           throw new AnalysisOutputError(OPERATION, reply.message, {
             capturedOutput,
+            diagnostics,
           });
         throw new ProviderAdapterError(EVMOLE_PROVIDER_IDENTITY.id, OPERATION, {
           diagnostics: {

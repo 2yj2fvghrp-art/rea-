@@ -590,6 +590,10 @@ it.each([
     { code: true, evm: true, package: false, browser: false },
   ],
   [
+    "scripts/lib/evm-verifier-cancellation.mjs",
+    { code: true, evm: true, package: false, browser: false },
+  ],
+  [
     "scripts/fixtures/solidity/compiler-artifacts.sol",
     { code: true, evm: true, package: false, browser: false },
   ],

@@ -98,6 +98,10 @@ objects and unresolved library placeholders retain compiler evidence with
 `inference_status: "unavailable"`, null decoded hex/digest and an unknown byte
 count when absent. REA does not substitute library addresses. Compiler errors
 and warnings remain visible alongside selected bytecode or unavailable inference.
+Legacy fixed-width placeholders retain opaque source-qualified names, including
+absolute, relative and package source prefixes; REA does not resolve those names.
+Their width and bytecode offsets use UTF-8 bytes; JSON source coordinates remain
+UTF-16 code units, including when source names contain Unicode.
 
 ## Selected interface delivery and retained views
 
@@ -162,6 +166,11 @@ measured memory guarantee. Oversized nested metadata keeps its raw text with
 diagnostics survive selection and downstream inference failures under
 `details.diagnostics.compiler_diagnostics`, bound to the original carrier digest
 and exact selection.
+Reply encoding accounts for repeated reference names and escaped UTF-8 JSON in
+bounded parts before allocating a complete reply. Reply-budget failures retain
+the carrier identity, exact selection and compiler diagnostics when they fit.
+If diagnostics alone exceed the reply budget, the failure explicitly reports
+`compiler_diagnostics_omitted: "reply-budget"`.
 
 Inputs are limited to 4 MiB, complete replies to 16 MiB and combined diagnostic
 output to 1 MiB. An owned worker has a 256 MiB JavaScript heap, 3 GiB virtual

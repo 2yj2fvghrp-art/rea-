@@ -1,11 +1,11 @@
 import { parseTree, visit, type Node, type ParseError } from "jsonc-parser";
 import {
   compilerSelectionSchema,
-  isSolcLinkPlaceholder,
   type CompilerSelection,
   type SolcArtifact,
-} from "../domain/evm/solcArtifact.js";
-import { err, ok, type Result } from "../domain/result.js";
+} from "./solcArtifact.js";
+import { inspectSolcBytecodeObject } from "./solcBytecodeObject.js";
+import { err, ok, type Result } from "../result.js";
 
 export interface SolcArtifactSelectionError {
   readonly reason: "format" | "selection" | "resource";
@@ -220,7 +220,11 @@ export function selectSolcArtifact(
   bytes: Uint8Array,
   selection: CompilerSelection,
 ): Result<
-  { artifact: SolcArtifact; bytes: Uint8Array | null },
+  {
+    artifact: SolcArtifact;
+    bytes: Uint8Array | null;
+    byteLength: number | null;
+  },
   SolcArtifactSelectionError
 > {
   if (bytes.byteLength > SOLC_JSON_LIMITS.inputBytes)
@@ -284,7 +288,11 @@ function selectFromTree(
   selection: CompilerSelection,
   diagnostics: SolcArtifact["diagnostics"],
 ): Result<
-  { artifact: SolcArtifact; bytes: Uint8Array | null },
+  {
+    artifact: SolcArtifact;
+    bytes: Uint8Array | null;
+    byteLength: number | null;
+  },
   SolcArtifactSelectionError
 > {
   const contractResult = selectedContract(tree, selection);
@@ -302,21 +310,22 @@ function selectFromTree(
   if (objectNode !== undefined && objectNode.type !== "string")
     return failure("format", "Compiler bytecode object must be a string");
   const object = objectNode === undefined ? null : (objectNode.value as string);
-  const decoded = compilerObjectPlaceholders(object);
-  if (!decoded.ok) return decoded;
-  const placeholders = decoded.value;
+  const decoded = object === null ? null : inspectSolcBytecodeObject(object);
+  if (decoded !== null && !decoded.ok) return failure("format", decoded.error);
+  const byteLength = decoded?.ok ? decoded.value.byteLength : null;
+  const placeholders = decoded?.ok ? decoded.value.placeholders : [];
   const links = references(
     child(bytecode, "linkReferences"),
     "link",
     text,
-    object === null ? null : object.length / 2,
+    byteLength,
   );
   if (!links.ok) return links;
   const immutables = references(
     child(bytecode, "immutableReferences"),
     "immutable",
     text,
-    object === null ? null : object.length / 2,
+    byteLength,
   );
   if (!immutables.ok) return immutables;
   const artifact: SolcArtifact = {
@@ -341,35 +350,12 @@ function selectFromTree(
   };
   return ok({
     artifact,
+    byteLength,
     bytes:
       artifact.status === "concrete" && object !== null
         ? Uint8Array.from(Buffer.from(object, "hex"))
         : null,
   });
-}
-
-function compilerObjectPlaceholders(
-  object: string | null,
-): Result<SolcArtifact["placeholders"], SolcArtifactSelectionError> {
-  const placeholders: SolcArtifact["placeholders"] = [];
-  if (object !== null) {
-    for (let offset = 0; offset < object.length;) {
-      if (/^[0-9a-fA-F]{2}$/.test(object.slice(offset, offset + 2))) {
-        offset += 2;
-        continue;
-      }
-      const value = object.slice(offset, offset + 40);
-      // Current hash placeholders and legacy fixed-width library placeholders.
-      if (!isSolcLinkPlaceholder(value))
-        return failure(
-          "format",
-          "Compiler bytecode contains malformed hex or link placeholders",
-        );
-      placeholders.push({ start: offset / 2, length: 20, value });
-      offset += 40;
-    }
-  }
-  return ok(placeholders);
 }
 
 function compilerMetadata(

@@ -57,7 +57,12 @@ per tree), leaving room within the worker heap for source text, metadata and
 inference. This estimate is not a measured process-memory guarantee. Nested
 metadata that exceeds those limits remains recorded with `resource-limited`
 parse status; it is not reported as malformed JSON. Account for retained syntax
-and representation expansion. A new provider or target execution is outside this feature.
+and representation expansion. Encode replies in bounded UTF-8 parts, admitting
+each part before retaining it and joining only replies within the 16 MiB budget.
+Count repeated reference identities at every serialized occurrence. Capacity
+failures retain the carrier digest and compiler diagnostics within the same
+budget; explicitly report diagnostics omitted for reply capacity. A new provider
+or target execution is outside this feature.
 
 ## Acceptance
 

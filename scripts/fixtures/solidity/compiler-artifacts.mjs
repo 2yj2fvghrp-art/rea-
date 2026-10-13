@@ -23,6 +23,14 @@ export async function createSolcFixtureOutputs(modulePath) {
             "warning.sol": {
               content: "pragma solidity 0.8.30; contract WarningFixture {}",
             },
+            "a/Same.sol": {
+              content:
+                "pragma solidity 0.8.30; contract Same { function alpha() external pure returns(uint) { return 1; } }",
+            },
+            "b/Same.sol": {
+              content:
+                "pragma solidity 0.8.30; contract Same { function beta() external pure returns(uint) { return 2; } }",
+            },
           },
           settings: {
             evmVersion: "cancun",

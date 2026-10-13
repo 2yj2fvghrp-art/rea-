@@ -3,9 +3,10 @@
 1. Define exact selection and compiler Evidence schemas with explicit nullable
    decoded-byte identity and inference availability. Keep raw/hex inputs and
    historical Evidence compatible.
-2. Parse compiler JSON once at the adapter boundary using a strict, bounded
-   format-aware parser. Preserve original source ranges and raw JSON slices;
-   validate reference spans without rewriting compiler objects.
+2. Own Standard JSON selection in `src/domain/evm/` with one strict, bounded
+   format-aware parser shared by worker and Evidence consumers. Preserve original
+   source ranges and raw JSON slices; validate reference spans without rewriting
+   compiler objects.
 3. Run selection in the existing bounded worker. Concrete bytes use EVMole;
    unavailable bytes retain compiler observations without engine inference.
    Validate worker provenance against the selected original carrier.

@@ -279,6 +279,7 @@ export const SCOPES = {
     "scripts/verify-evm-interface.mjs",
     "scripts/verify-solidity-metadata.mjs",
     "scripts/verify-solc-artifacts.mjs",
+    "scripts/lib/evm-verifier-cancellation.mjs",
     "scripts/fixtures/solidity/**",
     "src/domain/analysisView/evmInterfaceView.ts",
     "scripts/fixtures/evm-interface.sol",
