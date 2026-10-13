@@ -258,6 +258,7 @@ Inizia dalle [guide pratiche](https://rea.tools/it/guides/) del sito web. Per op
 - [Installazione e configurazione](docs/installation.md): registrazione agente, configurazione provider, aggiornamenti e disinstallazione.
 - [Pronto all'uso e risoluzione dei problemi](docs/installation.md#check-readiness-for-your-task): diagnostica un agente o un motore di analisi.
 - [CLI ed Evidence](docs/cli.md): comandi, selezione provider, snapshot, import/export e stati di uscita.
+- [Windows desktop GUI (Korean)](docs/windows-gui.md): portable download, setup and limitations.
 - [Contratti MCP](docs/mcp-contracts.md) e [prompt agente](docs/mcp-prompts.md): risultati degli strumenti, sessioni e indagini guidate.
 - [Catalogo strumenti](docs/mcp-contracts.md#generated-catalog): inventario generato di strumenti, provider e comandi CLI.
 - [Roadmap](docs/roadmap.md): lavoro pianificato e tracker delle capacità.

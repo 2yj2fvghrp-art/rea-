@@ -239,6 +239,7 @@ npx rea-agents@latest setup
 - [نصب و راه‌اندازی](docs/installation.md): ثبت ایجنت، پیکربندی ارائه‌دهنده، به‌روزرسانی و حذف نصب.
 - [آمادگی و رفع اشکال](docs/installation.md#check-readiness-for-your-task): عیب‌یابی یک ایجنت یا موتور تحلیل.
 - [CLI و شواهد](docs/cli.md): دستورات، انتخاب ارائه‌دهنده، snapshotها، ورود/خروج داده و وضعیت‌های خروج.
+- [Windows desktop GUI (Korean)](docs/windows-gui.md): portable download, setup and limitations.
 - [قراردادهای MCP](docs/mcp-contracts.md) و [پرامپت‌های ایجنت](docs/mcp-prompts.md): نتایج ابزارها، نشست‌ها و بررسی‌های هدایت‌شده.
 - [فهرست ابزارها](docs/mcp-contracts.md#generated-catalog): فهرست تولیدشده هنگام build از ابزارها، ارائه‌دهندگان و دستورات CLI.
 - [نقشهٔ راه](docs/roadmap.md): برنامه‌های آینده و پیگیری قابلیت‌ها.

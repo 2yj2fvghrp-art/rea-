@@ -254,6 +254,7 @@ Web sitesindeki [uygulamalı rehberlerden](https://rea.tools/tr/guides/) başlay
 - [Yükleme ve kurulum](docs/installation.md): ajan kaydı, sağlayıcı yapılandırması, güncellemeler ve kaldırma.
 - [Hazırlık ve sorun giderme](docs/installation.md#check-readiness-for-your-task): belirli bir ajanı veya analiz motorunu tanılama.
 - [CLI ve Evidence](docs/cli.md): komutlar, sağlayıcı seçimi, anlık görüntüler, içe/dışa aktarma ve çıkış durumları.
+- [Windows desktop GUI (Korean)](docs/windows-gui.md): portable download, setup and limitations.
 - [MCP sözleşmeleri](docs/mcp-contracts.md) ve [ajan istemleri](docs/mcp-prompts.md): araç sonuçları, oturumlar ve yönlendirmeli araştırmalar.
 - [Araç kataloğu](docs/mcp-contracts.md#generated-catalog): derleme sırasında oluşturulan araç, sağlayıcı ve CLI komutu envanteri.
 - [Yol haritası](docs/roadmap.md): planlanan çalışmalar ve yetenek takibi.

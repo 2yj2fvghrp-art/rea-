@@ -279,6 +279,7 @@ Untuk mengetahui opsi, prasyarat, dan kontrak hasil secara tepat:
 - [Instalasi dan penyiapan](docs/installation.md): pendaftaran agen, konfigurasi penyedia, pembaruan, dan penghapusan instalasi.
 - [Kesiapan dan pemecahan masalah](docs/installation.md#check-readiness-for-your-task): mendiagnosis satu agen atau mesin analisis.
 - [CLI dan Bukti](docs/cli.md): perintah, pemilihan penyedia, snapshot, impor/ekspor, dan status keluar.
+- [Windows desktop GUI (Korean)](docs/windows-gui.md): portable download, setup and limitations.
 - [Kontrak MCP](docs/mcp-contracts.md) dan [prompt agen](docs/mcp-prompts.md): hasil alat, sesi, dan investigasi terpandu.
 - [Katalog alat](docs/mcp-contracts.md#generated-catalog): inventaris alat, penyedia, dan perintah CLI yang dibuat secara otomatis.
 - [Peta jalan](docs/roadmap.md): pekerjaan yang direncanakan dan pelacak kemampuan.

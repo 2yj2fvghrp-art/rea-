@@ -254,6 +254,7 @@ npx rea-agents@latest setup
 - [Установка и настройка](docs/installation.md): регистрация агентов, настройка провайдеров, обновление и удаление.
 - [Готовность и устранение неполадок](docs/installation.md#check-readiness-for-your-task): диагностика конкретного агента или движка анализа.
 - [CLI и Evidence](docs/cli.md): команды, выбор провайдера, снимки, импорт/экспорт и коды завершения.
+- [Windows desktop GUI (Korean)](docs/windows-gui.md): portable download, setup and limitations.
 - [Контракты MCP](docs/mcp-contracts.md) и [промпты агентов](docs/mcp-prompts.md): результаты инструментов, сеансы и исследования с подсказками.
 - [Каталог инструментов](docs/mcp-contracts.md#generated-catalog): создаваемый при сборке перечень инструментов, провайдеров и команд CLI.
 - [План развития](docs/roadmap.md): запланированные работы и отслеживание возможностей.

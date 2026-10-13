@@ -7,6 +7,35 @@ text box or run an inspected application.
 
 ## Install and start
 
+### Download the portable application
+
+After a release includes the Windows GUI asset, download
+[`rea-windows-x64-<version>.zip`](https://github.com/morluto/rea/releases/latest)
+and extract the entire archive to a local folder. Double-click `rea-gui.exe`;
+the archive includes the Node.js runtime and REA package, so a separate Node.js
+or npm installation is not needed. Keep `rea-gui.exe`, `node.exe`, and
+`node_modules` together in the extracted folder.
+
+Verify the adjacent `.sha256` checksum before running the download:
+
+```powershell
+$archive = Get-Item .\rea-windows-x64-*.zip
+$expected = ((Get-Content -Raw "$($archive.FullName).sha256") -split '\s+')[0]
+if ((Get-FileHash $archive.FullName -Algorithm SHA256).Hash.ToLowerInvariant() -ne $expected) {
+  throw "REA GUI archive checksum mismatch."
+}
+```
+
+The executable is currently unsigned, so Windows SmartScreen may show a publisher
+warning. Windows may also mark the included PowerShell script as downloaded;
+after verifying that you trust the release, use the ZIP file's **Properties >
+Unblock** option before extracting it. The application still requires Windows
+PowerShell and Windows Forms, which are included with supported Windows desktop
+installations. If organization policy blocks it, ask the administrator for an
+approved launch method rather than bypassing policy.
+
+### Install from npm
+
 Install a supported Node.js release and REA from PowerShell:
 
 ```powershell
@@ -28,12 +57,11 @@ npm run build:cached
 node .\windows-gui\rea-gui.mjs
 ```
 
-The GUI requires Windows PowerShell, Windows Forms, Node.js, and the REA package
-runtime. It uses the CLI from the same package installation as the GUI. The
-launcher selects `RemoteSigned` for its child PowerShell process only; it does
-not persist a policy change or use `Bypass`. Organization Group Policy takes
-precedence. If it blocks the packaged script, ask the administrator to approve
-an allowed launch method.
+The npm-installed GUI uses the CLI from the same package installation. Both
+launch methods select `RemoteSigned` for the child PowerShell process only;
+they do not persist a policy change or use `Bypass`. Organization Group Policy
+takes precedence. If it blocks the packaged script, ask the administrator to
+approve an allowed launch method.
 
 ## Included operations
 
@@ -63,4 +91,6 @@ live processes, or install/configure software. SQLite row selection and the
 full command catalog remain available through the CLI. Large analysis results
 can consume substantial memory in the results window; use the CLI to save and
 inspect very large Evidence output. A running operation cannot be cancelled from
-the GUI, and the window stays open until it finishes.
+the GUI, and the window stays open until it finishes. The portable ZIP is
+Windows x64 only; native analysis remains subject to the selected provider's
+requirements and the Windows native artifact's NTFS limitations.

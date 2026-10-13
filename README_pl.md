@@ -254,6 +254,7 @@ Zacznij od [przewodników z przykładami](https://rea.tools/pl/guides/) na stron
 - [Instalacja i konfiguracja](docs/installation.md): rejestracja agentów, konfiguracja dostawców analizy, aktualizacje i odinstalowanie.
 - [Gotowość i rozwiązywanie problemów](docs/installation.md#check-readiness-for-your-task): diagnostyka jednego agenta lub silnika analizy.
 - [CLI i Evidence](docs/cli.md): polecenia, wybór dostawcy, migawki, import/eksport i kody zakończenia.
+- [Windows desktop GUI (Korean)](docs/windows-gui.md): portable download, setup and limitations.
 - [Kontrakty MCP](docs/mcp-contracts.md) i [prompty dla agentów](docs/mcp-prompts.md): wyniki narzędzi, sesje i prowadzone analizy.
 - [Katalog narzędzi](docs/mcp-contracts.md#generated-catalog): generowany podczas kompilacji wykaz narzędzi, dostawców i poleceń CLI.
 - [Plan rozwoju](docs/roadmap.md): planowane prace i śledzenie funkcjonalności.

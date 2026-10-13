@@ -256,6 +256,7 @@ npx rea-agents@latest setup
 - [التثبيت والإعداد](docs/installation.md): تسجيل الوكلاء، وتهيئة الموفّرين، والتحديثات، وإلغاء التثبيت.
 - [الجاهزية واستكشاف الأخطاء](docs/installation.md#check-readiness-for-your-task): تشخيص وكيل أو محرك تحليل محدد.
 - [CLI وEvidence](docs/cli.md): الأوامر، واختيار الموفّر، واللقطات، والاستيراد/التصدير، وحالات الخروج.
+- [Windows desktop GUI (Korean)](docs/windows-gui.md): portable download, setup and limitations.
 - [عقود MCP](docs/mcp-contracts.md) و[تعليمات الوكلاء](docs/mcp-prompts.md): نتائج الأدوات، والجلسات، والاستقصاءات الموجّهة.
 - [كتالوج الأدوات](docs/mcp-contracts.md#generated-catalog): قائمة الأدوات والموفّرين وأوامر CLI المولّدة أثناء البناء.
 - [خطة العمل](docs/roadmap.md): الأعمال المخطط لها ومتابعة القدرات.

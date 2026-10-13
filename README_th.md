@@ -254,6 +254,7 @@ npx rea-agents@latest setup
 - [การติดตั้งและตั้งค่า](docs/installation.md): การลงทะเบียนเอเจนต์ การตั้งค่าผู้ให้บริการ การอัปเดต และการถอนการติดตั้ง
 - [ความพร้อมใช้งานและการแก้ไขปัญหา](docs/installation.md#check-readiness-for-your-task): ตรวจวินิจฉัยเอเจนต์หรือเอนจินวิเคราะห์หนึ่งตัว
 - [CLI และ Evidence](docs/cli.md): คำสั่ง การเลือกผู้ให้บริการ สแนปช็อต การนำเข้า/ส่งออก และรหัสการสิ้นสุด
+- [Windows desktop GUI (Korean)](docs/windows-gui.md): portable download, setup and limitations.
 - [สัญญา MCP](docs/mcp-contracts.md) และ[พรอมป์ต์สำหรับเอเจนต์](docs/mcp-prompts.md): ผลลัพธ์เครื่องมือ เซสชัน และการตรวจสอบตามคำแนะนำ
 - [แค็ตตาล็อกเครื่องมือ](docs/mcp-contracts.md#generated-catalog): รายการเครื่องมือ ผู้ให้บริการ และคำสั่ง CLI ที่สร้างระหว่างการบิลด์
 - [แผนพัฒนา](docs/roadmap.md): งานที่วางแผนไว้และรายการติดตามความสามารถ
