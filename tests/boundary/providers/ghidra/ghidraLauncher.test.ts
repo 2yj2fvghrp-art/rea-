@@ -479,7 +479,9 @@ describe("Ghidra Windows launcher", () => {
       }),
     ).toThrow(/metacharacters/u);
   });
+});
 
+describe("Ghidra Windows launcher runtime", () => {
   it.skipIf(process.platform !== "win32")(
     "keeps authority in a private descriptor and isolates Ghidra state through the batch launcher",
     async () => {
