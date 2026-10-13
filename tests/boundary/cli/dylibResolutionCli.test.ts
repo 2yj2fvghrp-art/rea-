@@ -486,8 +486,10 @@ cliTest(
     ] as const) {
       const app = await fixtureApp();
       await writeFiles(app, {
-        "Contents/MacOS/App": fatImage(
-          [CPU.arm64e, CPU.arm64eX1].map((cpu, index) => {
+        "Contents/MacOS/App": fatImage([
+          // Target admission requires a host-compatible slice on x64 CI.
+          { cpu: CPU.x86_64, bytes: machoImage({ cpu: CPU.x86_64 }) },
+          ...[CPU.arm64e, CPU.arm64eX1].map((cpu, index) => {
             const setting = settings[index];
             return {
               cpu,
@@ -500,7 +502,7 @@ cliTest(
               }),
             };
           }),
-        ),
+        ]),
       });
       const result = await cli.run({
         arguments: [
@@ -508,6 +510,8 @@ cliTest(
           app,
           "--root",
           "Contents/MacOS/App",
+          "--architecture",
+          "arm64e",
           "--json",
         ],
         environment: ENVIRONMENT,
