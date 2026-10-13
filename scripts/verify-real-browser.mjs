@@ -319,8 +319,21 @@ try {
         capture: { at_end: ["dom", "accessibility", "url"] },
       }),
     );
-    const final = demoCaptures.at(-1).normalized_result.steps.at(-1);
-    const dom = final?.artifacts.dom;
+    const capture = demoCaptures.at(-1).normalized_result;
+    if (
+      capture.steps.length !== 3 ||
+      capture.steps.some(({ status }) => status !== "completed")
+    )
+      throw new Error("Demo scenario did not complete every declared step");
+    const final = capture.steps.at(-1);
+    if (
+      final === undefined ||
+      ["dom", "accessibility", "url"].some(
+        (artifact) => final.artifacts[artifact]?.state !== "captured",
+      )
+    )
+      throw new Error("Demo scenario did not capture every requested artifact");
+    const dom = final.artifacts.dom;
     const observedResult =
       dom?.state === "captured"
         ? dom.value.text.match(
