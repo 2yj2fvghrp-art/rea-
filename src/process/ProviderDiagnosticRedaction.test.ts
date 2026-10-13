@@ -21,3 +21,17 @@ it.each([true, false])(
     ).toBe("old=[REDACTED] current=[REDACTED]");
   },
 );
+
+it("redacts a complete token that overlaps the retained credential suffix", () => {
+  const previous = "a".repeat(63) + "c";
+  const current = "c" + "d".repeat(63);
+  const text = previous + current.slice(1, 63);
+  const bytes = Buffer.byteLength(text);
+  expect(
+    redactCapturedTransportCredentials(
+      { text, bytes, observedBytes: bytes + 1 },
+      [previous, current],
+      "[REDACTED]",
+    ),
+  ).toBe("[REDACTED][REDACTED]");
+});
