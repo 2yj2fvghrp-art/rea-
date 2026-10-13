@@ -55,7 +55,7 @@ test("Desktop installer fails closed on a corrupt download without changing prof
     assert.notEqual(run.status, 0);
     assert.match(run.stderr, /SHA-256 mismatch/);
     assert.equal(
-      existsSync(join(home, "plugin-packages", "dsh-rea-bundle-0.1.0.tgz")),
+      existsSync(join(home, "plugin-packages", "dsh-rea-bundle-0.2.0.tgz")),
       false,
     );
     assert.deepEqual(readdirSync(join(home, "plugin-packages")), []);

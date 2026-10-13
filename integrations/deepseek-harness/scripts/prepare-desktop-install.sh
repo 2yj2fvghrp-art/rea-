@@ -2,8 +2,8 @@
 # Prepare a checksum-verified release tarball instead of the Git-root REA CLI.
 set -euo pipefail
 
-VERSION=0.1.0
-DIGEST=03a525a9b266bb4b43ae7c92b79b7a9752b0414bf338edb025ee1ce8e3c6500e
+VERSION=0.2.0
+DIGEST=011e78aebde2b71577286869b65719af83de888e01313445e744999d78844630
 NAME="dsh-rea-bundle-$VERSION.tgz"
 URL="https://github.com/xxxxxwater/rea/releases/download/dsh-v$VERSION/$NAME"
 HOME_DIR="${DSH_HOME:-$HOME/.dsh}"
