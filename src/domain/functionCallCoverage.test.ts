@@ -14,6 +14,12 @@ const unknownCallees: RelationshipCoverage = {
   status: "unknown",
   reason: "Upstream callees are not observed in this profile.",
 };
+const cappedCallees: RelationshipCoverage = {
+  status: "partial",
+  limitations: [
+    "Upstream callees capped results at 500; additional callees remain unknown.",
+  ],
+};
 const complete: RelationshipCoverage = { status: "complete" };
 
 describe("isCallerOnlyUnknownCoverage", () => {
@@ -39,6 +45,15 @@ describe("isCallerOnlyUnknownCoverage", () => {
       unknownCallers,
       unknownCallees,
     );
+    expect(isCallerOnlyUnknownCoverage(combined)).toBe(false);
+  });
+
+  it("rejects unknown callers beside IDA-capped callees", () => {
+    const combined = combineFunctionRelationshipCoverage(
+      unknownCallers,
+      cappedCallees,
+    );
+    expect(combined.status).toBe("unknown");
     expect(isCallerOnlyUnknownCoverage(combined)).toBe(false);
   });
 
