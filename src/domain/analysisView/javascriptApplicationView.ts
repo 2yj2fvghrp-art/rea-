@@ -300,7 +300,7 @@ export const projectJavaScriptApplicationView = (
       ...shared,
     });
   }
-  if (view.collection !== "modules")
+  if (view.kind !== "page" || view.collection !== "modules")
     return err(
       jsIncompatible(
         "Section and symbol collections apply to inspect_binary_layout Evidence.",
