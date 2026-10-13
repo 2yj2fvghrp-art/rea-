@@ -1,11 +1,11 @@
-import { chmod, mkdtemp, stat, utimes, writeFile } from "node:fs/promises";
-import { tmpdir } from "node:os";
+import { chmod, stat, utimes, writeFile } from "node:fs/promises";
 import { join } from "node:path";
 import { readFileSync } from "node:fs";
 
 import { expect, it } from "vitest";
 
 import { sameRegularFileState } from "../../src/filesystem/RegularFile.js";
+import { createTestTempDirectory } from "../fixtures/temporaryDirectory.js";
 
 /** Mirrors the host probe inside sameRegularFileState. */
 const isPRootHost = (): boolean => {
@@ -28,7 +28,7 @@ const isPRootHost = (): boolean => {
 };
 
 it("accepts identical regular-file metadata", async () => {
-  const root = await mkdtemp(join(tmpdir(), "rea-regularfile-"));
+  const root = await createTestTempDirectory("rea-regularfile-");
   const path = join(root, "file.bin");
   await writeFile(path, "content");
 
@@ -39,7 +39,7 @@ it("accepts identical regular-file metadata", async () => {
 });
 
 it("rejects a changed regular file", async () => {
-  const root = await mkdtemp(join(tmpdir(), "rea-regularfile-"));
+  const root = await createTestTempDirectory("rea-regularfile-");
   const path = join(root, "file.bin");
   await writeFile(path, "content");
 
@@ -51,7 +51,7 @@ it("rejects a changed regular file", async () => {
 });
 
 it("rejects a file whose mtime moved", async () => {
-  const root = await mkdtemp(join(tmpdir(), "rea-regularfile-"));
+  const root = await createTestTempDirectory("rea-regularfile-");
   const path = join(root, "file.bin");
   await writeFile(path, "content");
 
@@ -71,7 +71,7 @@ it.runIf(isPRootHost())(
   async () => {
     // Under PRoot, chmod is reflected differently by stat() and fstat() on the
     // same file. sameRegularFileState must compare only the file type.
-    const root = await mkdtemp(join(tmpdir(), "rea-regularfile-"));
+    const root = await createTestTempDirectory("rea-regularfile-");
     const path = join(root, "file.bin");
     await writeFile(path, "content");
 
@@ -86,7 +86,7 @@ it.runIf(isPRootHost())(
 it("compares BigIntStats without throwing on the file-type mask", async () => {
   // BigIntStats.mode is a BigInt. The file-type comparison must not mix a
   // BigInt with the Number mask, which would throw a TypeError.
-  const root = await mkdtemp(join(tmpdir(), "rea-regularfile-"));
+  const root = await createTestTempDirectory("rea-regularfile-");
   const path = join(root, "file.bin");
   await writeFile(path, "content");
 
