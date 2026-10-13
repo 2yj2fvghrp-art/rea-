@@ -15,6 +15,10 @@ $startInfo.FileName = Join-Path $env:SystemRoot "System32\WindowsPowerShell\v1.0
 $startInfo.Arguments = '-NoLogo -NoProfile -Command "[Console]::WriteLine(''stdout-marker''); [Console]::Error.WriteLine(''stderr-marker''); exit 7"'
 $runner = New-Object Rea.WindowsGui.ReaGuiProcessRunner($startInfo)
 $runner.Start()
+if (-not $runner.IsOwnedByOwnerJob) {
+  $runner.Dispose()
+  throw "The fake CLI process was not assigned to the GUI owner's Job Object."
+}
 
 $output = New-Object 'System.Collections.Generic.List[string]'
 $deadline = [DateTime]::UtcNow.AddSeconds(15)

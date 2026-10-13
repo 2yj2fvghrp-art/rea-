@@ -92,6 +92,8 @@ live processes, or install/configure software. SQLite row selection and the
 full command catalog remain available through the CLI. Large analysis results
 can consume substantial memory in the results window; use the CLI to save and
 inspect very large Evidence output. A running operation cannot be cancelled from
-the GUI, and the window stays open until it finishes. The portable ZIP is
-Windows x64 only; native analysis remains subject to the selected provider's
-requirements and the Windows native artifact's NTFS limitations.
+the GUI, and the window stays open until it finishes. If the GUI process is
+force-terminated, Windows closes its owned Job Object and terminates the CLI and
+its child processes. The portable ZIP is Windows x64 only; native analysis
+remains subject to the selected provider's requirements and the Windows native
+artifact's NTFS limitations.

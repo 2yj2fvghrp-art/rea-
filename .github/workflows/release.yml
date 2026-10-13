@@ -509,6 +509,7 @@ jobs:
           }
 
           $version = (Get-Content -Raw .\package.json | ConvertFrom-Json).version
+          $tag = "rea-agents-$version"
           $archiveName = "rea-windows-x64-$version.zip"
           $archivePath = Join-Path $PWD ".cache\$archiveName"
           Compress-Archive -Path (Join-Path $bundle "*") -DestinationPath $archivePath -CompressionLevel Optimal
@@ -524,7 +525,7 @@ jobs:
           )
           "asset=$archivePath" >> $env:GITHUB_OUTPUT
           "checksum=$archivePath.sha256" >> $env:GITHUB_OUTPUT
-          "version=$version" >> $env:GITHUB_OUTPUT
+          "tag=$tag" >> $env:GITHUB_OUTPUT
 
       - name: Attach the portable GUI to the GitHub release
         env:
@@ -532,5 +533,5 @@ jobs:
           GH_REPO: ${{ github.repository }}
           ASSET: ${{ steps.bundle.outputs.asset }}
           CHECKSUM: ${{ steps.bundle.outputs.checksum }}
-          VERSION: ${{ steps.bundle.outputs.version }}
-        run: gh release upload "$env:VERSION" "$env:ASSET" "$env:CHECKSUM" --clobber
+          TAG: ${{ steps.bundle.outputs.tag }}
+        run: gh release upload "$env:TAG" "$env:ASSET" "$env:CHECKSUM" --clobber

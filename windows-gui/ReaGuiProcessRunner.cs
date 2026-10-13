@@ -21,9 +21,13 @@ namespace Rea.WindowsGui
 
     public sealed class ReaGuiProcessRunner : IDisposable
     {
+        private const uint JobObjectExtendedLimitInformation = 9;
+        private const uint JobObjectLimitKillOnJobClose = 0x2000;
         private readonly ConcurrentQueue<ReaGuiOutputLine> _output =
             new ConcurrentQueue<ReaGuiOutputLine>();
         private readonly Process _process;
+        private static readonly object OwnerJobLock = new object();
+        private static IntPtr _ownerJob;
 
         public ReaGuiProcessRunner(ProcessStartInfo startInfo)
         {
@@ -84,8 +88,27 @@ namespace Rea.WindowsGui
             get { return _process.ExitCode; }
         }
 
+        public bool IsOwnedByOwnerJob
+        {
+            get
+            {
+                EnsureOwnerJob();
+                bool isOwned;
+                if (!IsProcessInJob(_process.Handle, _ownerJob, out isOwned))
+                {
+                    throw new System.ComponentModel.Win32Exception(
+                        Marshal.GetLastWin32Error(),
+                        "REA CLI Job Object membership could not be verified."
+                    );
+                }
+
+                return isOwned;
+            }
+        }
+
         public void Start()
         {
+            EnsureOwnerJob();
             if (!_process.Start())
             {
                 throw new InvalidOperationException("REA CLI 프로세스를 시작하지 못했습니다.");
@@ -109,6 +132,120 @@ namespace Rea.WindowsGui
         {
             _process.Dispose();
         }
+
+        private static void EnsureOwnerJob()
+        {
+            if (_ownerJob != IntPtr.Zero)
+            {
+                return;
+            }
+
+            lock (OwnerJobLock)
+            {
+                if (_ownerJob != IntPtr.Zero)
+                {
+                    return;
+                }
+
+                IntPtr job = CreateJobObject(IntPtr.Zero, null);
+                if (job == IntPtr.Zero)
+                {
+                    throw new System.ComponentModel.Win32Exception(
+                        Marshal.GetLastWin32Error(),
+                        "REA CLI Job Object could not be created."
+                    );
+                }
+
+                var limits = new JobObjectExtendedLimitInformationData();
+                limits.BasicLimitInformation.LimitFlags = JobObjectLimitKillOnJobClose;
+                if (!SetInformationJobObject(
+                    job,
+                    JobObjectExtendedLimitInformation,
+                    ref limits,
+                    (uint)Marshal.SizeOf(typeof(JobObjectExtendedLimitInformationData))
+                ))
+                {
+                    int error = Marshal.GetLastWin32Error();
+                    CloseHandle(job);
+                    throw new System.ComponentModel.Win32Exception(
+                        error,
+                        "REA CLI kill-on-owner-close policy could not be applied."
+                    );
+                }
+
+                if (!AssignProcessToJobObject(job, GetCurrentProcess()))
+                {
+                    int error = Marshal.GetLastWin32Error();
+                    CloseHandle(job);
+                    throw new System.ComponentModel.Win32Exception(
+                        error,
+                        "The GUI process could not own its REA CLI process tree."
+                    );
+                }
+
+                // Keep this handle for the GUI process lifetime; closing it kills all active descendants.
+                _ownerJob = job;
+            }
+        }
+
+        [StructLayout(LayoutKind.Sequential)]
+        private struct JobObjectBasicLimitInformationData
+        {
+            public long PerProcessUserTimeLimit;
+            public long PerJobUserTimeLimit;
+            public uint LimitFlags;
+            public UIntPtr MinimumWorkingSetSize;
+            public UIntPtr MaximumWorkingSetSize;
+            public uint ActiveProcessLimit;
+            public UIntPtr Affinity;
+            public uint PriorityClass;
+            public uint SchedulingClass;
+        }
+
+        [StructLayout(LayoutKind.Sequential)]
+        private struct IoCounters
+        {
+            public ulong ReadOperationCount;
+            public ulong WriteOperationCount;
+            public ulong OtherOperationCount;
+            public ulong ReadTransferCount;
+            public ulong WriteTransferCount;
+            public ulong OtherTransferCount;
+        }
+
+        [StructLayout(LayoutKind.Sequential)]
+        private struct JobObjectExtendedLimitInformationData
+        {
+            public JobObjectBasicLimitInformationData BasicLimitInformation;
+            public IoCounters IoInfo;
+            public UIntPtr ProcessMemoryLimit;
+            public UIntPtr JobMemoryLimit;
+            public UIntPtr PeakProcessMemoryUsed;
+            public UIntPtr PeakJobMemoryUsed;
+        }
+
+        [DllImport("kernel32.dll", CharSet = CharSet.Unicode, SetLastError = true)]
+        private static extern IntPtr CreateJobObject(IntPtr jobAttributes, string name);
+
+        [DllImport("kernel32.dll", SetLastError = true)]
+        private static extern bool SetInformationJobObject(
+            IntPtr job,
+            uint informationClass,
+            ref JobObjectExtendedLimitInformationData information,
+            uint informationLength
+        );
+
+        [DllImport("kernel32.dll", SetLastError = true)]
+        private static extern bool AssignProcessToJobObject(IntPtr job, IntPtr process);
+
+        [DllImport("kernel32.dll")]
+        private static extern IntPtr GetCurrentProcess();
+
+        [DllImport("kernel32.dll", SetLastError = true)]
+        private static extern bool IsProcessInJob(IntPtr process, IntPtr job, out bool result);
+
+        [DllImport("kernel32.dll", SetLastError = true)]
+        private static extern bool CloseHandle(IntPtr handle);
 
         [DllImport("kernel32.dll", CharSet = CharSet.Unicode)]
         private static extern uint GetDriveType(string rootPathName);
