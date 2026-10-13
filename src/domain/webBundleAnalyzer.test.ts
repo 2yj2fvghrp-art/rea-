@@ -754,6 +754,11 @@ it("retains distinct WebMCP descriptions and names while deduplicating equivalen
     { name: null, description: "unnamed", schema_property_names: [] },
     { name: "", description: "unnamed", schema_property_names: [] },
   ]);
+  expect(result.observations.webmcp_declarations[2]?.location).toEqual({
+    script_key: `scr_${"1".repeat(64)}`,
+    line: 4,
+    column: 6,
+  });
   expect(
     result.observations.webmcp_declarations.every(
       ({ trust }) => trust === "page-declared-untrusted",
