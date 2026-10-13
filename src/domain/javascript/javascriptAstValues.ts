@@ -73,7 +73,9 @@ export const semanticStaticPropertyKey = (
   property = unwrapJavaScriptExpression(property).node;
   if (t.isStringLiteral(property) || t.isNumericLiteral(property))
     return String(property.value);
-  return !computed && t.isIdentifier(property) ? property.name : null;
+  if (!computed && t.isIdentifier(property)) return property.name;
+  const literal = readExactJavaScriptLiteral(property);
+  return literal.found ? String(literal.value) : null;
 };
 
 /** Read exact consumed object-pattern keys, leaving dynamic keys unknown. */
