@@ -36,7 +36,10 @@ export class ArtifactAnalysisResources {
   readonly #artifacts = new ArtifactResourceScope();
   readonly #pending = new Map<
     ArtifactAnalysisRuntime,
-    ProviderProcessSupervisor | undefined
+    {
+      readonly owner: ProviderProcessSupervisor | undefined;
+      readonly operation: string;
+    }
   >();
   #tail: Promise<void> = Promise.resolve();
   #busy = false;
@@ -102,21 +105,23 @@ export class ArtifactAnalysisResources {
   retain(
     root: ArtifactAnalysisRuntime,
     owner?: ProviderProcessSupervisor,
+    operation = this.operation,
   ): void {
-    this.#pending.set(root, owner);
+    this.#pending.set(root, { owner, operation });
   }
 
   get pendingPaths(): readonly string[] {
     return [...this.#pending.keys()].map((root) => root.path);
   }
 
-  async release(operation = this.operation): Promise<void> {
-    for (const [root, owner] of this.#pending) {
+  async release(): Promise<void> {
+    for (const [root, retained] of this.#pending) {
       try {
+        const { owner } = retained;
         if (owner !== undefined) {
           const stopped = await owner.stop();
           if (stopped.status === "incomplete") throw new Error(stopped.reason);
-          this.#pending.set(root, undefined);
+          this.#pending.set(root, { ...retained, owner: undefined });
         }
         await root.close();
         this.#pending.delete(root);
@@ -125,7 +130,7 @@ export class ArtifactAnalysisResources {
           this.providerId,
           [root.path],
           { reason: String(cause) },
-          { operation, cause },
+          { operation: retained.operation, cause },
         );
       }
     }
@@ -210,7 +215,7 @@ export class ArtifactAnalysisResources {
     operation = this.operation,
   ): Promise<Result<T, AnalysisError>> {
     try {
-      await this.release(operation);
+      await this.release();
       return result;
     } catch (cause: unknown) {
       const partialObservation = result.ok

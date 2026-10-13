@@ -138,7 +138,7 @@ export class TsharkCaptureProvider implements PacketCapturePort {
     let result: Result<AnalysisExecution, AnalysisError>;
     try {
       if (options?.signal?.aborted) throw new AnalysisCancelledError(operation);
-      await this.#resources.release(operation);
+      await this.#resources.release();
       if (this.platform !== "linux")
         throw new Error(
           "Packet inspection requires Linux with util-linux prlimit and REA_TSHARK_COMMAND so expanded captures are processed under an enforced address-space limit.",
@@ -175,7 +175,7 @@ export class TsharkCaptureProvider implements PacketCapturePort {
       ];
       phase = "workspace";
       root = await this.createRuntime();
-      this.#resources.retain(root, undefined);
+      this.#resources.retain(root, undefined, operation);
       const snapshotPath = join(root.path, "capture");
       const configurationPath = join(root.path, "configuration");
       await mkdir(configurationPath, { mode: 0o700 });
@@ -406,7 +406,7 @@ export class TsharkCaptureProvider implements PacketCapturePort {
         cause instanceof OwnedCommandFailure &&
         cause.cleanupOwner !== undefined
       )
-        this.#resources.retain(root, cause.cleanupOwner);
+        this.#resources.retain(root, cause.cleanupOwner, operation);
       result = err(
         this.#failure(
           cause,

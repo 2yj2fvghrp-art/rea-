@@ -613,7 +613,13 @@ it("retains completed discovery on late cancellation and cleanup failure", async
     });
     if (mode === "cleanup") {
       await f.service.inspectFields({});
+      await f.service.inspect({ path: f.path, fields: ["ip.addr"] });
       expect(f.calls()).toBe(2);
+      for (let attempt = 0; attempt < 2; attempt++)
+        await expect(f.service.close()).rejects.toMatchObject({
+          operation: "inspect_packet_fields",
+          cleanupIncomplete: true,
+        });
     }
     f.allowCleanup();
     await f.service.close();
