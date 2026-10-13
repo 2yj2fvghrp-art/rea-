@@ -67,7 +67,7 @@ export const linuxHopperInstallDisclosure = (
       family,
       `<verified-hopper.${family}>`,
       isRoot,
-    ).map(({ executable, args }) => `${executable} ${args.join(" ")}`),
+    ).map(({ executable, args }) => formatCommandForDisplay(executable, args)),
   };
 };
 
@@ -339,7 +339,7 @@ const installSystemPackage = async (
       return {
         status: "failed",
         failure: {
-          command: `${command.executable} ${command.args.join(" ")}`,
+          command: formatCommandForDisplay(command.executable, command.args),
           exitCode: output.exitCode,
           // The streams stay separate; their original interleaved order
           // is not recoverable after capture.
@@ -352,6 +352,17 @@ const installSystemPackage = async (
   }
   return { status: "installed" };
 };
+
+/** Preserve argument boundaries in a command shown to the user. */
+export const formatCommandForDisplay = (
+  executable: string,
+  args: readonly string[],
+): string =>
+  [executable, ...args]
+    .map((part) =>
+      /^[A-Za-z0-9_./:@%+=,-]+$/u.test(part) ? part : JSON.stringify(part),
+    )
+    .join(" ");
 
 /** Select the native package manager and authorization boundary without shell evaluation. */
 export const linuxPackageManagerCommands = (

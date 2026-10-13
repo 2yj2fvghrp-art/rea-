@@ -13,7 +13,8 @@ describe("execFileBoundedOutput", () => {
       { env: process.env, limit: 64 * 1024 },
     );
     expect(result.exitCode).toBe(0);
-    expect(Buffer.byteLength(result.stdout)).toBe(64 * 1024);
+    expect(Buffer.byteLength(result.stdout)).toBeLessThan(64 * 1024 + 50);
+    expect(result.stdout).toContain("[output omitted]");
     expect(result.stderr).toBe("failure detail");
     expect(result.outputTruncated).toBe(true);
   });
@@ -29,6 +30,21 @@ describe("execFileBoundedOutput", () => {
     );
     expect(result.exitCode).toBe(1);
     expect(result.stderr).toBe("package conflict");
+    expect(result.outputTruncated).toBe(true);
+  });
+
+  it("retains a final error after a long prefix in the same stream", async () => {
+    const result = await execFileBoundedOutput(
+      process.execPath,
+      [
+        "-e",
+        "process.stderr.write('warning '.repeat(10000)); process.stderr.write('error: final conflict'); process.exitCode = 1;",
+      ],
+      { env: process.env, limit: 64 * 1024 },
+    );
+    expect(result.exitCode).toBe(1);
+    expect(result.stderr).toContain("[output omitted]");
+    expect(result.stderr).toContain("error: final conflict");
     expect(result.outputTruncated).toBe(true);
   });
 });

@@ -7,7 +7,7 @@ export interface BoundedCommandOutput {
   readonly outputTruncated: boolean;
 }
 
-/** Drain both streams while retaining at most limit bytes from each. */
+/** Drain both streams while retaining bounded head and tail evidence. */
 export const execFileBoundedOutput = (
   executable: string,
   args: readonly string[],
@@ -21,24 +21,31 @@ export const execFileBoundedOutput = (
       env: options.env,
       stdio: ["ignore", "pipe", "pipe"],
     });
-    const stdout: Buffer[] = [];
-    const stderr: Buffer[] = [];
-    let stdoutBytes = 0;
-    let stderrBytes = 0;
+    const headLimit = Math.ceil(options.limit / 2);
+    const tailLimit = options.limit - headLimit;
+    const stdout = { head: Buffer.alloc(0), tail: Buffer.alloc(0), total: 0 };
+    const stderr = { head: Buffer.alloc(0), tail: Buffer.alloc(0), total: 0 };
     let outputTruncated = false;
     const capture =
-      (chunks: Buffer[], stream: "stdout" | "stderr") =>
+      (stream: typeof stdout) =>
       (chunk: Buffer): void => {
-        const retained = stream === "stdout" ? stdoutBytes : stderrBytes;
-        const available = Math.max(0, options.limit - retained);
-        const count = Math.min(available, chunk.length);
-        if (count > 0) chunks.push(chunk.subarray(0, count));
-        if (stream === "stdout") stdoutBytes += count;
-        else stderrBytes += count;
-        if (count < chunk.length) outputTruncated = true;
+        stream.total += chunk.length;
+        const headCount = Math.min(
+          chunk.length,
+          Math.max(0, headLimit - stream.head.length),
+        );
+        if (headCount > 0)
+          stream.head = Buffer.concat([
+            stream.head,
+            chunk.subarray(0, headCount),
+          ]);
+        const rest = chunk.subarray(headCount);
+        if (rest.length > 0 && tailLimit > 0)
+          stream.tail = Buffer.concat([stream.tail, rest]).subarray(-tailLimit);
+        if (stream.total > options.limit) outputTruncated = true;
       };
-    child.stdout.on("data", capture(stdout, "stdout"));
-    child.stderr.on("data", capture(stderr, "stderr"));
+    child.stdout.on("data", capture(stdout));
+    child.stderr.on("data", capture(stderr));
     let spawnError: NodeJS.ErrnoException | undefined;
     child.on("error", (error: NodeJS.ErrnoException) => {
       spawnError = error;
@@ -46,9 +53,21 @@ export const execFileBoundedOutput = (
     child.on("close", (code, signal) => {
       resolve({
         exitCode: spawnError?.code ?? code ?? signal,
-        stdout: Buffer.concat(stdout).toString("utf8"),
-        stderr: Buffer.concat(stderr).toString("utf8"),
+        stdout: retainedOutput(stdout, options.limit),
+        stderr: retainedOutput(stderr, options.limit),
         outputTruncated,
       });
     });
   });
+
+const retainedOutput = (
+  stream: {
+    readonly head: Buffer;
+    readonly tail: Buffer;
+    readonly total: number;
+  },
+  limit: number,
+): string =>
+  stream.total > limit
+    ? `${stream.head.toString("utf8")} … [output omitted] … ${stream.tail.toString("utf8")}`
+    : Buffer.concat([stream.head, stream.tail]).toString("utf8");

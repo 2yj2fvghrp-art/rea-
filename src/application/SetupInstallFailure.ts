@@ -56,21 +56,41 @@ const TERMINAL_ESCAPE =
 /** Control characters that would otherwise break a single-line remediation. */
 const CONTROL_CHARACTER = /[\u0000-\u0008\u000b\u000c\u000e-\u001f\u007f]/gu;
 
-/** Collapse one failing command's output into a bounded, single-line excerpt. */
-const packageFailureExcerpt = (failure: LinuxPackageInstallFailure): string => {
-  const text = `${failure.stderr}\n${failure.stdout}`
+/** Remove terminal formatting without changing the captured stream order. */
+const normalizedOutput = (output: string): string =>
+  output
     .replaceAll(TERMINAL_ESCAPE, "")
     .replaceAll(CONTROL_CHARACTER, "")
     .replaceAll(/\s+/gu, " ")
     .trim();
-  if (text === "") return "";
+
+/** Keep the start and the final diagnostic within a display budget. */
+const boundedExcerpt = (text: string, limit: number): string => {
+  if (text.length <= limit) return text;
+  const headLength = Math.floor(limit / 3);
+  const head = text
+    .slice(0, headLength)
+    .replace(/\s\S*$/u, "")
+    .trimEnd();
+  const tailLength = limit - head.length - 3;
+  const tail = text
+    .slice(-tailLength)
+    .replace(/^\S*\s/u, "")
+    .trimStart();
+  return `${head || text.slice(0, headLength)} … ${tail || text.slice(-tailLength)}`;
+};
+
+/** Collapse one failing command's output into a bounded, single-line excerpt. */
+const packageFailureExcerpt = (failure: LinuxPackageInstallFailure): string => {
+  const stderr = normalizedOutput(failure.stderr);
+  const stdout = normalizedOutput(failure.stdout);
+  if (stderr === "" && stdout === "") return "";
   const excerpt =
-    text.length <= PACKAGE_FAILURE_EXCERPT_LIMIT
-      ? text
-      : `${text
-          .slice(0, PACKAGE_FAILURE_EXCERPT_LIMIT)
-          .replace(/\s\S*$/u, "")
-          .trimEnd()}…`;
+    stderr.length >= PACKAGE_FAILURE_EXCERPT_LIMIT - 40 || stdout === ""
+      ? boundedExcerpt(stderr, PACKAGE_FAILURE_EXCERPT_LIMIT)
+      : stderr === ""
+        ? boundedExcerpt(stdout, PACKAGE_FAILURE_EXCERPT_LIMIT)
+        : `${stderr} ${boundedExcerpt(stdout, PACKAGE_FAILURE_EXCERPT_LIMIT - stderr.length - 1)}`;
   return failure.outputTruncated ? `${excerpt} (output truncated)` : excerpt;
 };
 

@@ -64,15 +64,27 @@ describe("setup package-manager failure reporting", () => {
     expect(remediation.length).toBeLessThan(800);
   });
 
-  it("drops a token the bound would cut and reports truncated output", () => {
+  it("keeps the final error visible after long warnings in the same stream", () => {
+    const remediation = remediationFor(
+      packageFailure({
+        stderr: `${"warning ".repeat(1000)}error: final conflict`,
+        outputTruncated: true,
+      }),
+    );
+    expect(remediation).toContain("error: final conflict");
+    expect(remediation).toContain("(output truncated)");
+    expect(remediation.length).toBeLessThan(800);
+  });
+
+  it("preserves the end of bounded output and reports truncation", () => {
     const remediation = remediationFor(
       packageFailure({
         stdout: `${"w ".repeat(199)}ZZZZZZZZ`,
         outputTruncated: true,
       }),
     );
-    expect(remediation).not.toContain("ZZZZZZZZ");
-    expect(remediation).toContain("w…");
+    expect(remediation).toContain("ZZZZZZZZ");
+    expect(remediation).toContain("…");
     expect(remediation).toContain("(output truncated)");
     expect(remediation.length).toBeLessThan(800);
   });

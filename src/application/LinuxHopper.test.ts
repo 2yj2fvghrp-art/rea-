@@ -2,6 +2,7 @@ import { createHash } from "node:crypto";
 import { describe, expect, it } from "vitest";
 
 import {
+  formatCommandForDisplay,
   installLinuxHopper,
   linuxHopperLauncherDigestSupported,
   linuxPackageManagerCommands,
@@ -15,6 +16,19 @@ import {
   type LinuxPackageInstallFailure,
   type LinuxPackageInstallOutcome,
 } from "./LinuxHopper.js";
+
+describe("Linux package-manager command display", () => {
+  it("preserves argument boundaries for paths with spaces and quotes", () => {
+    expect(
+      formatCommandForDisplay("pkexec", [
+        "pacman",
+        "-U",
+        "/tmp/rea test/hopper.arch",
+        "apostrophe'path",
+      ]),
+    ).toBe('pkexec pacman -U "/tmp/rea test/hopper.arch" "apostrophe\'path"');
+  });
+});
 
 class RecordingLinuxHost implements LinuxHopperInstallHost {
   distributionValue: LinuxDistribution | undefined = {
