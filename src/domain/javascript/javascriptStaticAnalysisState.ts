@@ -1,5 +1,6 @@
 import type { JavaScriptModuleResolutionMode } from "./javascriptModuleResolutionMode.js";
 import type * as t from "@babel/types";
+import type { JavaScriptOpenReceiverFact } from "./javascriptSemanticAnalysis.js";
 import type { JavaScriptRpcScan } from "./javascriptRpcEndpoints.js";
 
 import type {
@@ -67,15 +68,7 @@ export interface JavaScriptFindingContext {
   readonly rpcScan: JavaScriptRpcScan;
   readonly source: string;
   readonly accumulator: JavaScriptAnalysisAccumulator;
-  readonly openReceiverFacts?: ReadonlyMap<
-    number,
-    | "window"
-    | "indexed-db"
-    | "cache-storage"
-    | "local"
-    | "local-indexed-db"
-    | "local-cache-storage"
-  >;
+  readonly openReceiverFacts?: ReadonlyMap<number, JavaScriptOpenReceiverFact>;
   /** Proven Electron export path segments by root offset. */
   readonly electronBindings?: ReadonlyMap<number, readonly string[]>;
 }
