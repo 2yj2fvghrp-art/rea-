@@ -240,6 +240,7 @@ describe("Ghidra raw-binary profile", () => {
       profile: {
         parameters: {
           target_format: "raw-binary",
+          import_mode: "ephemeral-source-immutable",
           architecture: "arm",
           loader: "BinaryLoader",
           language_id: "ARM:LE:32:v7",
@@ -257,6 +258,10 @@ describe("Ghidra raw-binary profile", () => {
     expect(resolved.ok && shifted.ok).toBe(true);
     if (!resolved.ok || !shifted.ok || resolved.value.profile === null)
       throw new Error("expected raw-binary profiles");
+    // Preserve snapshots exported with the established raw-binary profile.
+    expect(resolved.value.profile.digest).toBe(
+      "6b0a1bbca0d27d3c2fc4cb98f0c8ae4f3a1ea59922a27f621df439d97ac8b8e1",
+    );
     expect(shifted.value.profile?.digest).not.toBe(
       resolved.value.profile.digest,
     );

@@ -82,10 +82,13 @@ export const resolveGhidraAnalysisProfile = async (
     );
   if (existingProject === true) {
     if (languageOverride !== undefined || (disabledAnalyzers?.length ?? 0) > 0)
-      return err(new AnalysisUnsupportedTargetError(
-        "resolve_analysis_profile", target.path,
-        "Existing Ghidra projects retain their imported language and analysis; caller-selected import overrides do not apply.",
-      ));
+      return err(
+        new AnalysisUnsupportedTargetError(
+          "resolve_analysis_profile",
+          target.path,
+          "Existing Ghidra projects retain their imported language and analysis; caller-selected import overrides do not apply.",
+        ),
+      );
     const reason = ghidraExistingProjectUnsupportedReason(
       target,
       installation.platform,
@@ -150,7 +153,8 @@ export const resolveGhidraAnalysisProfile = async (
           target_format: target.format,
           architecture: target.architecture,
           available_architectures: [...target.availableArchitectures].sort(),
-            annotation_policy: "atomic-function-entry-metadata-v1",
+          import_mode: "ephemeral-source-immutable",
+          annotation_policy: "atomic-function-entry-metadata-v1",
           load_image_observations: "source-mappings-entry-context-v2",
           function_body_evidence: "complete-inclusive-ranges-v1",
           function_references: "complete-body-and-entry-reference-manager-v2",
