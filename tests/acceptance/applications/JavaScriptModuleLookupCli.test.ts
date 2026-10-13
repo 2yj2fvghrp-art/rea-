@@ -280,7 +280,7 @@ const expectCtsRuntime = async (root: string): Promise<void> => {
     ["native-default.js", "require"],
     ["native-import-equals.cjs", "require"],
     ["native-import-equals.mjs", "require"],
-    ["native-indexed.mjs", Array.from({ length: 12 }, () => "import")],
+    ["native-indexed.mjs", Array.from({ length: 13 }, () => "import")],
     ["native-export-type-equals.cjs", "require"],
   ] as const) {
     const result = await execute(process.execPath, [file], {

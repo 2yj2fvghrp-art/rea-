@@ -126,7 +126,6 @@ export const typescriptImportTypeRequest = (
     const keys = literalTypeIndexKeys(parent.indexType);
     selection.push(keys.values);
     if (!keys.complete) dynamicMemberAccess = true;
-    if (keys.values.length === 0) break;
     cursor = parent;
   }
   return {

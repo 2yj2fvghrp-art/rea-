@@ -63,6 +63,9 @@ const nativeImportEqualsSource = [
   'const value: Native.NativeMode = { source: "require" };',
   "console.log(JSON.stringify(value.source));",
 ].join("\n");
+export const nativeGenericIndexSource =
+  'type Generic<K extends "NativeMode" | "-1"> = (typeof import("native-mixed/addon.node"))[K]["source"];';
+
 const nativeIndexedSource = [
   'type Plain = (typeof import("native-mixed/addon.node"))["NativeMode"];',
   'type Punctuated = (typeof import("native-mixed/addon.node"))["Native.Mode"];',
@@ -76,6 +79,7 @@ const nativeIndexedSource = [
   'type Zero = (typeof import("native-mixed/addon.node"))[-0];',
   'type WrappedNegative = (typeof import("native-mixed/addon.node"))[((-1))];',
   'type Choice = (typeof import("native-mixed/addon.node"))["NativeMode" | "-1"];',
+  nativeGenericIndexSource,
   'const first: Plain = { source: "import" };',
   'const second: Punctuated = { source: "import" };',
   'const third: Empty = { source: "import" };',
@@ -88,7 +92,8 @@ const nativeIndexedSource = [
   'const tenth: Zero = { source: "import" };',
   'const eleventh: WrappedNegative = { source: "import" };',
   'const twelfth: Choice = { source: "import" };',
-  "console.log(JSON.stringify([first.source, second.source, third.source, fourth.source, fifth.source, sixth.source, seventh.source, eighth.source, ninth.source, tenth.source, eleventh.source, twelfth.source]));",
+  'const thirteenth: Generic<"NativeMode"> = "import";',
+  "console.log(JSON.stringify([first.source, second.source, third.source, fourth.source, fifth.source, sixth.source, seventh.source, eighth.source, ninth.source, tenth.source, eleventh.source, twelfth.source, thirteenth]));",
 ].join("\n");
 
 export const modeSourceFiles = {
@@ -540,7 +545,7 @@ const expectNativeTypeSelections = (
           }),
         }),
       );
-  for (const line of [7])
+  for (const line of [7, 13])
     expect
       .soft(graph.nodes.flatMap(({ observations }) => observations))
       .toContainEqual(
@@ -557,6 +562,14 @@ const expectNativeTypeSelections = (
               value: expect.objectContaining({
                 source: "cts/native-indexed.mts",
                 start: expect.objectContaining({ line }),
+                ...(line === 13
+                  ? {
+                      end: {
+                        line,
+                        column: nativeGenericIndexSource.length - 1,
+                      },
+                    }
+                  : {}),
               }),
             }),
           }),

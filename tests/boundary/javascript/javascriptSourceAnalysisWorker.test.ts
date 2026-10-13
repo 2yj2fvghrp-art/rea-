@@ -7,7 +7,10 @@ import { projectAnalysisError } from "../../../src/domain/analysisErrorProjectio
 import { spawnOwnedProviderProcess } from "../../../src/process/ProviderProcess.js";
 import { javaScriptWorkerMemoryLimitBytes } from "../../../src/process/JavaScriptWorkerMemoryLimit.js";
 import type { JavaScriptArtifactFile } from "../../../src/domain/javascript/javascriptArtifactFiles.js";
-import { modeSourceFiles } from "../../fixtures/javascriptModuleResolutionModes.js";
+import {
+  modeSourceFiles,
+  nativeGenericIndexSource,
+} from "../../fixtures/javascriptModuleResolutionModes.js";
 
 const source = (path: string, value: string): JavaScriptArtifactFile => ({
   path,
@@ -416,6 +419,7 @@ const expectNativeTypeSelections = async (
     [["0"], false, false, true],
     [["-1"], false, false, true],
     [["-1", "NativeMode"], false, false, true],
+    [[], false, true, true],
   ]);
   expect(
     indexed.value.module?.moduleLinks.map(({ importedName }) => importedName),
@@ -432,7 +436,15 @@ const expectNativeTypeSelections = async (
     "0",
     "-1",
     "(NativeMode | -1)",
+    "[unknown].source",
   ]);
+  expect(indexed.value.module?.moduleLinks.at(-1)).toMatchObject({
+    importedSelection: [[], ["source"]],
+    dynamicMemberAccess: true,
+    location: {
+      end: { line: 13, column: nativeGenericIndexSource.length - 1 },
+    },
+  });
   for (const [text, count] of [
     [
       'import type { NativeMode } from "native-mode/addon.node" with { "resolution-mode": "import", type: "json" };',
