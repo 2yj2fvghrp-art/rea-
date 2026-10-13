@@ -633,7 +633,7 @@ const resolvePackageDependency = (
             )) ?? resolveDirectory(input, directory, metadata, new Set())
       );
     if (input.moduleKind === "import")
-      return resolveLegacyEsmSubpath(input, directory, subpath.slice(2));
+      return resolveLegacyEsmSubpath(input, directory, subpath);
     const candidate = confineCandidate(`${directory}/${subpath.slice(2)}`);
     return typeof candidate === "string"
       ? resolveCandidate(input, candidate, new Set())
@@ -653,18 +653,31 @@ const resolveLegacyEsmSubpath = (
   directory: string,
   subpath: string,
 ): CandidateResolution => {
-  const fileSubpath = decodeModuleUrlPath(stripQueryAndFragment(subpath));
-  if (typeof fileSubpath !== "string") return fileSubpath;
-  const candidate = confineCandidate(`${directory}/${fileSubpath}`);
+  const url = new URL(
+    subpath,
+    packageMetadataUrl(posix.join(directory, "package.json")),
+  );
+  if (!url.pathname.startsWith(PACKAGE_ARTIFACT_ROOT_URL.pathname))
+    return unresolvedCandidate("rejected", [
+      "The resolved candidate escapes the canonical artifact root.",
+    ]);
+  const encodedPath = url.pathname.slice(
+    PACKAGE_ARTIFACT_ROOT_URL.pathname.length,
+  );
+  const rejected = rejectDeclaration(encodedPath);
+  if (rejected !== null) return rejected;
+  const decoded = decodeModuleUrlPath(encodedPath);
+  if (typeof decoded !== "string") return decoded;
+  const candidate = confineCandidate(decoded);
   if (typeof candidate !== "string") return candidate;
-  const directoryForm = urlPathIsDirectory(fileSubpath);
-  const file = directoryForm ? null : resolveFileCandidates(input, [candidate]);
+  if (urlPathIsDirectory(url.pathname))
+    return unresolvedCandidate("rejected", [
+      `ESM package subpath ${JSON.stringify(input.declaredPath)} has URL directory form; directory imports are unsupported and no exact-file, package main or index lookup was attempted.`,
+    ]);
+  const file = resolveFileCandidates(input, [candidate]);
   if (file !== null) return file;
   const source = input.files.get(input.sourcePath);
-  if (
-    directoryForm ||
-    hasContainerDirectory(input.files, candidate, source?.container_sha256)
-  )
+  if (hasContainerDirectory(input.files, candidate, source?.container_sha256))
     return unresolvedCandidate("rejected", [
       `ESM package subpath ${candidate} names a directory; directory imports are unsupported and package main or index lookup was not attempted.`,
     ]);

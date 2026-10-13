@@ -18,6 +18,19 @@ type PackageSpecifierCase = {
   readonly error: string | null;
 };
 
+const directoryFormSpecifiers = [
+  "legacy/feature.js/.",
+  "legacy/feature.js/child/..",
+  "legacy/feature.js/",
+  "legacy/feature.js/.?cache=1#entry",
+  "legacy/with%20space.js/.",
+  "legacy/missing/.",
+  "legacy/feature.js/.\t",
+  "legacy/feature.js/.\n?cache=1#entry",
+  "legacy/feature.js/ch\til\rd/..",
+  "legacy/feature.js/. ",
+];
+
 const requests = [
   {
     specifier: "rea-self-fixture",
@@ -131,15 +144,7 @@ const requests = [
     value: "legacy spaced feature",
     error: null,
   },
-  ...[
-    "legacy/feature.js/.",
-    "legacy/feature.js/child/..",
-    "legacy/feature.js/",
-    "legacy/feature.js/.?cache=1#entry",
-    "legacy/with%20space.js/.",
-    "legacy/feature.js/%2e",
-    "legacy/missing/.",
-  ].map((specifier) => ({
+  ...directoryFormSpecifiers.map((specifier) => ({
     specifier,
     target: null,
     status: "rejected" as const,
@@ -147,28 +152,44 @@ const requests = [
     error: "ERR_UNSUPPORTED_DIR_IMPORT",
   })),
   {
+    specifier: "legacy/feature.js/%2e",
+    target: null,
+    status: "rejected",
+    value: null,
+    error: "ERR_UNSUPPORTED_DIR_IMPORT",
+  },
+  {
+    specifier: "legacy/feature.js/.%09",
+    target: null,
+    status: "not-found",
+    value: null,
+    error: "ERR_MODULE_NOT_FOUND",
+  },
+  {
     specifier: "legacy/feature.js/%2f",
     target: null,
     status: "rejected",
     value: null,
     error: "ERR_INVALID_MODULE_SPECIFIER",
   },
-  ...["legacy/feature.js?cache=/..", "legacy/feature.js#entry/."].map(
-    (specifier) => ({
-      specifier,
-      target: "node_modules/legacy/feature.js",
-      status: "resolved" as const,
-      value: "legacy feature",
-      error: null,
-    }),
-  ),
-  {
-    specifier: "fixture/feature.js/.",
+  ...[
+    "legacy/feature.js?cache=/..",
+    "legacy/feature.js#entry/.",
+    "legacy/fea\tture.js",
+  ].map((specifier) => ({
+    specifier,
+    target: "node_modules/legacy/feature.js",
+    status: "resolved" as const,
+    value: "legacy feature",
+    error: null,
+  })),
+  ...["fixture/feature.js/.", "fixture/feature.js/.\t"].map((specifier) => ({
+    specifier,
     target: "node_modules/fixture/literal.cjs",
-    status: "resolved",
+    status: "resolved" as const,
     value: "literal",
     error: null,
-  },
+  })),
   {
     specifier: "legacy/feature",
     target: null,
@@ -223,6 +244,7 @@ const createPackageSpecifierFixture = async (): Promise<{
         "./feature": "./feature.cjs",
         "./literal?cache=1": "./literal.cjs",
         "./feature.js/.": "./literal.cjs",
+        "./feature.js/.\t": "./literal.cjs",
       },
     }),
   );
@@ -297,6 +319,13 @@ cliTest.for(["CLI", "stdio MCP"] as const)(
             resolution_status: status,
           }),
           evidence: expect.objectContaining({
+            ...(directoryFormSpecifiers.includes(specifier)
+              ? {
+                  limitations: expect.arrayContaining([
+                    `ESM package subpath ${JSON.stringify(specifier)} has URL directory form; directory imports are unsupported and no exact-file, package main or index lookup was attempted.`,
+                  ]),
+                }
+              : {}),
             ...(specifier === "legacy/feature"
               ? {
                   limitations: expect.arrayContaining([
