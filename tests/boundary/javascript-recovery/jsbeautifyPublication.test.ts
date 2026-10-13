@@ -9,22 +9,6 @@ beforeEach(() => {
 });
 
 vi.mock(
-  "../../../src/javascript/recovery/JsBeautifyRelease.js",
-  async (original) => {
-    const actual =
-      await original<
-        typeof import("../../../src/javascript/recovery/JsBeautifyRelease.js")
-      >();
-    return {
-      ...actual,
-      JSBEAUTIFY_LIMITS: {
-        ...actual.JSBEAUTIFY_LIMITS,
-        outputBytes: 16 * 1024,
-      },
-    };
-  },
-);
-vi.mock(
   "../../../src/javascript/recovery/RecoveryCommand.js",
   async (original) => {
     const actual =
@@ -39,7 +23,7 @@ vi.mock(
         const version = context.arguments[0] === "--version";
         let stderr = "";
         if (!version) {
-          expect(context.staging).toBe(join(context.cwd, "modules"));
+          expect(context.snapshots).toContain(context.arguments[0]);
           const source = await readFile(context.arguments[0]!, "utf8");
           if (scenario.mutateSnapshot)
             await writeFile(context.arguments[0]!, "const value = 99;");
@@ -137,19 +121,6 @@ it.skipIf(process.platform === "win32")(
     expect(result.modules[0]?.reported_filename).toBe("bundle.js");
   },
 );
-
-it("rejects combined staging output beyond one operation's budget", async () => {
-  const evidence = await recover(
-    ["a.js", "b.js", "c.js", "d.js", "e.js"],
-    true,
-  );
-  expect(evidence.ok).toBe(false);
-  if (!evidence.ok)
-    expect(evidence.error).toMatchObject({
-      _tag: "AnalysisOutputError",
-      message: expect.stringContaining("Recovery staging exceeds"),
-    });
-});
 
 it("does not claim successful reparsing when every file fails its gate", async () => {
   const evidence = await recover(["a.js", "b.js"], true);

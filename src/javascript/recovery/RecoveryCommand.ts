@@ -113,9 +113,19 @@ type RecoveryCommandContext = RecoveryTool & {
   environment: Readonly<Record<string, string | undefined>>;
   signal?: AbortSignal;
   launcher?: RecoveryLauncher;
-  staging?: string;
+  /** Input snapshots inside `cwd`; every other workspace file counts as output. */
+  snapshots: readonly string[];
   readLimits?: typeof readLinuxResourceLimits;
 };
+
+/** TMPDIR is the workspace, so every file but the input snapshots counts as output. */
+const inventoryWorkspace = (context: RecoveryCommandContext) =>
+  inventoryRecoveryFiles(
+    context.cwd,
+    context.limits,
+    context.signal,
+    new Set(context.snapshots),
+  );
 
 /** Run one bounded command and verify cleanup before consuming its output. */
 export const runRecoveryCommand = async (context: RecoveryCommandContext) => {
@@ -181,12 +191,7 @@ export const runRecoveryCommand = async (context: RecoveryCommandContext) => {
     while (!(await supervisor.waitForOutputClose(100))) {
       checkRecoveryDeadline(context.deadline, context.signal);
       if (oversized) throw new AnalysisOutputError(OPERATION, streamLimit);
-      if (context.staging !== undefined)
-        await inventoryRecoveryFiles(
-          context.staging,
-          context.limits,
-          context.signal,
-        );
+      await inventoryWorkspace(context);
     }
     checkRecoveryDeadline(context.deadline, context.signal);
     if (oversized) throw new AnalysisOutputError(OPERATION, streamLimit);
@@ -208,6 +213,7 @@ export const runRecoveryCommand = async (context: RecoveryCommandContext) => {
   if (failure !== undefined) throw failure;
   if (context.signal?.aborted === true)
     throw new AnalysisCancelledError(OPERATION);
+  await inventoryWorkspace(context);
   return {
     exit_code: snapshot.exitCode ?? null,
     signal: snapshot.signal ?? null,

@@ -38,6 +38,7 @@ const executeWakaruRecovery = async (context: RecoveryWorkspace) => {
     cwd: root,
     deadline: context.deadline,
     environment: environment,
+    snapshots: sources.map((source) => source.snapshot_path),
     ...(options?.signal === undefined ? {} : { signal: options.signal }),
     ...(launcher === undefined ? {} : { launcher: launcher }),
   };
@@ -61,7 +62,6 @@ const executeWakaruRecovery = async (context: RecoveryWorkspace) => {
   }
   const run = await runRecoveryCommand({
     ...commandContext,
-    staging,
     arguments: [
       ...sources.map((source) => source.snapshot_path),
       `--unpack=${MODES[input.extraction_mode]}`,

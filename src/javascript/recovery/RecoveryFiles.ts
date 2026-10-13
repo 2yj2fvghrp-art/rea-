@@ -201,6 +201,7 @@ export const inventoryRecoveryFiles = async (
   root: string,
   limits: Pick<RecoveryLimits, "outputBytes" | "outputEntries">,
   signal?: AbortSignal,
+  excluded: ReadonlySet<string> = new Set(),
 ): Promise<
   readonly { relativePath: string; path: string; bytes: number }[]
 > => {
@@ -219,13 +220,14 @@ export const inventoryRecoveryFiles = async (
     try {
       for await (const entry of handle) {
         checkRecoveryCancellation(signal);
+        children.push(entry.name);
+        if (excluded.has(join(directory, entry.name))) continue;
         entries++;
         if (entries > limits.outputEntries)
           throw new AnalysisOutputError(
             OPERATION,
             `Recovery staging exceeds the ${String(limits.outputEntries)}-entry resource limit`,
           );
-        children.push(entry.name);
       }
     } finally {
       await handle.close().catch(() => undefined);
@@ -241,7 +243,7 @@ export const inventoryRecoveryFiles = async (
           `Recovery produced a symlink or special file: ${relativePath}`,
         );
       if (info.isDirectory()) await visit(path, relativePath);
-      else {
+      else if (!excluded.has(path)) {
         bytes += info.size;
         if (bytes > limits.outputBytes)
           throw new AnalysisOutputError(

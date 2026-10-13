@@ -17,7 +17,6 @@ import { resolveRecoveryTool, runRecoveryCommand } from "./RecoveryCommand.js";
 import type { RecoveryEngine, RecoveryWorkspace } from "./RecoveryEngine.js";
 import {
   fingerprintRecoveryFile,
-  inventoryRecoveryFiles,
   readRecoveryFile,
   recoveryDigest,
   recoveryInputFailure,
@@ -190,6 +189,7 @@ const executeJsBeautify = async (context: RecoveryWorkspace) => {
     cwd: root,
     deadline: context.deadline,
     environment,
+    snapshots: sources.map((source) => source.snapshot_path),
     ...(signal === undefined ? {} : { signal }),
     ...(launcher === undefined ? {} : { launcher }),
   };
@@ -268,7 +268,6 @@ const executeJsBeautify = async (context: RecoveryWorkspace) => {
     const run = await runRecoveryCommand({
       ...command,
       arguments: argumentsList,
-      staging: join(root, "modules"),
     });
     const consumed = await fingerprintRecoveryFile(
       source.snapshot_path,
@@ -280,11 +279,6 @@ const executeJsBeautify = async (context: RecoveryWorkspace) => {
         OPERATION,
         `The input snapshot changed during recovery: ${source.path}`,
       );
-    await inventoryRecoveryFiles(
-      join(root, "modules"),
-      JSBEAUTIFY_LIMITS,
-      signal,
-    );
     const verdict = gate(run, deobfuscated);
     for (const format of detections(run.stderr)) formats.add(format);
     const heading = `# ${name}\n`;

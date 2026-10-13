@@ -1,5 +1,7 @@
 import { readLinuxResourceLimits } from "../../process/LinuxResourceLimits.js";
 import { EventEmitter } from "node:events";
+import { mkdirSync, writeFileSync } from "node:fs";
+import { join } from "node:path";
 import { PassThrough } from "node:stream";
 import { expect, it, vi } from "vitest";
 import { ProviderProcessSupervisor } from "../../process/ProviderProcess.js";
@@ -9,6 +11,7 @@ import { runRecoveryCommand } from "./RecoveryCommand.js";
 import type { RecoveryLauncher } from "./RecoveryEngine.js";
 import { resolveWakaruCommand } from "./WakaruCommand.js";
 import { WAKARU_LIMITS } from "./WakaruRelease.js";
+import { createTestTempDirectory } from "../../../tests/fixtures/temporaryDirectory.js";
 
 const wakaru = {
   providerId: "wakaru",
@@ -19,6 +22,7 @@ const wakaru = {
   ) => configured,
   sha256: "0".repeat(64),
   bytes: 0,
+  snapshots: [],
 };
 const expired = () => ({
   at: performance.now() - 1,
@@ -78,9 +82,10 @@ it("preserves caller cancellation before acquiring an expired execution budget",
   ).rejects.toMatchObject({ _tag: "AnalysisCancelledError" });
 });
 
-const commandFixture = (
+const commandFixture = async (
   emit: (producer: ReturnType<typeof createProducer>) => void,
 ) => {
+  const cwd = await createTestTempDirectory("rea-recovery-command-");
   const producer = createProducer();
   const launcher: RecoveryLauncher = async (options) => {
     setImmediate(() => emit(producer));
@@ -102,7 +107,7 @@ const commandFixture = (
       command: "/selected/wakaru",
       limiter: "/usr/bin/prlimit",
       arguments: ["--version"],
-      cwd: "/tmp/unused",
+      cwd,
       environment: {},
       deadline: {
         at: performance.now() + 5_000,
@@ -123,7 +128,7 @@ const createProducer = () =>
   });
 
 it("retains stdout and stderr delivered after launcher exit", async () => {
-  const { context } = commandFixture((producer) => {
+  const { context } = await commandFixture((producer) => {
     producer.stdout.write("first");
     producer.emit("exit", 0, null);
     setImmediate(() => {
@@ -141,7 +146,7 @@ it("retains stdout and stderr delivered after launcher exit", async () => {
 });
 
 it("checks the diagnostic byte limit against output delivered after exit", async () => {
-  const { context } = commandFixture((producer) => {
+  const { context } = await commandFixture((producer) => {
     producer.emit("exit", 0, null);
     setImmediate(() => {
       producer.stderr.end(Buffer.alloc(WAKARU_LIMITS.reportBytes + 1, 97));
@@ -156,7 +161,7 @@ it("checks the diagnostic byte limit against output delivered after exit", async
 });
 
 it("enforces the shared deadline while exited output streams remain open", async () => {
-  const { context, producer } = commandFixture((process) => {
+  const { context, producer } = await commandFixture((process) => {
     process.emit("exit", 0, null);
   });
   try {
@@ -181,7 +186,7 @@ it("enforces the shared deadline while exited output streams remain open", async
 
 it("honors cancellation while waiting for output after exit", async () => {
   const controller = new AbortController();
-  const { context, producer } = commandFixture((process) => {
+  const { context, producer } = await commandFixture((process) => {
     process.emit("exit", 0, null);
     setImmediate(() => controller.abort());
   });
@@ -200,7 +205,7 @@ it("honors cancellation while waiting for output after exit", async () => {
 
 it("caps retained diagnostics as a noisy process emits them, while preserving overflow rejection", async () => {
   const snapshots = vi.spyOn(ProviderProcessSupervisor.prototype, "snapshot");
-  const { context } = commandFixture((producer) => {
+  const { context } = await commandFixture((producer) => {
     producer.stdout.end("0123456789abcdef");
     producer.stderr.end();
     producer.emit("exit", 0, null);
@@ -227,7 +232,7 @@ it("caps retained diagnostics as a noisy process emits them, while preserving ov
 });
 
 it("passes the inherited minima explicitly to both prlimit ceilings", async () => {
-  const fixture = commandFixture((producer) => {
+  const fixture = await commandFixture((producer) => {
     producer.emit("exit", 0, null);
     producer.stdout.end();
     producer.stderr.end();
@@ -254,3 +259,35 @@ it("passes the inherited minima explicitly to both prlimit ceilings", async () =
     "--cpu=7:7",
   ]);
 });
+
+it.each([
+  { outputBytes: 32, rejected: false },
+  { outputBytes: 8, rejected: true },
+])(
+  "counts workspace temporaries, but not input snapshots, against a $outputBytes-byte output budget",
+  async ({ outputBytes, rejected }) => {
+    let cwd = "";
+    const fixture = await commandFixture((producer) => {
+      writeFileSync(join(cwd, "temporary"), "y".repeat(16));
+      producer.emit("exit", 0, null);
+      producer.stdout.end("1.14.0");
+      producer.stderr.end();
+      producer.emit("close", 0, null);
+    });
+    cwd = fixture.context.cwd;
+    const snapshot = join(cwd, "inputs", "selected.js");
+    mkdirSync(join(cwd, "inputs"));
+    writeFileSync(snapshot, "x".repeat(64));
+    const run = runRecoveryCommand({
+      ...fixture.context,
+      limits: { ...fixture.context.limits, outputBytes },
+      snapshots: [snapshot],
+    });
+    if (rejected)
+      await expect(run).rejects.toMatchObject({
+        _tag: "AnalysisOutputError",
+        message: expect.stringContaining("Recovery staging exceeds"),
+      });
+    else await expect(run).resolves.toMatchObject({ exit_code: 0 });
+  },
+);
