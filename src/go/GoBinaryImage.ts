@@ -53,10 +53,17 @@ export interface GoBinaryImage {
 export const readGoBinaryImage = (bytes: Buffer): GoBinaryImage => {
   const container = readContainer(bytes);
   const { format, architecture, bits, byte_order } = container;
-  const search = container.search;
-  const header = findHeader(bytes, search);
-  if (header === null || search === null)
+  let selected: { search: GoFileMapping; header: number } | null = null;
+  for (const search of container.search) {
+    const header = findHeader(bytes, search);
+    if (header !== null) {
+      selected = { search, header };
+      break;
+    }
+  }
+  if (selected === null)
     return { format, architecture, bits, byte_order, build_info: null };
+  const { search, header } = selected;
   const verifyMapping = (size: number): void => {
     const address = search.address + BigInt(header - search.offset);
     if (
@@ -201,11 +208,8 @@ const readContainer = (bytes: Buffer): GoBinaryContainer => {
   );
 };
 
-const findHeader = (
-  bytes: Buffer,
-  search: GoFileMapping | null,
-): number | null => {
-  if (search === null || search.size === 0) return null;
+const findHeader = (bytes: Buffer, search: GoFileMapping): number | null => {
+  if (search.size === 0) return null;
   const end = search.offset + search.size;
   const selected = bytes.subarray(search.offset, end);
   let offset = Number((16n - (search.address % 16n)) % 16n);

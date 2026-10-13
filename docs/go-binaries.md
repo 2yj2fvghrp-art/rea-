@@ -58,6 +58,12 @@ original stable file snapshot, including pointer-backed strings. It does not
 scan arbitrary byte strings as compiler metadata or interpret a fat Mach-O
 container as one selected architecture.
 
+For ELF images without a named build-info section, discovery checks each
+nonempty writable, non-executable load segment in program-header order. This
+includes sectionless PIE images with metadata in a later data segment. Named
+sections retain priority, and alignment, file mapping and record validation
+remain required.
+
 Historical moduleless Go binaries can store their empty module-string header in
 declared zero-initialized virtual memory rather than file-backed bytes. The reader
 recognizes this only when the complete optional module header lies in that memory

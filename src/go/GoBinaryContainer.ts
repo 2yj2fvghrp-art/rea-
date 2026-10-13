@@ -34,7 +34,7 @@ export interface GoZeroFillMapping {
   readonly size: bigint;
 }
 
-/** Native container facts and its producer-defined build-info search area. */
+/** Native container facts and its ordered producer-defined build-info search ranges. */
 export interface GoBinaryContainer {
   readonly format: "elf" | "pe" | "macho";
   readonly architecture: string;
@@ -42,7 +42,7 @@ export interface GoBinaryContainer {
   readonly byte_order: "little" | "big";
   readonly mappings: readonly GoFileMapping[];
   readonly zero_fills: readonly GoZeroFillMapping[];
-  readonly search: GoFileMapping | null;
+  readonly search: readonly GoFileMapping[];
 }
 
 /** Reader that checks every structural range before decoding numeric fields. */

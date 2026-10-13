@@ -7,11 +7,42 @@ import {
   createGoBinaryByteStringFixture,
   createGoBinaryDiagnosticFixtures,
   createGoBinaryFixture,
+  createGoSplitElfFixture,
   createGoBinaryPathFailureFixture,
   GO_MODULE_TEXT,
 } from "../fixtures/go/image.js";
 import { createTestTempDirectory } from "../fixtures/temporaryDirectory.js";
 import { cliTest } from "../support/cli/cliFixture.js";
+import { connectLocalToolsMcp } from "../fixtures/localToolsMcp.js";
+
+cliTest(
+  "retains later-load sectionless ELF evidence through public CLI and stdio MCP",
+  async ({ cli }) => {
+    const root = await createTestTempDirectory("rea-go-split-elf-");
+    const { client, call } = await connectLocalToolsMcp();
+    const infos = [];
+    for (const sectionless of [false, true]) {
+      const fixture = createGoSplitElfFixture({ sectionless });
+      const path = join(root, sectionless ? "sectionless.elf" : "original.elf");
+      await writeFile(path, fixture.bytes);
+      const result = await cli.run({
+        arguments: ["inspect-go-binary", path, "--json"],
+      });
+      expect(result.exitCode, result.stderr).toBe(0);
+      const evidence = toolContract("inspect_go_binary").outputSchema.parse(
+        result.json,
+      );
+      expect(evidence.normalized_result.build_info).not.toBeNull();
+      infos.push(evidence.normalized_result.build_info);
+      const response = await call("inspect_go_binary", { path });
+      expect(response.isError, JSON.stringify(response)).not.toBe(true);
+      expect(response.structuredContent).toEqual(evidence);
+    }
+    expect(infos[1]).toEqual(infos[0]);
+    await client.ping();
+  },
+  30000,
+);
 
 for (const expectedErrno of ["ELOOP", "ENAMETOOLONG"] as const) {
   cliTest.skipIf(expectedErrno === "ELOOP" && process.platform === "win32")(
