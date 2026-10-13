@@ -294,7 +294,12 @@ const inspectEndpointCall = (
   const read = (argument: t.Node | null | undefined): string | undefined =>
     staticConstantString(context.constants(argument));
   const endpoint = endpointArgumentHelper(
-    { name, args: node.arguments, callee: node.callee, receiverFact },
+    {
+      name,
+      args: node.arguments,
+      callee: node.callee,
+      ...(receiverFact === undefined ? {} : { receiverFact }),
+    },
     read,
   );
   const constant = context.constants(endpoint);
@@ -451,7 +456,12 @@ export const addSourceMapDirectives = (
       end === null
     )
       continue;
-    const commentSource = source.slice(start, end);
+    // The parser owns comment boundaries. Exclude only the closing block
+    // delimiter; an asterisk elsewhere remains part of the declared URL.
+    const commentSource = source.slice(
+      start,
+      comment.type === "CommentBlock" ? end - 2 : end,
+    );
     if (
       !(commentSource.startsWith("//") || commentSource.startsWith("/*")) ||
       !(commentSource[2] === "#" || commentSource[2] === "@")
@@ -471,9 +481,7 @@ export const addSourceMapDirectives = (
     const urlOffset = commentSource.slice(equalsStart + 1).search(/\S/u);
     if (urlOffset === -1) continue;
     const declaredStart = equalsStart + 1 + urlOffset;
-    const terminator = commentSource
-      .slice(declaredStart)
-      .search(commentSource.startsWith("//") ? /\s/u : /[\s*]/u);
+    const terminator = commentSource.slice(declaredStart).search(/\s/u);
     const declaredEnd =
       terminator === -1 ? commentSource.length : declaredStart + terminator;
     if (declaredEnd === declaredStart) continue;
