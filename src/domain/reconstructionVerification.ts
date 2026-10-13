@@ -346,13 +346,12 @@ const authorityLimitations = (
   )
     limitations.push("Structural source artifact identity is unavailable.");
   if (claim.kind === "behavioral") {
-    const byId = new Map(sources.map((source) => [source.evidence_id, source]));
-    const left = byId.get(sides.left[0] ?? "");
-    const right = byId.get(sides.right[0] ?? "");
+    const reference = JSON.stringify(sources[0]?.environment);
     if (
-      left?.environment === null ||
-      right?.environment === null ||
-      JSON.stringify(left?.environment) !== JSON.stringify(right?.environment)
+      sources.some(
+        ({ environment }) =>
+          environment === null || JSON.stringify(environment) !== reference,
+      )
     )
       limitations.push(
         "Controlled replay environments are unavailable or incompatible.",

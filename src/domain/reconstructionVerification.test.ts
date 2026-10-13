@@ -21,7 +21,13 @@ const source = (
   digit: string,
   authority: "controlled-replay" | "shipped-artifact",
   confidence: "observed" | "derived" = "observed",
-  captureResult: JsonValue = EMPTY_PROCESS_CAPTURE_EXAMPLE,
+  {
+    captureResult = EMPTY_PROCESS_CAPTURE_EXAMPLE,
+    replayEnvironment = environment,
+  }: {
+    readonly captureResult?: JsonValue;
+    readonly replayEnvironment?: typeof environment | null;
+  } = {},
 ): Evidence =>
   createEvidence(
     {
@@ -43,7 +49,7 @@ const source = (
       result: authority === "controlled-replay" ? captureResult : { digit },
       confidence,
       authority,
-      environment: authority === "controlled-replay" ? environment : null,
+      environment: authority === "controlled-replay" ? replayEnvironment : null,
     },
   );
 
@@ -110,6 +116,31 @@ const processComparison = (
       confidence: "derived",
       authority: "analyst-inference",
       evidenceLinks: [left.evidence_id, right.evidence_id, ...extraLinks],
+    },
+  );
+
+const multiSourceProcessComparison = (
+  left: readonly Evidence[],
+  right: readonly Evidence[],
+): Evidence =>
+  createEvidence(
+    undefined,
+    {
+      id: "rea-process",
+      name: "REA deterministic process harness",
+      version: "3",
+    },
+    {
+      predicateType: "rea.process-comparison",
+      operation: "compare_process_captures",
+      parameters: {
+        left_evidence_ids: left.map(({ evidence_id: id }) => id),
+        right_evidence_ids: right.map(({ evidence_id: id }) => id),
+      },
+      result: processResult(),
+      confidence: "derived",
+      authority: "analyst-inference",
+      evidenceLinks: [...left, ...right].map(({ evidence_id: id }) => id),
     },
   );
 
@@ -288,12 +319,9 @@ describe("reconstruction verification", () => {
 
 describe("reconstruction process capture input", () => {
   it("rejects saved captures without explicit executable identity", () => {
-    const left = source(
-      "1",
-      "controlled-replay",
-      "observed",
-      legacyV3Capture(),
-    );
+    const left = source("1", "controlled-replay", "observed", {
+      captureResult: legacyV3Capture(),
+    });
     const right = source("2", "controlled-replay");
     const comparison = processComparison(left, right, processResult());
     expect(() =>
@@ -352,6 +380,75 @@ describe("reconstruction verification outcomes", () => {
     );
     expect(result.status).toBe("unknown");
     expect(result.recommended_probes[0]?.operation).toBe("inspect_artifact");
+  });
+
+  it("limits behavioral claims by every selected replay environment", () => {
+    const replay = (digit: string, id: string | null) =>
+      source(digit, "controlled-replay", "observed", {
+        replayEnvironment: id === null ? null : { ...environment, id },
+      });
+    const verify = (left: readonly Evidence[], right: readonly Evidence[]) => {
+      const comparison = multiSourceProcessComparison(left, right);
+      return verifyReconstruction(
+        behavioralSpec(comparison),
+        createEvidenceBundle([...left, ...right, comparison]),
+      );
+    };
+    const environmentLimitation =
+      "Controlled replay environments are unavailable or incompatible.";
+    const incompatible = {
+      status: "unknown",
+      claims: {
+        items: [
+          {
+            status: "unknown",
+            observed_status: "unchanged",
+            limitations: expect.arrayContaining([environmentLimitation]),
+          },
+        ],
+      },
+    };
+
+    expect(
+      verify(
+        [replay("1", "env-a"), replay("2", "env-b")],
+        [replay("3", "env-a"), replay("4", "env-a")],
+      ),
+    ).toMatchObject(incompatible);
+    expect(
+      verify(
+        [replay("1", "env-a"), replay("2", "env-a")],
+        [replay("3", "env-a"), replay("4", "env-b")],
+      ),
+    ).toMatchObject(incompatible);
+    expect(
+      verify(
+        [replay("1", "env-a"), replay("2", "env-a")],
+        [replay("3", "env-a"), replay("4", null)],
+      ),
+    ).toMatchObject(incompatible);
+    expect(
+      verify(
+        [replay("1", "env-b"), replay("2", "env-a")],
+        [replay("3", "env-a"), replay("4", "env-a")],
+      ),
+    ).toMatchObject(incompatible);
+    expect(
+      verify(
+        [replay("1", "env-a"), replay("2", "env-a")],
+        [replay("3", "env-a"), replay("4", "env-a")],
+      ),
+    ).toMatchObject({
+      status: "pass",
+      claims: {
+        items: [
+          {
+            status: "pass",
+            limitations: expect.not.arrayContaining([environmentLimitation]),
+          },
+        ],
+      },
+    });
   });
 });
 
