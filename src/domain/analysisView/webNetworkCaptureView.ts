@@ -108,33 +108,41 @@ const hostLike = (value: JsonValue, maxLength: number): boolean =>
   !hasControl(value, true) &&
   !/[@/\\]/u.test(value);
 type NumericSidecar = WebNetworkCaptureRecord["numeric_literals"][number];
+type BinaryField = WebNetworkCaptureRecord["binary_fields"][number];
 const MITMPROXY_INTEGER_FIELDS = new Set(["port", "status_code"]);
 /**
  * Integer slots need exactly one integer sidecar whose literal is the value's
- * canonical decimal, and no byte descriptor; string slots need no sidecar and
- * may be byte-backed. Selecting a field also selects its sidecars, so this
+ * canonical decimal, and no byte descriptor. String slots need no sidecar and
+ * at most one byte descriptor: retained native producer bytes whose content
+ * is the value's UTF-8. Selecting a field also selects its sidecars, so this
  * keeps every copied literal small and consistent.
  */
 const representationMatches = (
   field: string,
   value: JsonValue,
   sidecars: readonly NumericSidecar[],
-  bytes: boolean,
-): boolean =>
-  MITMPROXY_INTEGER_FIELDS.has(field)
-    ? !bytes &&
+  bytes: readonly BinaryField[],
+): boolean => {
+  if (MITMPROXY_INTEGER_FIELDS.has(field))
+    return (
+      bytes.length === 0 &&
       typeof value === "number" &&
       sidecars.length === 1 &&
       sidecars[0]?.producer_type === "integer" &&
       sidecars[0].literal === String(value)
-    : sidecars.length === 0;
-const mitmproxyHeadline = (
-  field: string,
-  value: JsonValue,
-  sidecars: readonly NumericSidecar[],
-  bytes: boolean,
-): boolean => {
-  if (!representationMatches(field, value, sidecars, bytes)) return false;
+    );
+  if (sidecars.length !== 0 || bytes.length > 1) return false;
+  const [descriptor] = bytes;
+  return (
+    descriptor === undefined ||
+    (typeof value === "string" &&
+      descriptor.representation === "producer-bytes" &&
+      descriptor.state === "retained" &&
+      descriptor.content_base64 ===
+        Buffer.from(value, "utf8").toString("base64"))
+  );
+};
+const headlineShape = (field: string, value: JsonValue): boolean => {
   switch (field) {
     case "scheme":
       return (
@@ -164,6 +172,15 @@ const mitmproxyHeadline = (
       return false;
   }
 };
+/** Shape checks run first, so the representation check only sees bounded values. */
+const mitmproxyHeadline = (
+  field: string,
+  value: JsonValue,
+  sidecars: readonly NumericSidecar[],
+  bytes: readonly BinaryField[],
+): boolean =>
+  headlineShape(field, value) &&
+  representationMatches(field, value, sidecars, bytes);
 
 /**
  * The container format alone does not make a flow HTTP; its own type does,
@@ -200,20 +217,29 @@ const preview = (record: WebNetworkCaptureRecord, format: string) => {
     record.binary_fields.some(
       (field) => field.state === "redacted" && covers(field.pointer, pointer),
     );
-  const bytesAt = (pointer: string): boolean =>
-    record.binary_fields.some((field) => field.pointer === pointer);
-  // A numeric sidecar or a byte descriptor on an ancestor says the producer
-  // held a scalar there, so nothing the record shows beneath it is a
-  // consistent fact.
+  const bytesAt = (pointer: string): readonly BinaryField[] =>
+    record.binary_fields.filter((field) => field.pointer === pointer);
+  // A scalar is consistent only when no numeric sidecar or byte descriptor
+  // sits on an ancestor (the producer held a scalar there) and no facet sits
+  // beneath it (the producer held a container at it).
   const usable = (pointer: string): boolean =>
     !redacted(pointer) &&
     ![...record.numeric_literals, ...record.binary_fields].some(
       (facet) => facet.pointer !== pointer && covers(facet.pointer, pointer),
+    ) &&
+    ![
+      ...record.numeric_literals,
+      ...record.binary_fields,
+      ...record.redactions,
+    ].some(
+      (facet) => facet.pointer !== pointer && covers(pointer, facet.pointer),
     );
   // A numeric sidecar or a byte descriptor means the producer held a number
   // or bytes there, whatever display text the record shows.
   const producerText = (pointer: string): boolean =>
-    usable(pointer) && sidecarsAt(pointer).length === 0 && !bytesAt(pointer);
+    usable(pointer) &&
+    sidecarsAt(pointer).length === 0 &&
+    bytesAt(pointer).length === 0;
   if (source !== null) {
     const mitmproxyHttp = mitmproxyHttpFlow(format, source, producerText);
     for (const key of ["session_id", "name", "time", "startedDateTime", "type"])

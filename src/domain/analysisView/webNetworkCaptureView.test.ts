@@ -664,6 +664,69 @@ it("previews a byte-backed path but not a byte-backed port", () => {
   });
 });
 
+it("adds no mitmproxy headline fields when the flow type has a child facet", () => {
+  const reported = nativePreview(
+    "mitmproxy",
+    { method: "GET", path: "/a" },
+    {
+      response: { http_version: "HTTP/1.1", reason: "OK" },
+      sidecars: [
+        { pointer: "/type/child", producer_type: "integer", literal: "1" },
+      ],
+    },
+  ).items[0]?.reported;
+  expect(reported).toMatchObject({ request: { method: "GET" } });
+  expect(reported).not.toMatchObject({ request: { path: "/a" } });
+});
+
+it.each([
+  [
+    "a child sidecar",
+    {
+      sidecars: [
+        { pointer: "/request/path/0", producer_type: "integer", literal: "1" },
+      ],
+    },
+  ],
+  [
+    "a child redaction",
+    {
+      redactions: [
+        { pointer: "/request/path/0", reason: "explicit-sensitive-value" },
+      ],
+    },
+  ],
+  [
+    "HAR content bytes",
+    {
+      binaryFields: [
+        {
+          ...retainedBytes("/request/path", "/a"),
+          representation: "har-base64-content",
+        },
+      ],
+    },
+  ],
+  [
+    "bytes that are not its text",
+    { binaryFields: [retainedBytes("/request/path", "/b")] },
+  ],
+] as const)(
+  "keeps a mitmproxy path with %s out of the preview",
+  (_label, facets) => {
+    const reported = nativePreview(
+      "mitmproxy",
+      { method: "GET", host: "example.test", path: "/a" },
+      { response: { http_version: "HTTP/1.1", reason: "OK" }, ...facets },
+    ).items[0]?.reported;
+    expect(reported).toEqual({
+      type: "http",
+      request: { method: "GET", host: "example.test" },
+      response: { http_version: "HTTP/1.1", reason: "OK" },
+    });
+  },
+);
+
 it("keeps mitmproxy headlines under a numeric sidecar out of the preview", () => {
   const [item] = nativePreview(
     "mitmproxy",
