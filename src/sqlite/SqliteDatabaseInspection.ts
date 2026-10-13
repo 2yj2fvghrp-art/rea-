@@ -109,6 +109,11 @@ class OutputBudget {
 }
 const quoteIdentifier = (name: string): string =>
   `"${name.replaceAll('"', '""')}"`;
+const missingSelectedTable = (name: string): SqliteInspectionFailure =>
+  new SqliteInspectionFailure(
+    "selection",
+    `Selected ordinary table does not exist with that exact name: ${name}`,
+  );
 // SQLite folds only ASCII letters when matching virtual/shadow table names.
 const sqliteIdentifierKey = (name: string): string =>
   name.replace(/[A-Z]/g, (letter) => letter.toLowerCase());
@@ -236,6 +241,10 @@ const readSchema = (
       metadata.set(value.name, value);
     }
   }
+  // Refuse an inexact selection before the case-folded scan below can expand
+  // the declarations stored under another spelling.
+  if (selectedName !== undefined && !metadata.has(selectedName))
+    throw missingSelectedTable(selectedName);
   // A trigger stores its target as written in CREATE TRIGGER, which SQLite
   // resolves by ASCII case folding; report the stored table or view name.
   const storedNames = new Map(
@@ -380,11 +389,7 @@ const readRows = (
 ): SqliteDatabase["rows"] => {
   const { encoding, budget } = context;
   if (input.table === undefined) return null;
-  if (table === undefined)
-    throw new SqliteInspectionFailure(
-      "selection",
-      `Selected ordinary table does not exist with that exact name: ${input.table}`,
-    );
+  if (table === undefined) throw missingSelectedTable(input.table);
   if (table.kind === "unknown")
     throw new SqliteInspectionFailure(
       "selection",
