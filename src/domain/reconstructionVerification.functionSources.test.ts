@@ -45,6 +45,19 @@ const dossier = jsonValueSchema.parse(
     native_api: null,
     native_value_flow: null,
     basic_blocks: [{ start: "0x1000", end: "0x1001", successors: [] }],
+    // Empty caller/callee and other facets are explicitly observed. The
+    // comparison must preserve a historical "unchanged" observation even
+    // when a later source reports incomplete relationship coverage.
+    facet_availability: {
+      pseudocode: { available: true },
+      assembly: { available: true },
+      comments: { available: true },
+      callers: { available: true },
+      callees: { available: true },
+      references: { available: true },
+      strings_names: { available: true },
+      cfg: { available: true },
+    },
     limitations: [],
   }),
 );

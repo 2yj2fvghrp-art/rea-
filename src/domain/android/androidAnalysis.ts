@@ -102,7 +102,7 @@ const textCoverage = z.strictObject({
 export const dexDescriptorSchema = z
   .string()
   .regex(
-    /^\((?:\[*(?:[ZBSCIJFD]|L[^;()]+;))*\)(?:V|\[*(?:[ZBSCIJFD]|L[^;()]+;))$/u,
+    /^\((?:\[*(?:[ZBSCIJFD]|L[^;\(\)]+;))*\)(?:V|\[*(?:[ZBSCIJFD]|L[^;\(\)]+;))$/u,
   );
 
 const method = z.strictObject({

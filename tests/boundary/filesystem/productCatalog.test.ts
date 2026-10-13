@@ -39,6 +39,7 @@ const temporaryRoots: string[] = [];
 
 const README_FACT_FIXTURE_PATHS = [
   "README.md",
+  "UPSTREAM_REA_README.md",
   "docs/readme/README_zh.md",
   "docs/readme/README_ja.md",
   "docs/readme/README_ko.md",
@@ -240,7 +241,7 @@ describe("canonical product catalog drift", () => {
       await expect(
         documentationFactIssues(directory, catalog),
       ).resolves.toEqual([
-        "docs/readme/README_zh.md: documentation links differ from README.md",
+        "docs/readme/README_zh.md: documentation links differ from UPSTREAM_REA_README.md",
       ]);
     }
   });
