@@ -106,27 +106,12 @@ const encodePackageMetadataUrl = (path: string): URL =>
     path.split("/").map(encodeURIComponent).join("/"),
     PACKAGE_ARTIFACT_ROOT_URL,
   );
-// URL identity cannot represent lone UTF-16 surrogates. Preserve their exact
-// code units as WTF-8 escapes for structural comparisons only; a lookup must
-// still report the original base as unavailable.
-const encodeStructuralPackageSegment = (segment: string): string => {
-  let encoded = "";
-  for (const point of segment) {
-    const code = point.charCodeAt(0);
-    if (point.length === 1 && code >= 0xd800 && code <= 0xdfff)
-      encoded += [
-        0xe0 | (code >> 12),
-        0x80 | ((code >> 6) & 0x3f),
-        0x80 | (code & 0x3f),
-      ]
-        .map((byte) => `%${byte.toString(16).toUpperCase()}`)
-        .join("");
-    else encoded += encodeURIComponent(point);
-  }
-  return encoded;
-};
+// URL identity cannot represent lone UTF-16 surrogates. Use request-local
+// opaque segments only for structural admission, never inventory lookup. A
+// target cannot spell these identities after URL's tab/newline preprocessing.
 const packageMetadataUrl = (
   path: string,
+  relativeTarget: string,
 ): Result<
   URL,
   { readonly structuralUrl: URL; readonly limitation: string }
@@ -135,11 +120,29 @@ const packageMetadataUrl = (
     return ok(encodePackageMetadataUrl(path));
   } catch (cause: unknown) {
     if (!(cause instanceof URIError)) throw cause;
+    const reserved = new Set(
+      `${path}\n${relativeTarget.replace(/[\t\n\r]/gu, "")}`.match(
+        /rea-opaque-\d+/gu,
+      ) ?? [],
+    );
+    let nextIdentity = 0;
+    const structuralPath = path
+      .split("/")
+      .map((segment) => {
+        try {
+          return encodeURIComponent(segment);
+        } catch (segmentCause: unknown) {
+          if (!(segmentCause instanceof URIError)) throw segmentCause;
+          let identity: string;
+          do identity = `rea-opaque-${nextIdentity++}`;
+          while (reserved.has(identity));
+          reserved.add(identity);
+          return identity;
+        }
+      })
+      .join("/");
     return err({
-      structuralUrl: new URL(
-        path.split("/").map(encodeStructuralPackageSegment).join("/"),
-        PACKAGE_ARTIFACT_ROOT_URL,
-      ),
+      structuralUrl: new URL(structuralPath, PACKAGE_ARTIFACT_ROOT_URL),
       limitation: `Package metadata path ${JSON.stringify(path)} contains an unpaired UTF-16 surrogate and cannot be represented as a URL.`,
     });
   }
@@ -151,8 +154,6 @@ interface PackageFileTarget {
   readonly url: URL;
   /** Structural validation remains possible when the inventory base has no URL identity. */
   readonly lookupLimitation?: string;
-  /** Final URL admission excludes an unrepresentable structural base. */
-  readonly encodedAdmissionPath?: string;
 }
 
 type CandidateResolution = {
@@ -700,7 +701,10 @@ const resolveLegacyEsmSubpath = (
     stripQueryAndFragment(htmlUrlText(subpath)),
   );
   if (declarationRejection !== null) return declarationRejection;
-  const metadataUrl = packageMetadataUrl(posix.join(directory, "package.json"));
+  const metadataUrl = packageMetadataUrl(
+    posix.join(directory, "package.json"),
+    subpath,
+  );
   const url = new URL(
     subpath,
     metadataUrl.ok ? metadataUrl.value : metadataUrl.error.structuralUrl,
@@ -709,14 +713,8 @@ const resolveLegacyEsmSubpath = (
     return unresolvedCandidate("rejected", [
       "The resolved candidate escapes the canonical artifact root.",
     ]);
-  const packageBase = new URL(
-    ".",
-    metadataUrl.ok ? metadataUrl.value : metadataUrl.error.structuralUrl,
-  ).pathname;
   const encodedPath = url.pathname.slice(
-    !metadataUrl.ok && url.pathname.startsWith(packageBase)
-      ? packageBase.length
-      : PACKAGE_ARTIFACT_ROOT_URL.pathname.length,
+    PACKAGE_ARTIFACT_ROOT_URL.pathname.length,
   );
   const rejected = rejectDeclaration(encodedPath);
   if (rejected !== null) return rejected;
@@ -791,9 +789,9 @@ const resolveExportTarget = (
         "The selected package URL contains encoded separator bytes.",
       ]),
     );
-  const encodedPath =
-    target.encodedAdmissionPath ??
-    target.url.pathname.slice(PACKAGE_ARTIFACT_ROOT_URL.pathname.length);
+  const encodedPath = target.url.pathname.slice(
+    PACKAGE_ARTIFACT_ROOT_URL.pathname.length,
+  );
   const rejected = rejectDeclaration(encodedPath);
   if (rejected !== null) return withTargetSource(rejected);
   const decoded = decodeModuleUrlPath(encodedPath);
@@ -1224,9 +1222,6 @@ const selectPackageExport = (
       ? {}
       : {
           lookupLimitation: selected.lookupLimitation,
-          ...(selected.encodedAdmissionPath === undefined
-            ? {}
-            : { encodedAdmissionPath: selected.encodedAdmissionPath }),
         }),
   };
 };
@@ -1288,7 +1283,7 @@ const selectStringPackageTarget = (
       `contains forbidden path segment ${JSON.stringify(forbidden)} before URL normalization`,
       mapKind,
     );
-  const metadataUrl = packageMetadataUrl(packagePath);
+  const metadataUrl = packageMetadataUrl(packagePath, value);
   const packageUrl = metadataUrl.ok
     ? metadataUrl.value
     : metadataUrl.error.structuralUrl;
@@ -1310,9 +1305,6 @@ const selectStringPackageTarget = (
       ? {}
       : {
           lookupLimitation: metadataUrl.error.limitation,
-          encodedAdmissionPath: url.pathname.slice(
-            new URL(".", packageUrl).pathname.length,
-          ),
         }),
   };
 };

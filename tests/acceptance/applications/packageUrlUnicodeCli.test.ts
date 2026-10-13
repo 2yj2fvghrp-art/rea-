@@ -90,6 +90,16 @@ const targets = {
     imports: "rejected",
     exports: "rejected",
   },
+  wtf8Reentry: {
+    value: ["./%2\te%2\te/%ED%A0%80/feature.js", "another-package"],
+    imports: "external",
+    exports: "rejected",
+  },
+  opaqueReentry: {
+    value: ["./%2\te%2\te/rea-op\taque-0/feature.js", "another-package"],
+    imports: "external",
+    exports: "rejected",
+  },
   structuralReentry: {
     value: "./%2\te%2\te/mapped/feature.js",
     imports: "rejected",
@@ -104,6 +114,16 @@ const requests = [
   },
   {
     specifier: "legacy/feature.js/.",
+    path: "",
+    status: "rejected" as const,
+  },
+  {
+    specifier: "legacy/../mapped/feature.js",
+    path: "node_modules/mapped/feature.js",
+    status: "legacy" as const,
+  },
+  {
+    specifier: "legacy/../mapped/feature.js/.",
     path: "",
     status: "rejected" as const,
   },
