@@ -2338,6 +2338,44 @@ describe("url-reference JavaScript artifact path resolution", () => {
 });
 
 describe("package exports pattern keys", () => {
+  it.each(["imports", "exports"] as const)(
+    "rejects a normalized pattern URL escaping its %s package",
+    (mapKind) => {
+      const files = fileMap([
+        file("app/pkg/main.js", "root"),
+        file(
+          "app/pkg/package.json",
+          "root",
+          JSON.stringify({
+            name: "fixture",
+            [mapKind]: {
+              [mapKind === "imports" ? "#x/*" : "./x/*"]: "./.%*/secret.js",
+            },
+          }),
+        ),
+        file("app/secret.js", "root"),
+      ]);
+      for (const moduleKind of ["import", "require"] as const) {
+        const outcome = resolve({
+          declaredPath: mapKind === "imports" ? "#x/2e" : "fixture/x/2e",
+          sourcePath: "app/pkg/main.js",
+          context: "module-specifier",
+          moduleKind,
+          files,
+        });
+        expect(outcome).toMatchObject({
+          resolution_status: "rejected",
+          resolved_path: null,
+        });
+        expect(outcome.limitations.join(" ")).toContain(
+          "escapes its package directory",
+        );
+        expect(outcome.limitations.join(" ")).toContain("./.%*/secret.js");
+        expect(outcome.limitations.join(" ")).toContain("./.%2e/secret.js");
+      }
+    },
+  );
+
   it("substitutes a simple wildcard key into its target", () => {
     const files = fileMap([
       file("app/src/consumer.js", "root"),
