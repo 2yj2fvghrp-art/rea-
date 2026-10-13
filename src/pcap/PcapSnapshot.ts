@@ -16,10 +16,8 @@ import {
   RegularFileAdmissionFailure,
   sameRegularFileState,
 } from "../filesystem/RegularFile.js";
-import {
-  PrivateRuntimeRoot,
-  PrivateRuntimeRootUnavailableError,
-} from "../process/PrivateRuntimeRoot.js";
+import { PrivateRuntimeRoot } from "../process/PrivateRuntimeRoot.js";
+import { PrivateRuntimeRootUnavailableError } from "../process/PrivateRuntimeRootUnavailableError.js";
 
 const OPERATION = "inspect_pcap_capture";
 const MAX_CAPTURE_BYTES = 2 * 1024 ** 3;
