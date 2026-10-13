@@ -4,7 +4,7 @@ set -euo pipefail
 
 VERSION=0.2.1
 NAME="dsh-rea-bundle-$VERSION.tgz"
-URL="https://github.com/xxxxxwater/rea/releases/download/dsh-v$VERSION/$NAME"
+URL="https://github.com/morluto/rea/releases/download/dsh-v$VERSION/$NAME"
 HOME_DIR="${DSH_HOME:-$HOME/.dsh}"
 BUNDLE_DIR="$HOME_DIR/plugin-packages"
 TARGET="$BUNDLE_DIR/$NAME"
@@ -18,7 +18,7 @@ absolute path to paste into DeepSeek Harness Desktop > Plugins > Add plugin.
 --install: run the installed Desktop-owned dsh command after fully quitting
            Desktop. The normal npm dsh cannot manage the reserved desktop profile.
 
-Do NOT add https://github.com/xxxxxwater/rea as a plugin! The Git repository
+Do NOT add https://github.com/morluto/rea as a plugin! The Git repository
 root is the build-required rea-agents CLI; pnpm correctly blocks its prepare
 script unless allowBuilds is weakened. Use the verified plugin .tgz instead.
 HELP
@@ -79,7 +79,7 @@ const config = JSON.parse(readFileSync(process.argv[2], "utf8"));
 const spec = config.dependencies?.["rea-agents"];
 if (typeof spec !== "string") process.exit(1);
 const normalized = decodeURIComponent(spec).replace(/^git\+/, "").replace(/\.git(?=#|$)/, "").replace(/\/$/, "");
-const untaggedRoot = /^(?:https?:\/\/github\.com\/|github:|git@github\.com:)xxxxxwater\/rea$/.test(normalized);
+const untaggedRoot = /^(?:https?:\/\/github\.com\/|github:|git@github\.com:)(?:xxxxxwater|morluto)\/rea$/.test(normalized);
 process.exit(untaggedRoot ? 0 : 1);
 NODE
 then

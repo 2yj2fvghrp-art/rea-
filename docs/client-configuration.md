@@ -264,7 +264,7 @@ Desktop profile to fix a disabled bundle.
 ### DeepSeek Harness Desktop: fix `ERR_PNPM_GIT_DEP_PREPARE_NOT_ALLOWED`
 
 **Cause.** If the error names `rea-agents@6.4.0` and downloads a Git archive
-like `https://codeload.github.com/xxxxxwater/rea/tar.gz/<commit>`, the
+like `https://codeload.github.com/morluto/rea/tar.gz/<commit>`, the
 Desktop plugin manager was given the **root REA repository** rather than the
 installable `dsh-rea-bundle` package. Root `rea-agents` has a Git
 `prepare` script. pnpm deliberately refuses it under its supply-chain
@@ -276,8 +276,8 @@ the root package to `allowBuilds`: it still would not be a Harness bundle.
 ```sh
 mkdir -p "$HOME/.dsh/plugin-packages"
 curl -fL --retry 3 -o "$HOME/.dsh/plugin-packages/dsh-rea-bundle-0.2.1.tgz" \
-  https://github.com/xxxxxwater/rea/releases/download/dsh-v0.2.1/dsh-rea-bundle-0.2.1.tgz
-curl -fL --retry 3 --output "$HOME/.dsh/plugin-packages/SHA256SUMS" https://github.com/xxxxxwater/rea/releases/download/dsh-v0.2.1/SHA256SUMS
+  https://github.com/morluto/rea/releases/download/dsh-v0.2.1/dsh-rea-bundle-0.2.1.tgz
+curl -fL --retry 3 --output "$HOME/.dsh/plugin-packages/SHA256SUMS" https://github.com/morluto/rea/releases/download/dsh-v0.2.1/SHA256SUMS
 (cd "$HOME/.dsh/plugin-packages" && shasum -a 256 -c SHA256SUMS)
 printf '%s\n' "$HOME/.dsh/plugin-packages/dsh-rea-bundle-0.2.1.tgz"
 ```
@@ -325,7 +325,7 @@ For a **direct install in Desktop → Plugins → Add plugin**, enter
 the **exact complete Git source**:
 
 ```text
-https://github.com/xxxxxwater/rea#dsh-plugin-v0.2.1
+https://github.com/morluto/rea#dsh-plugin-v0.2.1
 ```
 
 This immutable tag points to a separate root `dsh-rea-bundle` package
@@ -333,7 +333,7 @@ with `dsh.bundle` metadata, ready-to-run JavaScript and no Git
 `prepare` script. Its `rea-agents@6.4.0` dependency resolves from
 the npm registry as a prebuilt runtime.
 
-Using just `https://github.com/xxxxxwater/rea` instead downloads the
+Using just `https://github.com/morluto/rea` instead downloads the
 main repository's `rea-agents` CLI, not the plugin, and pnpm may
 report `ERR_PNPM_GIT_DEP_PREPARE_NOT_ALLOWED` on Git dependencies.
 **Do not approve scripts or modify `allowBuilds` to fix a wrong URL.**
@@ -341,7 +341,7 @@ report `ERR_PNPM_GIT_DEP_PREPARE_NOT_ALLOWED` on Git dependencies.
 Alternatively enter the Release's direct tarball address:
 
 ```text
-https://github.com/xxxxxwater/rea/releases/download/dsh-v0.2.1/dsh-rea-bundle-0.2.1.tgz
+https://github.com/morluto/rea/releases/download/dsh-v0.2.1/dsh-rea-bundle-0.2.1.tgz
 ```
 
 Both install sources are recognized as Git/tarball install specs by the
@@ -350,7 +350,7 @@ and fully restart Desktop. A CLI profile is separate; on a Web CLI
 installation use:
 
 ```sh
-dsh plugin --profile web add 'github:xxxxxwater/rea#dsh-plugin-v0.2.1'
+dsh plugin --profile web add 'github:morluto/rea#dsh-plugin-v0.2.1'
 dsh --profile web --dump-config
 ```
 

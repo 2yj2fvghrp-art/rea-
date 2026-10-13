@@ -191,7 +191,9 @@ function activate(info) {
       " existing bundle entries.",
   );
   console.log("Exact backup: " + backup);
-  console.log("Fully restart DeepSeek Harness Desktop, then run --verify.");
+  console.log(
+    "Fully restart DeepSeek Harness Desktop, then inspect mcp__rea__* tools in a live session.",
+  );
 }
 
 function verify(info) {

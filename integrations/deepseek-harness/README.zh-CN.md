@@ -22,6 +22,9 @@ dsh-rea-bundle**，将该包的开关**开启**，不是去修改 `rea-agents`
 
 ### 如果界面找不到开关：使用安全激活脚本（仅本机 macOS）
 
+候选版本 0.2.1 包含这个脚本。旧版 0.2.0 用户可继续使用 Desktop 的启用开关，
+或在候选版本完成验证并发布后升级。
+
 此脚本在当前仓库的
 [`scripts/activate-installed.mjs`](scripts/activate-installed.mjs)。
 它不会连接服务器，不会执行 pnpm、不会重新下载或重装 REA。
@@ -40,8 +43,8 @@ node "$HOME/.dsh/profiles/desktop/node_modules/dsh-rea-bundle/scripts/activate-i
 # 先从菜单中完全退出 DeepSeek Harness Desktop，然后执行：
 node "$HOME/.dsh/profiles/desktop/node_modules/dsh-rea-bundle/scripts/activate-installed.mjs" --activate
 
-# 重新打开 Desktop；运行时组合需在会话中检查工具发现：
-node "$HOME/.dsh/profiles/desktop/node_modules/dsh-rea-bundle/scripts/activate-installed.mjs" --verify
+# 重新打开 Desktop，在会话中检查 mcp__rea__* 工具。以下命令只检查存储的启用选择：
+node "$HOME/.dsh/profiles/desktop/node_modules/dsh-rea-bundle/scripts/activate-installed.mjs" --status
 ```
 
 其中 `node` 使用 Mac 本机已有的 Node.js（满足插件运行版本要求），
@@ -57,11 +60,11 @@ node "$HOME/.dsh/profiles/desktop/node_modules/dsh-rea-bundle/scripts/activate-i
 | --------------------------- | ------------------------------------------- |
 | `package.json.dependencies` | 有 `dsh-rea-bundle`                         |
 | `dsh.profile.bundles`       | 有且仅有一个 `dsh-rea-bundle`               |
-| 重启生成的 `cordis.yml`     | 有 `rea-launcher` 与 `rea-mcp`              |
+| 存储的 `cordis.yml`         | 空 loader 根，不能据此判断实际运行时组合    |
 | Desktop 的 Loader / 新会话  | `rea-mcp` 成功启动，出现 `mcp__rea__*` 工具 |
 
-`--verify` 只检查已启用与合成配置，不保证 MCP 子进程与工具真的就绪。
-如果前三项通过却仍无 REA 工具，应检查 Desktop 插件详情中的
+`--verify` 会报告运行时尚未验证，并返回非零状态；存储的配置不证明 MCP 已就绪。
+若已安装并启用却仍无 REA 工具，应检查 Desktop 插件详情中的
 `rea-mcp` 启动错误、所需的本机权限与 MCP 客户端状态，而不是重新安装。
 **170** 是之前安装的 `rea-agents@6.4.0` 在该次握手返回的工具数量，
 并非所有 Harness 版本都必须恰好暴露 170 个工具。
@@ -71,21 +74,21 @@ node "$HOME/.dsh/profiles/desktop/node_modules/dsh-rea-bundle/scripts/activate-i
 **直接复制整行地址到 DeepSeek Harness Desktop → 插件 → 添加插件**：
 
 ```text
-https://github.com/xxxxxwater/rea#dsh-plugin-v0.2.1
+https://github.com/morluto/rea#dsh-plugin-v0.2.1
 ```
 
 这个 `#dsh-plugin-v0.2.1` **不能省略**。它指向独立的、根目录
 就是 `dsh-rea-bundle` 的 Git 发行快照，具备 Harness 要求的
 `dsh.bundle`，并且没有 `prepare` 或其他安装期构建脚本。
 
-如果输入 `https://github.com/xxxxxwater/rea`（不含上述标签），
+如果输入 `https://github.com/morluto/rea`（不含上述标签），
 仍会安装仓库 `main` 上的 `rea-agents` CLI，触发
 `ERR_PNPM_GIT_DEP_PREPARE_NOT_ALLOWED`。**不要开放 `allowBuilds`**。
 
 也可以在「添加插件」直接输入这个 Release 安装包 URL：
 
 ```text
-https://github.com/xxxxxwater/rea/releases/download/dsh-v0.2.1/dsh-rea-bundle-0.2.1.tgz
+https://github.com/morluto/rea/releases/download/dsh-v0.2.1/dsh-rea-bundle-0.2.1.tgz
 ```
 
 这两个地址任选一个，不需要同时安装。安装后启用
@@ -98,7 +101,7 @@ https://github.com/xxxxxwater/rea/releases/download/dsh-v0.2.1/dsh-rea-bundle-0.
 ## Desktop 修复：`ERR_PNPM_GIT_DEP_PREPARE_NOT_ALLOWED`
 
 错误若出现 `rea-agents@6.4.0` 和
-`https://codeload.github.com/xxxxxwater/rea/tar.gz/...`，表示
+`https://codeload.github.com/morluto/rea/tar.gz/...`，表示
 Desktop 正在安装**整个 REA GitHub 仓库的 CLI**，不是 Harness 插件。
 根包需要 `prepare` 构建脚本，所以被 pnpm 的 `allowBuilds` 安全策略拒绝。
 **不要将 `rea-agents` 加入 `allowBuilds`**，也不要删除或重装 Desktop。
@@ -108,15 +111,15 @@ Desktop 正在安装**整个 REA GitHub 仓库的 CLI**，不是 Harness 插件�
 ```sh
 mkdir -p "$HOME/.dsh/plugin-packages"
 curl -fL --retry 3 -o "$HOME/.dsh/plugin-packages/dsh-rea-bundle-0.2.1.tgz" \
-  https://github.com/xxxxxwater/rea/releases/download/dsh-v0.2.1/dsh-rea-bundle-0.2.1.tgz
-curl -fL --retry 3 --output "$HOME/.dsh/plugin-packages/SHA256SUMS" https://github.com/xxxxxwater/rea/releases/download/dsh-v0.2.1/SHA256SUMS
+  https://github.com/morluto/rea/releases/download/dsh-v0.2.1/dsh-rea-bundle-0.2.1.tgz
+curl -fL --retry 3 --output "$HOME/.dsh/plugin-packages/SHA256SUMS" https://github.com/morluto/rea/releases/download/dsh-v0.2.1/SHA256SUMS
 (cd "$HOME/.dsh/plugin-packages" && shasum -a 256 -c SHA256SUMS)
 printf '%s\n' "$HOME/.dsh/plugin-packages/dsh-rea-bundle-0.2.1.tgz"
 ```
 
 校验显示 `OK` 后，打开 **DeepSeek Harness Desktop → 插件 → 添加插件**，
 粘贴最后打印的**本地 `.tgz` 文件绝对路径**进行安装，不要填
-`https://github.com/xxxxxwater/rea`，；带版本标签的插件 Git URL 和版本化 Release 压缩包 URL 也是受支持的安装来源。
+`https://github.com/morluto/rea`，；带版本标签的插件 Git URL 和版本化 Release 压缩包 URL 也是受支持的安装来源。
 安装并启用 `dsh-rea-bundle` 后，完全退出并重新打开 Desktop。
 
 如果之前的失败安装已经将 Git 依赖写进
@@ -154,8 +157,8 @@ Profile（它只属于 Electron 应用）。遇到这种提示时改用应用内
 # Node.js: ^22.19, ^24.11, or >=26; macOS/Linux
 npm install --global @deepseek-ai/dsh@latest pnpm@11
 
-curl -fL --retry 3 --output dsh-rea-bundle-0.2.1.tgz https://github.com/xxxxxwater/rea/releases/download/dsh-v0.2.1/dsh-rea-bundle-0.2.1.tgz
-curl -fL --retry 3 --output SHA256SUMS https://github.com/xxxxxwater/rea/releases/download/dsh-v0.2.1/SHA256SUMS
+curl -fL --retry 3 --output dsh-rea-bundle-0.2.1.tgz https://github.com/morluto/rea/releases/download/dsh-v0.2.1/dsh-rea-bundle-0.2.1.tgz
+curl -fL --retry 3 --output SHA256SUMS https://github.com/morluto/rea/releases/download/dsh-v0.2.1/SHA256SUMS
 shasum -a 256 -c SHA256SUMS
 
 dsh plugin --profile web add ./dsh-rea-bundle-0.2.1.tgz
@@ -221,9 +224,8 @@ GitHub CI 测试包括 Node/Cordis 插件合同、REA MCP 握手、
 真实 DeepSeek 付费模型调用、macOS Desktop 图形界面以及 Ghidra/IDA 等
 第三方分析工具的工作状态不在这组验证之内。
 
-Version 0.2.1 is a release candidate; its URLs become available only after publication.
-For Electron hosts, set `REA_DSH_NODE_PATH` to an installed standalone Node executable.
-`REA_DSH_TOOL_CALL_TIMEOUT_MS` selects the client timer (default 2147483647 ms);
-choose a value longer than the operation analysis budget and cleanup. Operations
-at the maximum timer boundary need a direct REA workflow because the client timer
-cannot exceed that boundary. Live native Desktop composition remains unverified.
+0.2.1 仍是候选版本，发布后对应 URL 才会可用。Electron 宿主需将
+`REA_DSH_NODE_PATH` 指向已安装的独立 Node 可执行文件。
+`REA_DSH_TOOL_CALL_TIMEOUT_MS` 设置客户端计时器（默认 2147483647 毫秒），
+应大于所选分析预算与清理时间。达到计时器上限的分析应直接使用 REA；
+客户端计时器不能超过该上限。原生 Desktop 运行时组合仍未完成验证。

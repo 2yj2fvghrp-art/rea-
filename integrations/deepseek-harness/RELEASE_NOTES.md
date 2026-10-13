@@ -8,13 +8,13 @@ containing the actual `dsh-rea-bundle` package at the Git checkout root.
 ## Desktop — paste into “Add plugin”
 
 ```text
-https://github.com/xxxxxwater/rea#dsh-plugin-v0.2.1
+https://github.com/morluto/rea#dsh-plugin-v0.2.1
 ```
 
 Or use the GitHub shorthand:
 
 ```text
-github:xxxxxwater/rea#dsh-plugin-v0.2.1
+github:morluto/rea#dsh-plugin-v0.2.1
 ```
 
 The `dsh-plugin-v0.2.1` tag points to a separate orphan Git commit containing
@@ -26,7 +26,7 @@ install the profile bundle without changing `allowBuilds`.
 Alternate direct Release asset, also accepted by the current plugin manager:
 
 ```text
-https://github.com/xxxxxwater/rea/releases/download/dsh-v0.2.1/dsh-rea-bundle-0.2.1.tgz
+https://github.com/morluto/rea/releases/download/dsh-v0.2.1/dsh-rea-bundle-0.2.1.tgz
 ```
 
 Install either one, not both. If your Desktop profile already contains the

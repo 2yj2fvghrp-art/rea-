@@ -19,6 +19,10 @@ post-install dialog without enabling can leave an installed, disabled bundle.
 Prefer **Desktop → Plugins → Installed plugins → dsh-rea-bundle → Enable**,
 then fully quit and restart Desktop.
 
+The packaged recovery helper is included in candidate 0.2.1; older installed
+0.2.0 bundles should use the Desktop enable switch, or update after the candidate
+is qualified and published.
+
 If the UI toggle is missing or unusable, use this repository's
 [`activate-installed.mjs`](scripts/activate-installed.mjs) recovery script
 on your **local Mac only**. It has a read-only default and makes no pnpm,
@@ -33,17 +37,18 @@ node "$HOME/.dsh/profiles/desktop/node_modules/dsh-rea-bundle/scripts/activate-i
 # Fully quit DeepSeek Harness Desktop first:
 node "$HOME/.dsh/profiles/desktop/node_modules/dsh-rea-bundle/scripts/activate-installed.mjs" --activate
 
-# Relaunch Desktop; live composition is checked through session tool discovery:
-node "$HOME/.dsh/profiles/desktop/node_modules/dsh-rea-bundle/scripts/activate-installed.mjs" --verify
+# Relaunch Desktop, inspect mcp__rea__* tools in a live session.
+# This command checks stored selection only:
+node "$HOME/.dsh/profiles/desktop/node_modules/dsh-rea-bundle/scripts/activate-installed.mjs" --status
 ```
 
 Successful activation prints the exact `package.json.rea-backup-...`
 backup path. Re-running `--activate` is idempotent. No extra `dsh` CLI
 installation or `allowBuilds` change is required. To restore the old
 profile, fully quit Desktop and restore the byte-for-byte original backup.
-The `--verify` result **only proves selected bundle + generated Cordis
-configuration**; confirm that the MCP subprocess starts and that a new
-Desktop session exposes `mcp__rea__*` separately. A prior local REA 6.4.0
+Stored selection does not prove effective runtime composition. `--verify`
+reports that runtime state as unverified and exits nonzero until a supported
+inspection path is qualified. Confirm tool discovery in a live Desktop session. A prior local REA 6.4.0
 handshake listed 170 tools, which is **not a universal runtime guarantee**.
 
 ## Desktop “Add plugin” — the supported Git installation spec
@@ -52,7 +57,7 @@ handshake listed 170 tools, which is **not a universal runtime guarantee**.
 into DeepSeek Harness Desktop → **Plugins → Add plugin**:
 
 ```text
-https://github.com/xxxxxwater/rea#dsh-plugin-v0.2.1
+https://github.com/morluto/rea#dsh-plugin-v0.2.1
 ```
 
 Do **not** paste the repository's untagged URL. It resolves to the
@@ -65,7 +70,7 @@ the current Desktop plugin manager; it does not require `allowBuilds`.
 Alternatively paste the versioned GitHub Release tarball URL directly:
 
 ```text
-https://github.com/xxxxxwater/rea/releases/download/dsh-v0.2.1/dsh-rea-bundle-0.2.1.tgz
+https://github.com/morluto/rea/releases/download/dsh-v0.2.1/dsh-rea-bundle-0.2.1.tgz
 ```
 
 The URL is a plugin-install source, not a page to open in the browser.
@@ -98,8 +103,8 @@ optional Ghidra, IDA or other analysis engines.
 # Node.js: ^22.19, ^24.11, or >=26; macOS/Linux
 npm install --global @deepseek-ai/dsh@latest pnpm@11
 
-curl -fL --retry 3 --output dsh-rea-bundle-0.2.1.tgz https://github.com/xxxxxwater/rea/releases/download/dsh-v0.2.1/dsh-rea-bundle-0.2.1.tgz
-curl -fL --retry 3 --output SHA256SUMS https://github.com/xxxxxwater/rea/releases/download/dsh-v0.2.1/SHA256SUMS
+curl -fL --retry 3 --output dsh-rea-bundle-0.2.1.tgz https://github.com/morluto/rea/releases/download/dsh-v0.2.1/dsh-rea-bundle-0.2.1.tgz
+curl -fL --retry 3 --output SHA256SUMS https://github.com/morluto/rea/releases/download/dsh-v0.2.1/SHA256SUMS
 shasum -a 256 -c SHA256SUMS
 
 dsh plugin --profile web add ./dsh-rea-bundle-0.2.1.tgz
@@ -127,7 +132,7 @@ unverified subdirectory fragment. Linked packages keep their own
 `node_modules`, so install the adapter's dependency before linking:
 
 ```sh
-git clone https://github.com/xxxxxwater/rea.git
+git clone https://github.com/morluto/rea.git
 cd rea
 npm install --prefix integrations/deepseek-harness --ignore-scripts
 dsh plugin --profile web add "$(pwd)/integrations/deepseek-harness"
@@ -140,7 +145,7 @@ follow the instructions in the next section.
 ### DeepSeek Harness Desktop: fix `ERR_PNPM_GIT_DEP_PREPARE_NOT_ALLOWED`
 
 **Cause.** If the error names `rea-agents@6.4.0` and downloads a Git archive
-like `https://codeload.github.com/xxxxxwater/rea/tar.gz/<commit>`, the
+like `https://codeload.github.com/morluto/rea/tar.gz/<commit>`, the
 Desktop plugin manager was given the **root REA repository** rather than the
 installable `dsh-rea-bundle` package. Root `rea-agents` has a Git
 `prepare` script. pnpm deliberately refuses it under its supply-chain
@@ -152,8 +157,8 @@ the root package to `allowBuilds`: it still would not be a Harness bundle.
 ```sh
 mkdir -p "$HOME/.dsh/plugin-packages"
 curl -fL --retry 3 -o "$HOME/.dsh/plugin-packages/dsh-rea-bundle-0.2.1.tgz" \
-  https://github.com/xxxxxwater/rea/releases/download/dsh-v0.2.1/dsh-rea-bundle-0.2.1.tgz
-curl -fL --retry 3 --output "$HOME/.dsh/plugin-packages/SHA256SUMS" https://github.com/xxxxxwater/rea/releases/download/dsh-v0.2.1/SHA256SUMS
+  https://github.com/morluto/rea/releases/download/dsh-v0.2.1/dsh-rea-bundle-0.2.1.tgz
+curl -fL --retry 3 --output "$HOME/.dsh/plugin-packages/SHA256SUMS" https://github.com/morluto/rea/releases/download/dsh-v0.2.1/SHA256SUMS
 (cd "$HOME/.dsh/plugin-packages" && shasum -a 256 -c SHA256SUMS)
 printf '%s\n' "$HOME/.dsh/plugin-packages/dsh-rea-bundle-0.2.1.tgz"
 ```
