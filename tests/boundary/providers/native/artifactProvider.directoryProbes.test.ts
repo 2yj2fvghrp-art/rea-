@@ -109,8 +109,8 @@ describe("directory inspection probes", () => {
         physicalCopy
           ? [
               "analyze_javascript_application",
-              "inspect_managed_artifact",
               "open_binary",
+              "inspect_managed_artifact",
               "inspect_plist",
             ]
           : ["analyze_javascript_application", "open_binary", "inspect_plist"],
