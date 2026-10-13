@@ -695,9 +695,10 @@ change the SDK's catalog invalidation or availability checks.
   `normalization` defaults to `{ "rules": [] }`.
 
 The advertised schema includes complete nested capture fields and rejects
-incomplete pairs and structurally malformed captures. Mixed comparison families
-can pass advertised validation; the SDK rejects them against the canonical
-input schema before invoking the handler. Domain validation additionally checks
+incomplete pairs and structurally malformed captures. Mixed comparison families,
+and `normalization` without both scenario captures, can pass advertised
+validation; the SDK rejects them against the canonical input schema before
+invoking the handler. Domain validation additionally checks
 relationships such as event sequence references and retained counts; JSON
 Schema does not express those cross-field invariants.
 
