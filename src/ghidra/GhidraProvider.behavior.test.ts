@@ -38,7 +38,7 @@ const INSTALL = "/opt/ghidra_12.1.4_PUBLIC";
 const installationHost = (): GhidraInstallationHost => ({
   platform: "linux",
   architecture: "x64",
-  readText: () => "application.version=12.1.4\n",
+  readText: () => "application.version=12.1.4\napplication.java.min=21\n",
   executable: () => true,
   probeJava: () => ({
     version: "21.0.11",
@@ -46,6 +46,7 @@ const installationHost = (): GhidraInstallationHost => ({
     home: "/usr/lib/jvm/jdk-21",
     bits: 64,
     runtime: "jdk",
+    vmName: "OpenJDK 64-Bit Server VM",
   }),
 });
 
@@ -599,6 +600,11 @@ describe("Ghidra client projection", () => {
       expect.objectContaining({
         runId: "11111111-1111-4111-8111-111111111111",
         platform: "linux",
+        launcher: expect.objectContaining({
+          options: expect.objectContaining({
+            javaVmName: "OpenJDK 64-Bit Server VM",
+          }),
+        }),
       }),
     ]);
     expect(toolCalls).toEqual([
@@ -756,6 +762,11 @@ describe("Ghidra result projection", () => {
       ok: false,
       error: { _tag: tag },
     });
+    if (!result.ok)
+      expect(projectAnalysisError(result.error)).toMatchObject({
+        code: "cancelled",
+        details: { diagnostics: { remote_code: code } },
+      });
   });
 
   it("returns cancellation before profile work", async () => {
@@ -1464,6 +1475,34 @@ const sessionInfo = () => ({
 });
 
 describe("Ghidra PDB coverage", () => {
+  it.each([
+    { name: "missing bridge report", pdb: undefined, warns: true },
+    {
+      name: "report without a PDB reference",
+      pdb: { file: null, guid: null, age: null, signature: null, version: null, loaded: null },
+      warns: false,
+    },
+  ])("distinguishes $name in direct PE searches", async ({ pdb, warns }) => {
+    const ghidra = provider(installationHost(), () => ({
+      start: () => Promise.resolve(ok(pdb === undefined ? sessionInfo() : { ...sessionInfo(), pdb })),
+      callTool: () => Promise.resolve(ok([])),
+      close: () => Promise.resolve(ok(null)),
+    }));
+    const target = executableTarget("pe", "x86_64");
+    const resolved = await ghidra.resolveAnalysisProfile(target);
+    if (!resolved.ok || resolved.value.profile === null)
+      throw new Error("Expected a PE profile");
+    const client = ghidra.createClient(target, resolved.value.profile);
+    try {
+      const searched = await client.execute("search_procedures", { pattern: "add_numbers" });
+      if (!searched.ok) throw searched.error;
+      expect(searched.value.result).toEqual([]);
+      const warnings = searched.value.limitations.filter((limitation) => limitation.includes("PDB"));
+      expect(warnings).toEqual(warns ? ["Ghidra did not report PDB attributes; debug-symbol coverage is unknown."] : []);
+    } finally {
+      await client.close();
+    }
+  });
   const pdb = {
     file: "C:\\build\\fixture.pdb",
     guid: "01234567-89AB-CDEF-0123-456789ABCDEF",
@@ -1748,7 +1787,10 @@ it("projects Ghidra startup failure and its incomplete cleanup together", async 
         diagnostics: {
           primary_error: {
             code: "provider_timeout",
-            details: { timeout_ms: 250 },
+            details: {
+              timeout_ms: 250,
+              diagnostics: { failure_kind: "timeout" },
+            },
           },
           cleanup_error: { code: "cleanup_incomplete" },
         },
