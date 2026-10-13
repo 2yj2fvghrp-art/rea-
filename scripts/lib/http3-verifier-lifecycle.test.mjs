@@ -4,7 +4,7 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { test } from "node:test";
 import { spawn } from "node:child_process";
-import { createHash, randomUUID } from "node:crypto";
+import { randomUUID } from "node:crypto";
 import { once } from "node:events";
 import { setTimeout } from "node:timers/promises";
 import { DatabaseSync } from "node:sqlite";
@@ -16,88 +16,7 @@ import {
 } from "./http3-verifier-lifecycle.mjs";
 import { cleanupOwnedProcessGroup } from "../../dist/process/ProcessOwnership.js";
 import { runOwnedCommand } from "../../dist/process/OwnedCommand.js";
-import {
-  verifyConcurrency,
-  verifyNormalRecords,
-} from "./http3-capture-assertions.mjs";
-
-function connectionFactsFixture() {
-  const body = Buffer.from([0, 255, 128, 1]);
-  const view = (bytes) => ({
-    base64: bytes.toString("base64"),
-    bytes: bytes.length,
-    sha256: createHash("sha256").update(bytes).digest("hex"),
-  });
-  const producer = {
-    id: "flow-id",
-    error: null,
-    request: { http_version: "HTTP/3", content: view(body) },
-    response: { http_version: "HTTP/3", content: view(body) },
-    client_conn: {
-      id: "client-id",
-      transport_protocol: "udp",
-      tls_version: "QUICv1",
-      timestamp_tls_setup: 1_700_000_000.125678,
-      error: null,
-    },
-    server_conn: {
-      id: "server-id",
-      transport_protocol: "udp",
-      tls_version: "QUICv1",
-      timestamp_tls_setup: 1_700_000_000.987654,
-      error: null,
-    },
-  };
-  const reported = structuredClone(producer);
-  reported.request.headers = [];
-  reported.response.headers = [];
-  reported.response.status_code = 200;
-  const binary_fields = [
-    ["/request/content", body],
-    ["/response/content", body],
-    ["/client_conn/alpn", Buffer.from("h3")],
-    ["/server_conn/alpn", Buffer.from("h3")],
-  ].map(([pointer, bytes]) => {
-    const { base64, ...facts } = view(bytes);
-    return {
-      pointer,
-      representation: "producer-bytes",
-      state: "retained",
-      content_base64: base64,
-      ...facts,
-    };
-  });
-  return {
-    normal: { records: [{ reported, binary_fields }] },
-    manifest: {
-      requests: { curl: { headers: [], body: view(body) } },
-      responses: { curl: { headers: [], body: view(body) } },
-    },
-    producer: [producer],
-  };
-}
-
-test("positive assertions retain exact producer connection facts on both legs", () => {
-  const { normal, manifest, producer } = connectionFactsFixture();
-  verifyNormalRecords(normal, manifest, producer);
-});
-
-for (const side of ["client_conn", "server_conn"])
-  for (const [field, value] of [
-    ["tls_version", null],
-    ["tls_version", "changed-producer-label"],
-    ["error", "changed-connection-error"],
-    ["error", undefined],
-    ["timestamp_tls_setup", 0],
-    ["timestamp_tls_setup", 1_700_000_000],
-  ])
-    test(`positive assertions reject ${side}.${field} changed to ${String(value)}`, () => {
-      const { normal, manifest, producer } = connectionFactsFixture();
-      normal.records[0].reported[side][field] = value;
-      assert.throws(() => verifyNormalRecords(normal, manifest, producer), {
-        code: "ERR_ASSERTION",
-      });
-    });
+import { verifyConcurrency } from "./http3-capture-assertions.mjs";
 
 async function waitForFile(path) {
   const signal = AbortSignal.timeout(5_000);

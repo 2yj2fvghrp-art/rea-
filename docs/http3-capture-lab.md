@@ -134,6 +134,8 @@ Acceptance for the current run:
   ordering is observed, while association is verified independent of their order.
 - CLI and MCP agree. Request/response bytes, lengths, SHA-256, ordered duplicate
   headers, method, scheme, authority and path match independent observations.
+  Readable header names and values, request URL fields and ALPN also match;
+  non-UTF-8 header bytes retain a null display value rather than replacement text.
 - Actual MCP advertised schemas validate, Evidence preserves source digests and
   provider provenance, and the complete returned Evidence matches the retained MCP session records.
 - The fallback capture reports client HTTP/2 over TCP and origin HTTP/1.1, with
@@ -170,11 +172,12 @@ Official references: [mitmproxy protocol support](https://github.com/mitmproxy/m
 After building REA, run these inside the same isolated guest:
 
 ```sh
-node --test scripts/lib/http3-verifier-lifecycle.test.mjs
+node --test scripts/lib/http3-verifier-lifecycle.test.mjs scripts/lib/http3-capture-assertions.test.mjs
 /absolute/lab/venv/bin/python scripts/fixtures/http3-lab.test.py
 ```
 
 These cover different QUIC stream completion orders, stale success reports,
 multiple failed closes, separately owned process groups and partially acquired
-resources, plus producer TLS fact mismatches on both legs. They test verifier
+resources, plus producer TLS fact mismatches on both legs and altered readable
+fields with unchanged binary evidence. They test verifier
 semantics; they do not add HTTP/3 provider coverage.

@@ -1,6 +1,12 @@
 import assert from "node:assert/strict";
 import { createHash } from "node:crypto";
+import { isUtf8 } from "node:buffer";
 const digest = (bytes) => createHash("sha256").update(bytes).digest("hex");
+// The native decoder displays strict UTF-8 and retains invalid bytes as null text.
+const textOf = (expected) => {
+  const value = Buffer.from(expected.base64, "base64");
+  return isUtf8(value) ? value.toString("utf8") : null;
+};
 const field = (record, pointer) =>
   record.binary_fields.find((item) => item.pointer === pointer);
 const bytes = (record, pointer) => {
@@ -38,6 +44,7 @@ const connectionH3 = (record, side) => {
   const conn = record.reported[side];
   assert.equal(conn.transport_protocol, "udp");
   assert.equal(bytes(record, `/${side}/alpn`).toString(), "h3");
+  assert.equal(conn.alpn, "h3", `${side}.alpn readable value`);
   assert.equal(typeof conn.timestamp_tls_setup, "number");
 };
 
@@ -49,6 +56,11 @@ function assertHeaders(record, side, headers) {
   for (const [index, pair] of regular.entries()) {
     binaryEqual(record, `/${side}/headers/${index}/0`, pair[0]);
     binaryEqual(record, `/${side}/headers/${index}/1`, pair[1]);
+    assert.deepEqual(
+      record.reported[side].headers[index],
+      pair.map(textOf),
+      `${side}.headers[${index}] readable values`,
+    );
   }
 }
 
@@ -118,8 +130,14 @@ export function verifyNormalRecords(normal, manifest, finalProducer) {
     };
     for (const [headerName, headerValue] of manifest.requests[name].headers) {
       const decodedName = Buffer.from(headerName.base64, "base64").toString();
-      if (pseudo[decodedName])
+      if (pseudo[decodedName]) {
         binaryEqual(record, `/request/${pseudo[decodedName]}`, headerValue);
+        assert.equal(
+          record.reported.request[pseudo[decodedName]],
+          textOf(headerValue),
+          `request.${pseudo[decodedName]} readable value`,
+        );
+      }
     }
   }
 }
