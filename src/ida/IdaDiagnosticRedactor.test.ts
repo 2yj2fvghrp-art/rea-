@@ -1,5 +1,8 @@
 import { describe, expect, it } from "vitest";
-import { createIdaDiagnosticRedactor } from "./IdaDiagnosticRedactor.js";
+import {
+  createIdaDiagnosticRedactor,
+  IDA_DIAGNOSTIC_SOURCE_BYTES,
+} from "./IdaDiagnosticRedactor.js";
 
 describe("IDA diagnostic credential redaction", () => {
   it.each([false, true])(
@@ -168,6 +171,196 @@ it("redacts full configured malformed headers without guessing their internal va
   );
 });
 
+const marker = "[redacted transport credential]";
+const redactorFor = (header: string, name = "Authorization") =>
+  createIdaDiagnosticRedactor({
+    url: "http://127.0.0.1:12345/mcp",
+    headers: { [name]: header },
+    mode: "attached",
+    timeoutMs: 1000,
+  });
+
+describe("IDA Basic authentication payload components", () => {
+  it.each(["aUtHoRiZaTiOn", "pRoXy-AuThOrIzAtIoN"])(
+    "protects decoded Basic pairs and passwords while preserving user names for %s",
+    (name) => {
+      const pair = "fixture-user:fixture-password:tail";
+      const encoded = Buffer.from(pair, "utf8").toString("base64");
+      const redactor = redactorFor("bAsIc " + encoded, name);
+      const reason =
+        "pair=" +
+        pair +
+        "; user=fixture-user; password=fixture-password:tail; wire=" +
+        encoded;
+      const safe =
+        "pair=" +
+        marker +
+        "; user=fixture-user; password=" +
+        marker +
+        "; wire=" +
+        marker;
+      expect(redactor.text(reason + "; path=/caller/input?token=visible")).toBe(
+        safe + "; path=/caller/input?token=visible",
+      );
+      expect(
+        redactor.json(JSON.stringify({ reason, path: "/caller/input" })),
+      ).toBe(JSON.stringify({ reason: safe, path: "/caller/input" }));
+    },
+  );
+
+  it.each([
+    [
+      ":fixture-password",
+      "pair=:fixture-password; password=fixture-password; empty values leave spaces",
+      "pair=" + marker + "; password=" + marker + "; empty values leave spaces",
+    ],
+    [
+      "fixture-user:",
+      "pair=fixture-user:; user=fixture-user; empty values leave spaces",
+      "pair=" + marker + "; user=fixture-user; empty values leave spaces",
+    ],
+    [
+      ":",
+      "pair=:; empty values leave spaces",
+      "pair=" + marker + "; empty values leave spaces",
+    ],
+  ])(
+    "protects a decoded pair with empty components: %s",
+    (pair, reason, safe) => {
+      const encoded = Buffer.from(pair, "utf8").toString("base64");
+      expect(redactorFor("Basic " + encoded).text(reason)).toBe(safe);
+    },
+  );
+});
+
+describe("IDA Basic authentication charset and invalid data", () => {
+  it("retains both strict UTF-8 and exact octet-compatible interpretations when charset is unknown", () => {
+    const pair = "tést-user:päss£word";
+    const bytes = Buffer.from(pair, "utf8");
+    const octets = bytes.toString("latin1");
+    const redactor = redactorFor("Basic " + bytes.toString("base64"));
+    const reason =
+      "utf8=" +
+      pair +
+      "; octets=" +
+      octets +
+      "; user=tést-user; password=päss£word; octet-user=tÃ©st-user; octet-password=pÃ¤ssÂ£word; caller=/caller/input";
+    expect(redactor.text(reason)).toBe(
+      "utf8=" +
+        marker +
+        "; octets=" +
+        marker +
+        "; user=tést-user; password=" +
+        marker +
+        "; octet-user=tÃ©st-user; octet-password=" +
+        marker +
+        "; caller=/caller/input",
+    );
+  });
+
+  it("preserves exact Latin-1 octets without inventing lossy UTF-8 replacement credentials", () => {
+    const bytes = Buffer.from("latin-user:pässword", "latin1");
+    const redactor = redactorFor("Basic " + bytes.toString("base64"));
+    expect(
+      redactor.text(
+        "latin-user:pässword / latin-user / pässword / p\ufffdssword /caller/input",
+      ),
+    ).toBe(
+      marker + " / latin-user / " + marker + " / p\ufffdssword /caller/input",
+    );
+  });
+
+  it("preserves a UTF-8 BOM as credential data rather than dropping it", () => {
+    const pair = "\ufefffixture-user:fixture-password";
+    const encoded = Buffer.from(pair, "utf8").toString("base64");
+    expect(
+      redactorFor("Basic " + encoded).text(pair + " / \ufefffixture-user"),
+    ).toBe(marker + " / \ufefffixture-user");
+  });
+
+  it("keeps decoded Basic values opaque without URL decoding", () => {
+    const encoded = Buffer.from("fixture-user:p%2Fsecret", "utf8").toString(
+      "base64",
+    );
+    expect(redactorFor("Basic " + encoded).text("p%2Fsecret / p/secret")).toBe(
+      marker + " / p/secret",
+    );
+  });
+
+  const canonical = Buffer.from(
+    "fixture-user:fixture-password",
+    "utf8",
+  ).toString("base64");
+  const alphabet =
+    "ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789+/";
+  const nonzeroPadBits = canonical.replace(
+    /(.)(=)$/u,
+    (_match, symbol: string, padding: string) =>
+      (alphabet[alphabet.indexOf(symbol) + 1] ?? "!") + padding,
+  );
+  it.each([
+    { name: "unpadded", payload: canonical.slice(0, -1) },
+    { name: "at most two padding characters", payload: canonical + "=" },
+  ])(
+    "accepts the supported normalized Basic Base64 spelling: $name",
+    ({ payload }) => {
+      const redactor = redactorFor("Basic " + payload);
+      expect(
+        redactor.text(
+          "fixture-user:fixture-password / fixture-password / fixture-user",
+        ),
+      ).toBe(marker + " / " + marker + " / fixture-user");
+    },
+  );
+
+  it.each([
+    {
+      name: "non-alphabet character",
+      payload: canonical.slice(0, 4) + "!" + canonical.slice(4),
+    },
+    {
+      name: "embedded whitespace",
+      payload: canonical.slice(0, 4) + " " + canonical.slice(4),
+    },
+    { name: "more than two pad characters", payload: canonical + "==" },
+    { name: "nonzero pad bits", payload: nonzeroPadBits },
+    {
+      name: "missing colon separator",
+      payload: Buffer.from("fixture-user", "utf8").toString("base64"),
+    },
+    {
+      name: "ASCII control in user-pass",
+      payload: Buffer.from("fixture-user:fixture-password\n", "utf8").toString(
+        "base64",
+      ),
+    },
+    {
+      name: "auth-param-shaped malformed Basic data",
+      payload: "credential=fixture-password",
+    },
+  ])("retains only opaque configured Basic data for $name", ({ payload }) => {
+    const header = "Basic " + payload;
+    const redactor = redactorFor(header);
+    expect(redactor.text(header + " / " + payload)).toBe(
+      marker + " / " + marker,
+    );
+    expect(redactor.text("fixture-user / fixture-password /caller/input")).toBe(
+      "fixture-user / fixture-password /caller/input",
+    );
+  });
+
+  it("does not decode another scheme's base64-shaped opaque payload", () => {
+    const encoded = Buffer.from(
+      "fixture-user:fixture-password",
+      "utf8",
+    ).toString("base64");
+    const redactor = redactorFor("Custom " + encoded);
+    expect(redactor.text(encoded + " / fixture-user / fixture-password")).toBe(
+      marker + " / fixture-user / fixture-password",
+    );
+  });
+});
+
 it("redacts protocol-decoded Basic credentials and password without treating ordinary names as secrets", () => {
   const redactor = createIdaDiagnosticRedactor({
     url: "http://127.0.0.1:12345/mcp",
@@ -196,5 +389,29 @@ it.each(["text", "json"] as const)(
     });
     const result = redactor[format]("Q".repeat(2 * 1024 * 1024));
     expect(result).toBe("[IDA diagnostic omitted: exceeds 65536 UTF-8 bytes]");
+  },
+);
+
+it.each(["text", "json"] as const)(
+  "applies the UTF-8 source-byte budget before %s processing even without credentials",
+  (format) => {
+    const atBudget = "£".repeat(IDA_DIAGNOSTIC_SOURCE_BYTES / 2);
+    const overBudget = atBudget + "£";
+    const configuredHeaders: readonly Readonly<Record<string, string>>[] = [
+      {},
+      { Cookie: "a=Q" },
+    ];
+    for (const headers of configuredHeaders) {
+      const redactor = createIdaDiagnosticRedactor({
+        url: "http://127.0.0.1:12345/mcp",
+        mode: "attached",
+        timeoutMs: 1000,
+        headers,
+      });
+      expect(redactor[format](atBudget)).toBe(atBudget);
+      expect(redactor[format](overBudget)).toBe(
+        "[IDA diagnostic omitted: exceeds 65536 UTF-8 bytes]",
+      );
+    }
   },
 );

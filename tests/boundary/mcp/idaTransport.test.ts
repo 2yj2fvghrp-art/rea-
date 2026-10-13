@@ -1,6 +1,9 @@
 import { createServer } from "node:http";
+import { inspect } from "node:util";
 import { ProtocolError } from "@modelcontextprotocol/client";
-import { afterEach, expect, it } from "vitest";
+import { afterEach, expect, it, vi } from "vitest";
+import { constants } from "node:buffer";
+import { IdaDiagnosticResourceError } from "../../../src/ida/IdaDiagnosticWriter.js";
 import { z } from "zod";
 import { AnalysisProtocolError } from "../../../src/domain/analysisErrorCore.js";
 import type { JsonValue } from "../../../src/domain/jsonValue.js";
@@ -8,6 +11,34 @@ import { projectAnalysisError } from "../../../src/domain/analysisErrorProjectio
 import { ProviderAdapterError } from "../../../src/domain/providerAdapterError.js";
 import { createIdaMcpConnection } from "../../../src/ida/IdaMcpConnection.js";
 import type { IdaMcpConnection } from "../../../src/ida/IdaMcpConnection.js";
+
+// Inject an owned capacity failure at the producer while retaining the real
+// SDK. Small writer-limit tests separately exercise actual expansion checks.
+vi.mock("../../../src/ida/IdaDiagnosticRedactor.js", async (importOriginal) => {
+  const actual =
+    await importOriginal<
+      typeof import("../../../src/ida/IdaDiagnosticRedactor.js")
+    >();
+  return {
+    ...actual,
+    createIdaDiagnosticRedactor: (
+      config: Parameters<typeof actual.createIdaDiagnosticRedactor>[0],
+    ) => {
+      const redactor = actual.createIdaDiagnosticRedactor(config);
+      return {
+        text: redactor.text,
+        json: (message: string) => {
+          if (message === "fixture-resource-boundary")
+            throw new IdaDiagnosticResourceError(
+              message.length,
+              constants.MAX_STRING_LENGTH + 1,
+            );
+          return redactor.json(message);
+        },
+      };
+    },
+  };
+});
 
 const cleanups: (() => Promise<void>)[] = [];
 afterEach(async () => {
@@ -29,9 +60,11 @@ type IdaTransportFixtureOptions = {
   readonly cycle?: boolean;
   readonly native?: boolean;
   readonly toolResult?: JsonValue;
+  readonly resourceResponseText?: string;
   readonly toolRpcError?: {
     readonly code: number;
     readonly message: string;
+    readonly data?: JsonValue;
   };
   readonly toolStatus?: number;
   readonly toolContentType?: string;
@@ -43,6 +76,7 @@ const fixture = async ({
   cycle = false,
   native = false,
   toolResult,
+  resourceResponseText,
   toolRpcError,
   toolStatus = 200,
   toolContentType = "application/json",
@@ -107,12 +141,14 @@ const fixture = async ({
                   {
                     uri: "ida://idb/metadata",
                     mimeType: "application/json",
-                    text: JSON.stringify({
-                      path: "/fixture/input.i64",
-                      sha256: "a".repeat(64),
-                      base: "0x1000",
-                      module: "input",
-                    }),
+                    text:
+                      resourceResponseText ??
+                      JSON.stringify({
+                        path: "/fixture/input.i64",
+                        sha256: "a".repeat(64),
+                        base: "0x1000",
+                        module: "input",
+                      }),
                   },
                 ],
               }
@@ -299,11 +335,55 @@ it.each([false, true])(
   },
 );
 
-const parsedCredentialCases: readonly {
-  label: string;
-  headers: Readonly<Record<string, string>>;
-  payloads: readonly string[];
-}[] = [
+type ParsedCredentialCase = {
+  readonly label: string;
+  readonly headers: Readonly<Record<string, string>>;
+  readonly payloads: readonly string[];
+};
+const basicCredentialCases: readonly ParsedCredentialCase[] = [
+  {
+    label: "decoded Basic ASCII credentials",
+    headers: {
+      Authorization:
+        "Basic " +
+        Buffer.from("basic-fixture-user:basic-fixture:password").toString(
+          "base64",
+        ),
+    },
+    payloads: [
+      "basic-fixture-user:basic-fixture:password",
+      "basic-fixture:password",
+    ],
+  },
+  {
+    label: "decoded Proxy Basic UTF-8 credentials",
+    headers: {
+      "Proxy-Authorization":
+        "bAsIc " +
+        Buffer.from("utf8-fixture-user:páss-fixture:☃", "utf8").toString(
+          "base64",
+        ),
+    },
+    payloads: ["utf8-fixture-user:páss-fixture:☃", "páss-fixture:☃"],
+  },
+  {
+    label: "decoded Basic Latin-1 credentials",
+    headers: {
+      Authorization:
+        "Basic " +
+        Buffer.from(
+          "latin-fixture-user:café-fixture:password",
+          "latin1",
+        ).toString("base64"),
+    },
+    payloads: [
+      "latin-fixture-user:café-fixture:password",
+      "café-fixture:password",
+    ],
+  },
+];
+const parsedCredentialCases: readonly ParsedCredentialCase[] = [
+  ...basicCredentialCases,
   {
     label: "Cookie values",
     headers: {
@@ -427,6 +507,7 @@ it.each<{
       'Digest response="q\\\"uote", opaque="back\\\\slash"',
     ],
   },
+  ...basicCredentialCases,
 ])(
   "redacts $label echoed in an HTTP failure through the SDK rejection path",
   async ({ headers, payloads }) => {
@@ -743,3 +824,146 @@ it("redacts a JSON-RPC error exactly once after successful HTTP delivery", async
   ).toHaveLength(1);
   expect(failure.message).not.toContain("[[redacted");
 });
+
+it.each([
+  "<cause-fixture-secret>",
+  String.raw`\u003ccause-fixture-secret\u003e`,
+])(
+  "does not retain sensitive malformed HTTP JSON in inspected causes: %s",
+  async (wire) => {
+    const { connection } = await fixture({
+      configurationHeaders: { Cookie: "session=<cause-fixture-secret>" },
+      toolResponseBody: '{"reason":"Rejected ' + wire + " at /caller/input",
+    });
+    await connection.connect();
+    const failure = await connection
+      .call("first", {})
+      .catch((cause: unknown) => cause);
+    if (!(failure instanceof Error))
+      throw new Error("Expected malformed JSON rejection");
+    expect(failure.message).toContain(
+      "[redacted transport credential] at /caller/input",
+    );
+    const inspected = inspect(failure, {
+      depth: null,
+      showHidden: true,
+      maxStringLength: null,
+    });
+    for (const value of [
+      "<cause-fixture-secret>",
+      wire,
+      JSON.stringify(wire).slice(1, -1),
+    ])
+      expect(inspected).not.toContain(value);
+  },
+);
+
+it("retains safe JSON-RPC code and message without unknown remote cause data", async () => {
+  const { connection } = await fixture({
+    configurationHeaders: { Authorization: "Bearer rpc-cause-fixture-secret" },
+    toolRpcError: {
+      code: -32602,
+      message: "Rejected request at /caller/input",
+      data: {
+        echo: "rpc-cause-fixture-secret",
+        nested: { caller: "/caller/input" },
+      },
+    },
+  });
+  await connection.connect();
+  const failure = await connection
+    .call("first", {})
+    .catch((cause: unknown) => cause);
+  if (!(failure instanceof Error))
+    throw new Error("Expected JSON-RPC rejection");
+  expect(failure.message).toContain("Rejected request at /caller/input");
+  expect(failure.cause).toBeInstanceOf(ProtocolError);
+  expect(failure.cause).toMatchObject({ code: -32602 });
+  expect(inspect(failure, { depth: null, showHidden: true })).not.toContain(
+    "rpc-cause-fixture-secret",
+  );
+});
+
+it.each([
+  "text/html",
+  "application/problem+xml",
+  "application/octet-stream",
+  "text/plain; charset=utf-16",
+  "not a media type",
+])(
+  "omits HTTP error bodies whose declared encoding is unsupported: %s",
+  async (toolContentType) => {
+    const body =
+      "<error>&lt;format-fixture-secret&gt;&amp;/fixture at /caller/input</error>";
+    const { connection } = await fixture({
+      configurationHeaders: {
+        Cookie: "session=<format-fixture-secret>&/fixture",
+      },
+      toolStatus: 500,
+      toolContentType,
+      toolResponseBody: body,
+    });
+    await connection.connect();
+    const failure = await connection
+      .call("first", {})
+      .catch((cause: unknown) => cause);
+    if (!(failure instanceof Error)) throw new Error("Expected HTTP error");
+    expect(failure.message).toMatch(/body.*omitted|omitted.*body/iu);
+    expect(failure.cause).toMatchObject({ data: { status: 500 } });
+    const inspected = inspect(failure, {
+      depth: null,
+      showHidden: true,
+      maxStringLength: null,
+    });
+    expect(inspected).not.toContain(body);
+    expect(inspected).not.toContain("format-fixture-secret");
+  },
+);
+
+it.each(["native tool", "resource"] as const)(
+  "does not retain the producer JSON parse cause for %s text",
+  async (source) => {
+    const malformedText = '["token",x]';
+    const { connection } = await fixture({
+      native: true,
+      configurationHeaders: { Authorization: "Bearer token" },
+      ...(source === "native tool"
+        ? { toolResult: { content: [{ type: "text", text: malformedText }] } }
+        : { resourceResponseText: malformedText }),
+    });
+    await connection.connect();
+    const failure = await (
+      source === "native tool"
+        ? connection.call("first", {})
+        : connection.readResource?.("ida://idb/metadata")
+    )?.catch((cause: unknown) => cause);
+    expect(failure).toBeInstanceOf(AnalysisProtocolError);
+    expect(inspect(failure, { depth: null, showHidden: true })).not.toContain(
+      "token",
+    );
+  },
+);
+
+it.each([200, 500])(
+  "preserves owned diagnostic capacity failures through HTTP %s SDK handling",
+  async (toolStatus) => {
+    const { connection } = await fixture({
+      toolStatus,
+      toolResponseBody: "fixture-resource-boundary",
+    });
+    await connection.connect();
+    const failure = await connection
+      .call("first", {})
+      .catch((cause: unknown) => cause);
+    expect(failure).toBeInstanceOf(IdaDiagnosticResourceError);
+    if (!(failure instanceof IdaDiagnosticResourceError))
+      throw new Error("Expected an owned diagnostic capacity failure");
+    expect(projectAnalysisError(failure)).toMatchObject({
+      code: "resource_constraint",
+      details: {
+        resource: "memory",
+        reported_limits: { boundary: "ida-diagnostic-redaction" },
+      },
+    });
+  },
+);

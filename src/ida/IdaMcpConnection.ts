@@ -1,8 +1,10 @@
 import { MIMEType } from "node:util";
 import { createIdaDiagnosticRedactor } from "./IdaDiagnosticRedactor.js";
+import { IdaDiagnosticResourceError } from "./IdaDiagnosticWriter.js";
 import { snapshotEnvironment } from "../process/snapshotEnvironment.js";
 import {
   Client,
+  ProtocolError,
   SdkHttpError,
   StreamableHTTPClientTransport,
 } from "@modelcontextprotocol/client";
@@ -51,10 +53,8 @@ const parseIdaJsonText = (text: string): JsonValue => {
   let value: unknown;
   try {
     value = JSON.parse(text);
-  } catch (cause: unknown) {
-    throw new AnalysisProtocolError("IDA MCP returned malformed JSON text.", {
-      cause,
-    });
+  } catch {
+    throw new AnalysisProtocolError("IDA MCP returned malformed JSON text.");
   }
   return jsonValueSchema.parse(value);
 };
@@ -112,17 +112,83 @@ export const decodeIdaToolResult = (
   return values[0] ?? null;
 };
 
-// Preserve the HTTP body at its decoding boundary. Native SyntaxError messages
-// add display quoting/truncation and cannot recover the original JSON tokens.
+// Retain only producer-sanitized JSON diagnostics, never a native parser cause.
 class IdaHttpJsonError extends Error {
-  readonly text: string;
-  constructor(text: string) {
-    // Native SyntaxError display can itself quote raw credential-bearing text.
+  constructor(readonly text: string) {
     super("IDA MCP returned malformed HTTP JSON.");
-    this.text = text;
   }
 }
 
+type IdaDiagnosticRedactor = ReturnType<typeof createIdaDiagnosticRedactor>;
+
+const httpErrorBody = (
+  response: Response,
+  text: string,
+  redactor: IdaDiagnosticRedactor,
+): string => {
+  const omitted =
+    "IDA MCP response body omitted: unsupported or unknown format or character encoding.";
+  const contentType = response.headers.get("content-type");
+  if (contentType === null) return omitted;
+  let mediaType: MIMEType;
+  try {
+    mediaType = new MIMEType(contentType);
+  } catch {
+    return omitted;
+  }
+  const charset = mediaType.params.get("charset")?.toLowerCase();
+  if (
+    charset !== undefined &&
+    !["utf-8", "utf8", "us-ascii", "ascii"].includes(charset)
+  )
+    return omitted;
+  if (mediaType.subtype === "json" || mediaType.subtype.endsWith("+json"))
+    return redactor.json(text);
+  if (mediaType.essence === "text/plain") return redactor.text(text);
+  return omitted;
+};
+
+const diagnosticFetch =
+  (redactor: IdaDiagnosticRedactor): typeof fetch =>
+  async (input, init) => {
+    const response = await fetch(input, init);
+    const readText = response.text.bind(response);
+    let safeBody: string | undefined;
+    if (!response.ok) {
+      // Normalize before the SDK can swallow a body-consumer failure or drop
+      // its format metadata. Both consumers use this one owned diagnostic.
+      safeBody = httpErrorBody(response, await readText(), redactor);
+      const body = safeBody;
+      Object.defineProperty(response, "text", {
+        value: async (): Promise<string> => body,
+      });
+    }
+    // Successful JSON remains lazy, and SSE keeps its original body stream.
+    Object.defineProperty(response, "json", {
+      value: async (): Promise<unknown> => {
+        const text = safeBody ?? (await readText());
+        try {
+          const value: unknown = JSON.parse(text);
+          return value;
+        } catch {
+          throw new IdaHttpJsonError(safeBody ?? redactor.json(text));
+        }
+      },
+    });
+    return response;
+  };
+
+const retainedTransportCause = (cause: unknown, message: string): Error => {
+  // Do not clone arbitrary upstream fields, stacks, data or nested causes.
+  if (cause instanceof SdkHttpError)
+    return new SdkHttpError(cause.code, message, {
+      status: cause.data.status,
+      statusText: "",
+    });
+  if (cause instanceof ProtocolError)
+    return new ProtocolError(cause.code, message);
+  return new Error(message);
+};
 /** Create a standard SDK connection to an existing upstream registration. */
 export const createIdaMcpConnection = (
   config: IdaConfiguration,
@@ -131,6 +197,7 @@ export const createIdaMcpConnection = (
   const client = new Client({ name: "rea-ida-provider", version: "1" });
   const redactor = createIdaDiagnosticRedactor(config);
   const transportFailure = (cause: unknown): never => {
+    if (cause instanceof IdaDiagnosticResourceError) throw cause;
     if (cause instanceof IdaHttpJsonError)
       throw new Error(`${cause.message} Response body: ${cause.text}`, {
         cause,
@@ -146,8 +213,9 @@ export const createIdaMcpConnection = (
       typeof body === "string" && body.length > 0 && message.includes(body)
         ? message.split(body).map(redactor.text).join(body)
         : redactor.text(message);
-    // The original SDK error may retain unredacted credential-bearing fields.
-    throw new Error(safeMessage);
+    throw new Error(safeMessage, {
+      cause: retainedTransportCause(cause, safeMessage),
+    });
   };
   const transport =
     "command" in config
@@ -172,46 +240,7 @@ export const createIdaMcpConnection = (
         })
       : new StreamableHTTPClientTransport(new URL(config.url), {
           requestInit: { headers: config.headers, redirect: "error" },
-          fetch: async (input, init) => {
-            const response = await fetch(input, init);
-            const readText = response.text.bind(response);
-            if (!response.ok) {
-              let redactBody = redactor.text;
-              const contentType = response.headers.get("content-type");
-              if (contentType !== null) {
-                try {
-                  const { subtype, essence } = new MIMEType(contentType);
-                  if (subtype === "json" || subtype.endsWith("+json"))
-                    redactBody = redactor.json;
-                  else if (essence !== "text/plain")
-                    redactBody = () =>
-                      "[IDA HTTP error body omitted: unsupported diagnostic media type]";
-                } catch {
-                  // An unknown format provides no JSON interpretation.
-                }
-              }
-              // The SDK retains text but drops response headers when making
-              // its HTTP error. Apply the known format before that boundary.
-              Object.defineProperty(response, "text", {
-                value: async (): Promise<string> =>
-                  redactBody(await readText()),
-              });
-            }
-            // Read once, only when the SDK requests JSON. Other response
-            // consumers, including SSE, keep their transport semantics.
-            Object.defineProperty(response, "json", {
-              value: async (): Promise<unknown> => {
-                const text = await readText();
-                try {
-                  const value: unknown = JSON.parse(text);
-                  return value;
-                } catch {
-                  throw new IdaHttpJsonError(redactor.json(text));
-                }
-              },
-            });
-            return response;
-          },
+          fetch: diagnosticFetch(redactor),
         });
   // Drain proxy diagnostics without persisting ambient environment or transport credentials.
   if (transport instanceof StdioClientTransport)

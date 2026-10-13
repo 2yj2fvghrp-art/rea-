@@ -1,34 +1,65 @@
+import { redactIdaJsonDiagnostic } from "./IdaJsonDiagnostic.js";
 import {
-  IDA_REDACTION_MARKER,
-  redactIdaJsonDiagnostic,
-} from "./IdaJsonDiagnostic.js";
+  writeIdaDiagnostic,
+  type IdaDiagnosticMatch,
+} from "./IdaDiagnosticWriter.js";
 import type { IdaConfiguration } from "./IdaConfiguration.js";
 
-// Error reporting retains bounded diagnostic text, never complete observations.
-// Bound before JSON decoding, match materialization, and replacement expansion.
+// Diagnostic text is bounded before decoding or replacement expansion.
 export const IDA_DIAGNOSTIC_SOURCE_BYTES = 64 * 1024;
 const omittedDiagnostic = "[IDA diagnostic omitted: exceeds 65536 UTF-8 bytes]";
 
+const boundedDiagnostic =
+  (redact: (message: string) => string) =>
+  (message: string): string =>
+    Buffer.byteLength(message, "utf8") > IDA_DIAGNOSTIC_SOURCE_BYTES
+      ? omittedDiagnostic
+      : redact(message);
+
+/** RFC 7617 user-pass candidates; the configured request carries no charset. */
+const basicPayloads = (payload: string): readonly string[] => {
+  if (!/^[A-Za-z\d+/]+={0,2}$/u.test(payload)) return [];
+  const octets = Buffer.from(payload, "base64");
+  // Match the supported padded/unpadded policy without accepting Buffer's
+  // permissive alphabet or discarding nonzero pad bits.
+  if (
+    octets.toString("base64").replace(/=+$/u, "") !==
+      payload.replace(/=+$/u, "") ||
+    octets.indexOf(0x3a) < 0
+  )
+    return [];
+  // Basic user-id and password exclude ASCII control characters.
+  if (octets.some((value) => value < 0x20 || value === 0x7f)) return [];
+  const candidates = [octets.toString("latin1")];
+  try {
+    candidates.push(
+      new TextDecoder("utf-8", { fatal: true, ignoreBOM: true }).decode(octets),
+    );
+  } catch {
+    // Invalid UTF-8 has no decoded Unicode candidate. Exact Latin-1 preserves
+    // each octet; do not invent a replacement-character credential.
+  }
+  // The default charset is unknown. Retain both supported interpretations
+  // rather than selecting one or normalizing their configured source bytes.
+  return candidates.flatMap((pair) => {
+    const separator = pair.indexOf(":");
+    // The complete pair and password are credentials; a bare user-id is not.
+    return [pair, pair.slice(separator + 1)].filter(
+      (value) => value.length > 0,
+    );
+  });
+};
+
 /** RFC 9110 credentials: any scheme, followed by opaque data or auth-params. */
 const authorizationPayloads = (header: string): readonly string[] => {
-  const payload = header.match(
-    /^[!#$%&'*+.^_`|~\dA-Za-z-]+[ \t]+([\s\S]+)$/u,
-  )?.[1];
+  const credentials = header.match(
+    /^([!#$%&'*+.^_`|~\dA-Za-z-]+)[ \t]+([\s\S]+)$/u,
+  );
+  const payload = credentials?.[2];
   if (payload === undefined) return [];
+  if (credentials?.[1]?.toLowerCase() === "basic")
+    return [payload, ...basicPayloads(payload)];
   const values = [payload];
-  if (/^basic[ \t]/iu.test(header) && /^[A-Za-z\d+/]+={0,2}$/u.test(payload)) {
-    const bytes = Buffer.from(payload, "base64");
-    if (
-      bytes.toString("base64").replace(/=+$/u, "") ===
-      payload.replace(/=+$/u, "")
-    ) {
-      for (const encoding of ["utf8", "latin1"] as const) {
-        const decoded = bytes.toString(encoding);
-        const colon = decoded.indexOf(":");
-        if (colon >= 0) values.push(decoded, decoded.slice(colon + 1));
-      }
-    }
-  }
   // A sticky parse cannot reinterpret commas inside an incomplete quoted value.
   // Keep complete parameters preceding malformed input; the opaque payload above
   // remains a known credential even when the parameter grammar is not satisfied.
@@ -92,36 +123,26 @@ export const createIdaDiagnosticRedactor = (
   const secrets = [...new Set(values.filter((value) => value.length > 0))].sort(
     (left, right) => right.length - left.length,
   );
-  if (secrets.length === 0)
-    return {
-      text: (message) =>
-        Buffer.byteLength(message) > IDA_DIAGNOSTIC_SOURCE_BYTES
-          ? omittedDiagnostic
-          : message,
-      json: (message) =>
-        Buffer.byteLength(message) > IDA_DIAGNOSTIC_SOURCE_BYTES
-          ? omittedDiagnostic
-          : message,
-    };
+  if (secrets.length === 0) {
+    const unchanged = boundedDiagnostic((message) => message);
+    return { text: unchanged, json: unchanged };
+  }
   const pattern = new RegExp(
     secrets
       .map((secret) => secret.replace(/[.*+?^${}()|[\]\\]/gu, "\\$&"))
       .join("|"),
     "gu",
   );
+  const matches = function* (value: string): Iterable<IdaDiagnosticMatch> {
+    for (const match of value.matchAll(pattern))
+      yield { start: match.index, end: match.index + match[0].length };
+  };
   return {
-    text: (message) =>
-      Buffer.byteLength(message) > IDA_DIAGNOSTIC_SOURCE_BYTES
-        ? omittedDiagnostic
-        : message.replace(pattern, IDA_REDACTION_MARKER),
-    json: (message) =>
-      Buffer.byteLength(message) > IDA_DIAGNOSTIC_SOURCE_BYTES
-        ? omittedDiagnostic
-        : redactIdaJsonDiagnostic(message, (value) =>
-            [...value.matchAll(pattern)].map((match) => ({
-              start: match.index,
-              end: match.index + match[0].length,
-            })),
-          ),
+    text: boundedDiagnostic((message) =>
+      writeIdaDiagnostic(message, matches(message)),
+    ),
+    json: boundedDiagnostic((message) =>
+      redactIdaJsonDiagnostic(message, matches),
+    ),
   };
 };

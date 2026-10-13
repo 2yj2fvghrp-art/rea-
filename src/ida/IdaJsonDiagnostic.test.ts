@@ -1,5 +1,28 @@
-import { describe, expect, it } from "vitest";
+import { afterEach, describe, expect, it, vi } from "vitest";
+import { projectAnalysisError } from "../domain/analysisErrorProjection.js";
+import {
+  IdaDiagnosticResourceError,
+  writeIdaDiagnostic,
+} from "./IdaDiagnosticWriter.js";
 import { createIdaDiagnosticRedactor } from "./IdaDiagnosticRedactor.js";
+import { redactIdaJsonDiagnostic } from "./IdaJsonDiagnostic.js";
+
+const runtime = vi.hoisted(() => ({ limit: undefined as number | undefined }));
+vi.mock("node:buffer", async (importOriginal) => {
+  const original = await importOriginal<typeof import("node:buffer")>();
+  return {
+    ...original,
+    constants: {
+      ...original.constants,
+      get MAX_STRING_LENGTH() {
+        return runtime.limit ?? original.constants.MAX_STRING_LENGTH;
+      },
+    },
+  };
+});
+afterEach(() => {
+  runtime.limit = undefined;
+});
 
 const marker = "[redacted transport credential]";
 const forCredential = (credential: string) =>
@@ -159,5 +182,92 @@ describe("IDA JSON diagnostic source preservation", () => {
       timeoutMs: 1000,
     });
     expect(redactor.json(source)).toBe(source);
+  });
+});
+
+describe("IDA diagnostic output resource bounds", () => {
+  it.each(["text", "json"] as const)(
+    "bounds %s expansion using the runtime string limit",
+    (format) => {
+      runtime.limit = 64;
+      const redactor = forCredential("Q");
+      const prefix = format === "json" ? '"' : "";
+      const suffix = prefix;
+      expect(redactor[format](prefix + "QQ" + suffix)).toBe(
+        prefix + marker + marker + suffix,
+      );
+      let failure: unknown;
+      try {
+        redactor[format](prefix + "QQQ" + suffix);
+      } catch (cause: unknown) {
+        failure = cause;
+      }
+      expect(failure).toBeInstanceOf(IdaDiagnosticResourceError);
+      if (!(failure instanceof IdaDiagnosticResourceError))
+        throw new Error("Expected an owned diagnostic resource failure");
+      expect(failure.reportedLimits).toMatchObject({
+        boundary: "ida-diagnostic-redaction",
+        max_string_code_units: 64,
+      });
+      expect(projectAnalysisError(failure)).toMatchObject({
+        code: "resource_constraint",
+        details: { resource: "memory" },
+      });
+    },
+  );
+
+  it("bounds temporary JSON character decoding before wrapping an oversized run", () => {
+    runtime.limit = 64;
+    const redactor = forCredential("Z");
+    expect(redactor.json("Q".repeat(62))).toBe("Q".repeat(62));
+    let failure: unknown;
+    try {
+      redactor.json("Q".repeat(63));
+    } catch (cause: unknown) {
+      failure = cause;
+    }
+    expect(failure).toBeInstanceOf(IdaDiagnosticResourceError);
+    if (!(failure instanceof IdaDiagnosticResourceError))
+      throw new Error("Expected a temporary decoding resource failure");
+    expect(failure.message).toContain("Temporary");
+    expect(failure.reportedLimits).toEqual({
+      boundary: "ida-diagnostic-redaction",
+      representation: "json-character-run",
+      input_code_units: 63,
+      json_decoding_code_units_at_least: 65,
+      max_string_code_units: 64,
+    });
+  });
+
+  it("closes the first match stream if priming the second stream fails", () => {
+    runtime.limit = 64;
+    const source = "Q".repeat(63);
+    let closed = false;
+    function* matches() {
+      try {
+        yield { start: 0, end: 1 };
+      } finally {
+        closed = true;
+      }
+    }
+    expect(() => redactIdaJsonDiagnostic(source, matches)).toThrow(
+      IdaDiagnosticResourceError,
+    );
+    expect(closed).toBe(true);
+  });
+
+  it("stops consuming a lazy match stream before oversized output is allocated", () => {
+    runtime.limit = 32;
+    let consumed = 0;
+    function* matches() {
+      for (let index = 0; index < 10000; index++) {
+        consumed++;
+        yield { start: index, end: index + 1 };
+      }
+    }
+    expect(() => writeIdaDiagnostic("Q".repeat(10000), matches())).toThrow(
+      IdaDiagnosticResourceError,
+    );
+    expect(consumed).toBeLessThan(10);
   });
 });
