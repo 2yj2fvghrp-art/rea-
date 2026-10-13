@@ -760,7 +760,11 @@ override in `analyzer_preset` (for example
 open when its committed profile and the setting differ. A name starts with a
 letter or digit and contains only letters, digits, spaces, periods, underscores,
 and hyphens; at most 32 names are admitted, each at most 120 characters.
-Disabling an analyzer skips the facts it would have produced.
+Disabling an analyzer skips the facts it would have produced. The pre-script
+fails closed: if a name does not match a registered analyzer of the program, or
+an option cannot be read back as disabled, Ghidra headless aborts before
+auto-analysis instead of running the analyzer under a profile that claims it was
+disabled.
 
 ### Ghidra heap and CPU controls
 
