@@ -19,6 +19,7 @@ import {
 } from "./ManagedMetadataInventory.js";
 import { readManagedMetadataLayout } from "./ManagedMetadataLayout.js";
 import {
+  appendManagedParseIssues,
   ManagedReaderFailure,
   uniqueManagedParseIssues,
 } from "./ManagedReaderFailure.js";
@@ -161,7 +162,7 @@ export const inspectManagedMembersBytes = (
   const issues: ManagedParseIssue[] = [];
   try {
     const { layout, inventory } = readMemberInventory(bytes, pe, issues);
-    issues.push(...inventory.issues);
+    appendManagedParseIssues(issues, inventory.issues);
     const ranges = typeRanges(bytes, layout, issues);
     const {
       tokens: selected,
@@ -169,12 +170,12 @@ export const inspectManagedMembersBytes = (
       unreadableNames,
     } = selectTypes(ranges, typeNames);
     const parsedTypes = parseTypes(bytes, layout, ranges);
-    issues.push(...parsedTypes.issues);
+    appendManagedParseIssues(issues, parsedTypes.issues);
     const exportedTypes = parseExportedTypes(bytes, layout);
-    issues.push(...exportedTypes.issues);
+    appendManagedParseIssues(issues, exportedTypes.issues);
     const fields = parseFields(bytes, layout, ranges, selected);
     const memberRefs = parseMemberRefs(bytes, layout);
-    issues.push(...memberRefs.issues);
+    appendManagedParseIssues(issues, memberRefs.issues);
     const methods = parseMethods({
       bytes,
       layout,
@@ -182,9 +183,9 @@ export const inspectManagedMembersBytes = (
       ranges,
       selected,
     });
-    issues.push(...fields.issues, ...methods.issues);
+    appendManagedParseIssues(issues, fields.issues, methods.issues);
     const userStrings = parseUserStrings(bytes, layout, methods.methods);
-    issues.push(...userStrings.issues);
+    appendManagedParseIssues(issues, userStrings.issues);
     const coverageIssues = uniqueManagedParseIssues(issues);
     const incompleteMembers =
       [...fields.fields, ...memberRefs.refs, ...methods.methods].some(
