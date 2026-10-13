@@ -939,9 +939,9 @@ const ambientNamespaceContext = (
 };
 
 /**
- * Identify a top-level `declare global` augmentation. Babel 8 carries no
- * global flag, and a nested `declare namespace global` is an ordinary
- * namespace with the same declaration shape.
+ * Identify a top-level `declare global` augmentation. Babel discriminates it
+ * with `kind: "global"`; a nested or namespaced `declare namespace global`
+ * carries `kind: "namespace"` and stays an ordinary named namespace.
  */
 const globalAugmentationDeclaration = (
   node: t.Node,
@@ -949,8 +949,34 @@ const globalAugmentationDeclaration = (
 ): boolean =>
   t.isTSModuleDeclaration(node) &&
   node.declare === true &&
-  t.isIdentifier(node.id, { name: "global" }) &&
+  node.kind === "global" &&
   t.isProgram(state.parentsByNode.get(node) ?? null);
+
+/**
+ * Return the outer scope holding `declare global` members, creating it once
+ * per program. Augmentation members live outside the module scope so
+ * file-local bindings shadow them instead of merging with them.
+ */
+const globalAugmentationScope = (
+  programScope: JavaScriptSemanticScopeState,
+  state: JavaScriptSemanticAnalysisState,
+): JavaScriptSemanticScopeState => {
+  const scopeId = `${programScope.scopeId}:globals`;
+  const existing = state.scopesById.get(scopeId);
+  if (existing !== undefined) return existing;
+  const outer: JavaScriptSemanticScopeState = {
+    scopeId,
+    parentScopeId: null,
+    kind: "namespace",
+    location: programScope.location,
+    bindingsComplete: true,
+    bindings: new Map(),
+  };
+  state.scopes.push(outer);
+  state.scopesById.set(scopeId, outer);
+  programScope.parentScopeId = scopeId;
+  return outer;
+};
 
 const nestedScope = (
   node: t.Node,
@@ -974,8 +1000,12 @@ const nestedScope = (
   if (t.isTSModuleBlock(node) && t.isTSModuleDeclaration(parent)) {
     if (globalAugmentationDeclaration(parent, state)) {
       // Global augmentations contribute to the surrounding global
-      // environment, so their members bind in the enclosing program scope.
-      namespaceExportScopeId = parentScope.scopeId;
+      // environment, outside the module scope, so file-local bindings
+      // shadow them instead of merging with them.
+      namespaceExportScopeId = globalAugmentationScope(
+        parentScope,
+        state,
+      ).scopeId;
     } else {
       // Babel 8 stores dotted declarations as one qualified id, not nested
       // TSModuleDeclaration bodies. Preserve every parsed segment in its owner.

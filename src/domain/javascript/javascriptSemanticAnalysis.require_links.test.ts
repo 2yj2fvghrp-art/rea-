@@ -1,6 +1,11 @@
 import { describe, expect, it } from "vitest";
 
-import { analyzeJavaScriptSemantics } from "./javascriptSemanticAnalysis.js";
+import {
+  analyzeJavaScriptSemantics,
+  analyzeParsedJavaScriptSemantics,
+  classifyParsedJavaScriptElectronBindings,
+} from "./javascriptSemanticAnalysis.js";
+import { parseJavaScriptSource } from "./javascriptSourceParser.js";
 import {
   origin,
   topLevelBinding,
@@ -352,7 +357,7 @@ namespace N { export const x = require("not-a-module"); }`;
   ).toEqual(["require", "x"]);
 });
 
-it("binds global augmentation members in the program scope", () => {
+it("binds global augmentation members outside the program scope", () => {
   const ir = analyzeJavaScriptSemantics(`export {};
 declare global { const require: (s: string) => unknown; }
 require("not-a-module");`);
@@ -360,9 +365,51 @@ require("not-a-module");`);
   expect(require?.resolution).toBe("resolved");
   expect(ir.moduleLinks.filter(({ kind }) => kind === "require")).toEqual([]);
   const [binding] = ir.bindings.filter(({ name }) => name === "require");
+  const [outer] = ir.scopes.filter(
+    (scope) => scope.scopeId === binding?.scopeId,
+  );
+  const [program] = ir.scopes.filter(({ kind }) => kind === "program");
+  expect(outer?.kind).toBe("namespace");
+  expect(program?.parentScopeId).toBe(outer?.scopeId);
+});
+
+it("keeps a namespace named global distinct from a global augmentation", () => {
+  const ir = analyzeJavaScriptSemantics(
+    `declare namespace global { const require: (s: string) => unknown; }
+require("./dep.cjs");`,
+  );
+  const [binding] = ir.bindings.filter(({ name }) => name === "require");
+  const [owner] = ir.scopes.filter(
+    (scope) => scope.scopeId === binding?.scopeId,
+  );
+  expect(owner?.kind).toBe("namespace");
   expect(
-    ir.scopes.find((scope) => scope.scopeId === binding?.scopeId)?.kind,
-  ).toBe("program");
+    ir.scopes.filter(({ kind }) => kind === "program")[0]?.parentScopeId,
+  ).toBeNull();
+  expect(ir.moduleLinks.filter(({ kind }) => kind === "require")).toEqual([
+    expect.objectContaining({ kind: "require", specifier: "./dep.cjs" }),
+  ]);
+});
+
+it("lets file-local bindings shadow global augmentation members", () => {
+  const source = `import electron = require("electron");
+import ipc = electron.ipcMain;
+declare global { var ipc: unknown; }
+ipc.handle("ping", () => "pong");`;
+  const parsed = parseJavaScriptSource(source, "augmented-ipc.ts");
+  if (parsed === null) throw new Error("Expected parsed TypeScript source");
+  const calls = [...classifyParsedJavaScriptElectronBindings(parsed)];
+  expect(calls).toContainEqual([
+    source.indexOf('ipc.handle("ping"'),
+    ["ipcMain"],
+  ]);
+  const ir = analyzeParsedJavaScriptSemantics(parsed);
+  expect(
+    ir.bindings
+      .filter(({ name }) => name === "ipc")
+      .map(({ definitions }) => definitions.length)
+      .sort(),
+  ).toEqual([1, 1]);
 });
 
 it("shares nested ambient namespace names with reopened declarations", () => {

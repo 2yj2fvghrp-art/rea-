@@ -54,7 +54,8 @@ export interface JavaScriptSemanticBindingState {
 /** Mutable lexical-scope state used only during AST recovery. */
 export interface JavaScriptSemanticScopeState {
   readonly scopeId: string;
-  readonly parentScopeId: string | null;
+  /** Reparented once when a global augmentation introduces an outer scope. */
+  parentScopeId: string | null;
   readonly namespaceExportScopeId?: string;
   readonly kind: JavaScriptSemanticScope["kind"];
   readonly location: JavaScriptSemanticScope["location"];
