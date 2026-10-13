@@ -161,6 +161,14 @@ const mitmproxyHeadline = (
   }
 };
 
+/** The container format alone does not make a flow HTTP; its own unredacted type does. */
+const mitmproxyHttpFlow = (
+  format: string,
+  source: Readonly<Record<string, JsonValue>>,
+  redacted: (pointer: string) => boolean,
+): boolean =>
+  format === "mitmproxy" && source.type === "http" && !redacted("/type");
+
 /** Select already parsed producer facts without interpreting HTTP or payload bytes again. */
 const preview = (record: WebNetworkCaptureRecord, format: string) => {
   const source = object(record.reported);
@@ -186,6 +194,7 @@ const preview = (record: WebNetworkCaptureRecord, format: string) => {
       (field) => field.state === "redacted" && covers(field.pointer, pointer),
     );
   if (source !== null) {
+    const mitmproxyHttp = mitmproxyHttpFlow(format, source, redacted);
     for (const key of ["session_id", "name", "time", "startedDateTime", "type"])
       if (Object.hasOwn(source, key) && source[key] !== undefined) {
         reported[key] = source[key];
@@ -203,12 +212,9 @@ const preview = (record: WebNetworkCaptureRecord, format: string) => {
       const selected: Record<string, JsonValue> = {};
       const candidates = [
         ...HEADLINE_FIELDS.map((field) => [field, false] as const),
-        // The container format alone does not make a flow HTTP; the native
-        // state's own type does.
-        ...(format === "mitmproxy" && source.type === "http"
-          ? (MITMPROXY_HEADLINE_FIELDS[key] ?? [])
-          : []
-        ).map((field) => [field, true] as const),
+        ...(mitmproxyHttp ? (MITMPROXY_HEADLINE_FIELDS[key] ?? []) : []).map(
+          (field) => [field, true] as const,
+        ),
       ];
       for (const [field, mitmproxy] of candidates) {
         const fieldValue = fields[field];

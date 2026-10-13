@@ -569,6 +569,19 @@ it("keeps a mitmproxy headline with a redacted byte descriptor out of the previe
   expect(JSON.stringify(reported)).not.toContain("secret");
 });
 
+it("adds no mitmproxy headline fields when the flow type is redacted", () => {
+  const reported = nativePreview(
+    "mitmproxy",
+    { method: "GET", path: "/a" },
+    {
+      response: { http_version: "HTTP/1.1", reason: "OK" },
+      redactions: [{ pointer: "/type", reason: "explicit-sensitive-value" }],
+    },
+  ).items[0]?.reported;
+  expect(reported).toMatchObject({ request: { method: "GET" } });
+  expect(reported).not.toMatchObject({ request: { path: "/a" } });
+});
+
 it("keeps sibling mitmproxy headlines next to an omitted property name", () => {
   const reported = nativePreview(
     "mitmproxy",
