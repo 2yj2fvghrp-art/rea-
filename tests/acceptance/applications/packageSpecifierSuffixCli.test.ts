@@ -30,6 +30,10 @@ const directoryFormSpecifiers = [
   "legacy/feature.js/ch\til\rd/..",
   "legacy/feature.js/. ",
 ];
+const encodedDotSpecifiers = ["\t", "\n", "\r"].flatMap((control) => [
+  `legacy/child/%2${control}e%2${control}e/feature.js`,
+  `legacy/child/.%2${control}E/feature.js`,
+]);
 
 const requests = [
   {
@@ -151,6 +155,13 @@ const requests = [
     value: null,
     error: "ERR_UNSUPPORTED_DIR_IMPORT",
   })),
+  ...encodedDotSpecifiers.map((specifier) => ({
+    specifier,
+    target: null,
+    status: "rejected" as const,
+    value: "legacy feature",
+    error: null,
+  })),
   {
     specifier: "legacy/feature.js/%2e",
     target: null,
@@ -176,6 +187,9 @@ const requests = [
     "legacy/feature.js?cache=/..",
     "legacy/feature.js#entry/.",
     "legacy/fea\tture.js",
+    "legacy/feature.js?cache=%2\te",
+    "legacy/feature.js#entry=%2\nf",
+    "legacy/child/../feature.js",
   ].map((specifier) => ({
     specifier,
     target: "node_modules/legacy/feature.js",
@@ -183,13 +197,25 @@ const requests = [
     value: "legacy feature",
     error: null,
   })),
-  ...["fixture/feature.js/.", "fixture/feature.js/.\t"].map((specifier) => ({
+  ...[
+    "fixture/feature.js/.",
+    "fixture/feature.js/.\t",
+    "fixture/child/%2\te%2\te/feature",
+    "legacy/../fixture/literal.cjs",
+  ].map((specifier) => ({
     specifier,
     target: "node_modules/fixture/literal.cjs",
     status: "resolved" as const,
     value: "literal",
     error: null,
   })),
+  {
+    specifier: "legacy/literal%252e.js",
+    target: "node_modules/legacy/literal%2e.js",
+    status: "resolved",
+    value: "legacy literal percent",
+    error: null,
+  },
   {
     specifier: "legacy/feature",
     target: null,
@@ -245,6 +271,7 @@ const createPackageSpecifierFixture = async (): Promise<{
         "./literal?cache=1": "./literal.cjs",
         "./feature.js/.": "./literal.cjs",
         "./feature.js/.\t": "./literal.cjs",
+        "./child/%2\te%2\te/feature": "./literal.cjs",
       },
     }),
   );
@@ -266,6 +293,10 @@ const createPackageSpecifierFixture = async (): Promise<{
     writeFile(
       join(legacyPackagePath, "with space.js"),
       'module.exports = "legacy spaced feature";',
+    ),
+    writeFile(
+      join(legacyPackagePath, "literal%2e.js"),
+      'module.exports = "legacy literal percent";',
     ),
     writeFile(
       join(legacyPackagePath, "nested", "package.json"),
@@ -319,6 +350,13 @@ cliTest.for(["CLI", "stdio MCP"] as const)(
             resolution_status: status,
           }),
           evidence: expect.objectContaining({
+            ...(encodedDotSpecifiers.includes(specifier)
+              ? {
+                  limitations: expect.arrayContaining([
+                    "Encoded dot or separator bytes are rejected before artifact path resolution.",
+                  ]),
+                }
+              : {}),
             ...(directoryFormSpecifiers.includes(specifier)
               ? {
                   limitations: expect.arrayContaining([

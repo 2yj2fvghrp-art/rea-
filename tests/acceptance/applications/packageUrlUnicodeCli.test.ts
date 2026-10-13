@@ -10,13 +10,77 @@ import { cliTest } from "../../support/cli/cliFixture.js";
 import { analyzeJavaScriptDirectory } from "../../support/cli/javascriptApplication.js";
 import { writeFixtureFiles } from "../../support/javascriptApplicationFixture.js";
 
-const requests = ["legacy/feature.js", "mapped/feature", "#feature"];
-const source = requests
-  .map((specifier) => `import ${JSON.stringify(specifier)};`)
-  .join("\n");
+const targets = {
+  feature: { value: "./feature.js", imports: "relative", exports: "relative" },
+  blocked: { value: null, imports: "external", exports: "external" },
+  empty: { value: [], imports: "external", exports: "external" },
+  inactive: {
+    value: { browser: "./feature.js" },
+    imports: "external",
+    exports: "external",
+  },
+  external: {
+    value: "another-package",
+    imports: "external",
+    exports: "rejected",
+  },
+  recursive: { value: "#another", imports: "external", exports: "rejected" },
+  invalid: { value: "../feature.js", imports: "rejected", exports: "rejected" },
+  scalar: { value: false, imports: "rejected", exports: "rejected" },
+  numeric: { value: { 0: null }, imports: "rejected", exports: "rejected" },
+  arrayNull: { value: [false, null], imports: "external", exports: "external" },
+  arrayInactive: {
+    value: [{ browser: "./feature.js" }],
+    imports: "external",
+    exports: "external",
+  },
+  arrayExternal: {
+    value: [false, "another-package"],
+    imports: "external",
+    exports: "rejected",
+  },
+  arrayRelative: {
+    value: [false, "./feature.js"],
+    imports: "relative",
+    exports: "relative",
+  },
+  relativeFirst: {
+    value: ["./feature.js", null],
+    imports: "relative",
+    exports: "relative",
+  },
+} as const;
+const requests = [
+  {
+    specifier: "legacy/feature.js",
+    path: "node_modules/legacy/feature.js",
+    status: "legacy" as const,
+  },
+  ...Object.entries(targets).flatMap(([name, target]) => [
+    { specifier: `#${name}`, path: "feature.js", status: target.imports },
+    {
+      specifier: `mapped/${name}`,
+      path: "node_modules/mapped/feature.js",
+      status: target.exports,
+    },
+  ]),
+  { specifier: "#missing", path: "", status: "external" as const },
+  { specifier: "mapped/missing", path: "", status: "external" as const },
+];
+const sources = ["import", "require"].map((mode) => ({
+  mode,
+  path: mode === "import" ? "main.mjs" : "main.cjs",
+  source: requests
+    .map(({ specifier }) =>
+      mode === "import"
+        ? `import ${JSON.stringify(specifier)};`
+        : `require(${JSON.stringify(specifier)});`,
+    )
+    .join("\n"),
+}));
 
 cliTest.for(["CLI", "stdio MCP"] as const)(
-  "retains unrepresentable package URL paths as unavailable through %s",
+  "preserves package target facts under unrepresentable URL paths through %s",
   async (surface, { cli }) => {
     const root = await createTestTempDirectory("rea-package-url-unicode-");
     const application = join(root, "application");
@@ -25,15 +89,27 @@ cliTest.for(["CLI", "stdio MCP"] as const)(
     const prefixes = ["highxx", "lowxxx", "valid\ud83d\ude00"];
     for (const prefix of prefixes)
       await writeFixtureFiles(join(fixture, prefix), {
-        "main.mjs": source,
+        ...Object.fromEntries(
+          sources.map(({ path, source }) => [path, source]),
+        ),
         "package.json": JSON.stringify({
-          imports: { "#feature": "./feature.js" },
+          imports: Object.fromEntries(
+            Object.entries(targets).map(([name, { value }]) => [
+              `#${name}`,
+              value,
+            ]),
+          ),
         }),
         "feature.js": "export default 1;",
         "node_modules/legacy/package.json": "{}",
         "node_modules/legacy/feature.js": "export default 2;",
         "node_modules/mapped/package.json": JSON.stringify({
-          exports: { "./feature": "./feature.js" },
+          exports: Object.fromEntries(
+            Object.entries(targets).map(([name, { value }]) => [
+              `./${name}`,
+              value,
+            ]),
+          ),
         }),
         "node_modules/mapped/feature.js": "export default 3;",
       });
@@ -58,41 +134,46 @@ cliTest.for(["CLI", "stdio MCP"] as const)(
       application,
     );
     for (const prefix of ["\ud800", "\udc00", "valid\ud83d\ude00"])
-      for (const [index, specifier] of requests.entries()) {
-        const base = `app.asar/${prefix}`;
-        const target = [
-          `${base}/node_modules/legacy/feature.js`,
-          `${base}/node_modules/mapped/feature.js`,
-          `${base}/feature.js`,
-        ][index];
-        const available = prefix.startsWith("valid");
-        expect(graph.edges).toContainEqual(
-          expect.objectContaining({
-            relation: "imports",
-            properties: expect.objectContaining({
-              module_link_kind: "import",
-              specifier,
-              resolution_status: available ? "resolved" : "unavailable",
-              resolved_path: available ? target : null,
-            }),
-            evidence: expect.objectContaining({
-              ...(available
-                ? {}
-                : {
-                    limitations: expect.arrayContaining([
-                      expect.stringContaining("unpaired UTF-16 surrogate"),
-                    ]),
-                  }),
-              artifact: expect.objectContaining({
-                sha256: createHash("sha256").update(source).digest("hex"),
+      for (const { mode, path, source } of sources)
+        for (const request of requests) {
+          const base = `app.asar/${prefix}`;
+          const available =
+            prefix.startsWith("valid") ||
+            (mode === "require" && request.status === "legacy");
+          const fileStatus = available ? "resolved" : "unavailable";
+          const status =
+            request.status === "relative" || request.status === "legacy"
+              ? fileStatus
+              : request.status;
+          expect(graph.edges).toContainEqual(
+            expect.objectContaining({
+              relation: "imports",
+              properties: expect.objectContaining({
+                module_link_kind: mode,
+                specifier: request.specifier,
+                resolution_status: status,
+                resolved_path:
+                  status === "resolved" ? `${base}/${request.path}` : null,
               }),
-              location: expect.objectContaining({
-                value: expect.objectContaining({ source: `${base}/main.mjs` }),
+              evidence: expect.objectContaining({
+                limitations:
+                  status === "unavailable"
+                    ? expect.arrayContaining([
+                        expect.stringContaining("unpaired UTF-16 surrogate"),
+                      ])
+                    : expect.not.arrayContaining([
+                        expect.stringContaining("unpaired UTF-16 surrogate"),
+                      ]),
+                artifact: expect.objectContaining({
+                  sha256: createHash("sha256").update(source).digest("hex"),
+                }),
+                location: expect.objectContaining({
+                  value: expect.objectContaining({ source: `${base}/${path}` }),
+                }),
               }),
             }),
-          }),
-        );
-      }
+          );
+        }
     expect(await readFile(archive)).toEqual(bytes);
   },
 );
