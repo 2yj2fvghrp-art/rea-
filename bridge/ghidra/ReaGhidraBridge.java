@@ -3765,19 +3765,25 @@ public final class ReaGhidraBridge extends HeadlessScript {
         // Flow edges can outnumber instructions (jump tables sharing many targets), so both are
         // counted without collecting either, stopping as soon as the charge cannot fit, and
         // charged before the analysis allocates.
-        long charge = 0;
+        long instructionCount = 0;
+        long edgeCount = 0;
+        long registerWriteCount = 0;
         for (Instruction instruction : currentProgram.getListing().getInstructions(function.getBody(), true)) {
             if (monitor.isCancelled()) return SwiftSelectProvenance.CANCELLED;
-            charge += SwiftSelectProvenance.BYTES_PER_INSTRUCTION;
-            if (!budget.fits(charge)) return SwiftSelectProvenance.UNAVAILABLE;
-            if (instruction.getFallFrom() != null) charge += SwiftSelectProvenance.BYTES_PER_EDGE;
+            instructionCount++;
+            if (instruction.getFallFrom() != null) edgeCount++;
             for (Reference reference : currentProgram.getReferenceManager().getReferencesTo(instruction.getAddress())) {
                 if (!reference.getReferenceType().isFlow() || reference.getReferenceType().isCall()) continue;
                 if (!function.getBody().contains(reference.getFromAddress())) continue;
-                charge += SwiftSelectProvenance.BYTES_PER_EDGE;
-                if (!budget.fits(charge)) return SwiftSelectProvenance.UNAVAILABLE;
+                edgeCount++;
             }
+            for (Object result : instruction.getResultObjects()) {
+                if (result instanceof Register) registerWriteCount++;
+            }
+            if (!budget.fits(swiftSelectProvenanceBytes(instructionCount, edgeCount, registerWriteCount)))
+                return SwiftSelectProvenance.UNAVAILABLE;
         }
+        long charge = swiftSelectProvenanceBytes(instructionCount, edgeCount, registerWriteCount);
         if (!budget.takeBytes(charge)) return SwiftSelectProvenance.UNAVAILABLE;
         List<Instruction> instructions = new ArrayList<>();
         currentProgram.getListing().getInstructions(function.getBody(), true).forEach(instructions::add);
@@ -3824,19 +3830,22 @@ public final class ReaGhidraBridge extends HeadlessScript {
             pending.add(index);
             queued[index] = true;
         }
+        BitSet nextExit = new BitSet();
         while (!pending.isEmpty()) {
             if (monitor.isCancelled()) return SwiftSelectProvenance.CANCELLED;
             int index = pending.poll();
             queued[index] = false;
-            BitSet entry = new BitSet();
+            BitSet entry = entries[index];
+            entry.clear();
             for (int predecessor : predecessors[index]) entry.or(exits[predecessor]);
-            entries[index] = entry;
-            BitSet exit = (BitSet) entry.clone();
+            nextExit.clear();
+            nextExit.or(entry);
             for (int bit = defined[index].nextSetBit(0); bit >= 0; bit = defined[index].nextSetBit(bit + 1)) {
-                exit.set(bit, selects.get(index) || (copies[index] >= 0 && entry.get(copies[index])));
+                nextExit.set(bit, selects.get(index) || (copies[index] >= 0 && entry.get(copies[index])));
             }
-            if (exit.equals(exits[index])) continue;
-            exits[index] = exit;
+            if (nextExit.equals(exits[index])) continue;
+            exits[index].clear();
+            exits[index].or(nextExit);
             for (int successor : successors.get(index)) {
                 if (!queued[successor]) {
                     queued[successor] = true;
@@ -3845,6 +3854,31 @@ public final class ReaGhidraBridge extends HeadlessScript {
             }
         }
         return new SwiftSelectProvenance(indexes, entries, bits);
+    }
+
+    /** Conservative retained-memory bound for graph, register map, and dense BitSet backing arrays. */
+    private static long swiftSelectProvenanceBytes(long instructions, long edges, long registerWrites) {
+        try {
+            // Register copies can introduce a source register that is not written in the body.
+            long registerCount = Math.addExact(registerWrites, instructions);
+            long registerWords = Math.addExact(registerCount, 63) / 64;
+            long bitSetCount = Math.addExact(Math.multiplyExact(instructions, 3), 3);
+            return Math.addExact(
+                Math.addExact(
+                    Math.multiplyExact(instructions, SwiftSelectProvenance.BYTES_PER_INSTRUCTION),
+                    Math.multiplyExact(edges, SwiftSelectProvenance.BYTES_PER_EDGE)
+                ),
+                Math.addExact(
+                    Math.multiplyExact(registerCount, SwiftSelectProvenance.BYTES_PER_REGISTER),
+                    Math.multiplyExact(
+                        Math.multiplyExact(bitSetCount, registerWords),
+                        SwiftSelectProvenance.BYTES_PER_BITSET_WORD
+                    )
+                )
+            );
+        } catch (ArithmeticException overflow) {
+            return Long.MAX_VALUE;
+        }
     }
 
     // One site's question as the producer regressions ask it, answered from the whole-body
@@ -4579,10 +4613,12 @@ public final class ReaGhidraBridge extends HeadlessScript {
         BitSet[] entries,
         Map<Register, Integer> bits
     ) {
-        // Charged before the analysis allocates: an index entry and three register sets per
-        // instruction, and per edge its predecessor slot plus a boxed successor in a list.
+        // Charged before allocation: graph storage, register-map entries, and the worst-case
+        // dense backing words for defined/entry/exit sets plus worklist temporaries.
         static final long BYTES_PER_INSTRUCTION = 512;
         static final long BYTES_PER_EDGE = 64;
+        static final long BYTES_PER_REGISTER = 96;
+        static final long BYTES_PER_BITSET_WORD = Long.BYTES;
         static final SwiftSelectProvenance UNAVAILABLE = new SwiftSelectProvenance(Map.of(), new BitSet[0], Map.of());
         // A distinct instance: the request was cancelled while provenance was being computed.
         static final SwiftSelectProvenance CANCELLED = new SwiftSelectProvenance(Map.of(), new BitSet[0], Map.of());

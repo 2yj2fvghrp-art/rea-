@@ -196,8 +196,29 @@ async function verifyStringLiterals() {
         ["", "small"],
         ["tab\there", "small"],
       ],
+      selectCopiedThroughLoop: [],
+      selectedJoin: [],
+      selectedThenOrdinaryWrite: [["VisibleAfterWrite", "small"]],
       returnedLiteral: [["Holding awake", "small"]],
     };
+    for (const value of [
+      "LoopSelected",
+      "JoinSelected",
+      "JoinOrdinary",
+      "ClearedSelect",
+      "VisibleAfterWrite",
+    ]) {
+      const searched = await call("search_strings", {
+        pattern: value,
+        mode: "literal",
+        case_sensitive: true,
+        document: null,
+      });
+      assert(
+        searched.some(({ value: found }) => found === value),
+        `${value} is absent from the ordinary string search`,
+      );
+    }
     const decoded = {};
     for (const [name, literals] of Object.entries(expected)) {
       const procedure = procedures.find(({ value }) => value.includes(name));
