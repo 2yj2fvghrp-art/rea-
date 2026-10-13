@@ -21,6 +21,7 @@ export const registrationSchema = z
   .passthrough();
 
 const codexRegistrationSchema = registrationSchema.extend({
+  tools: z.record(z.string(), z.record(z.string(), z.unknown())).optional(),
   tool_timeout_sec: z.number().optional(),
   required: z.boolean().optional(),
   cwd: z.string().optional(),
