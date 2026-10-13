@@ -60,20 +60,23 @@ const parseIdaJsonText = (text: string): JsonValue => {
 export const decodeIdaToolResult = (
   input: unknown,
   protocol?: "native",
+  redactDiagnostic: (message: string) => string = (message) => message,
 ): JsonValue => {
   const result = toolResultSchema.parse(input);
   const blocks = result.content.flatMap((block) =>
     block.type === "text" && block.text !== undefined ? [block.text] : [],
   );
   if (result.isError === true) {
-    const reason = blocks.join("\n");
+    const reason = redactDiagnostic(blocks.join("\n"));
     throw new AnalysisProtocolError(`IDA MCP tool failed: ${reason}`, {
       diagnostics: { reason },
     });
   }
   if (result._meta?.ida_mcp?.output_truncated === true)
     throw new AnalysisProtocolError(
-      `IDA MCP truncated its output; the preview cannot establish a complete observation. ${result._meta.ida_mcp.download_hint ?? "Use the upstream output download workflow to retrieve the full result."}`,
+      redactDiagnostic(
+        `IDA MCP truncated its output; the preview cannot establish a complete observation. ${result._meta.ida_mcp.download_hint ?? "Use the upstream output download workflow to retrieve the full result."}`,
+      ),
     );
   // Native MCP retains the complete JSON text while structuredContent may
   // contain a shortened preview. Parse that producer-owned representation once.
@@ -106,28 +109,38 @@ export const decodeIdaToolResult = (
   return values[0] ?? null;
 };
 
-/** Redact configured transport authentication values from SDK diagnostics only. */
-export const redactIdaTransportFailure = (
-  cause: unknown,
+/** Parse configured authentication once for both transport and tool diagnostics. */
+export const createIdaDiagnosticRedactor = (
   config: IdaConfiguration,
-): Error => {
-  let message =
-    cause instanceof Error
-      ? cause.message
-      : "Unknown IDA MCP transport failure";
-  if ("headers" in config) {
-    for (const [name, value] of Object.entries(config.headers)) {
-      if (!/^(?:authorization|proxy-authorization|cookie)$/iu.test(name))
-        continue;
-      const credential = value.match(/^(?:Bearer|Basic)\s+([\s\S]+)$/iu)?.[1];
-      for (const secret of [value, credential])
-        if (secret !== undefined && secret.length > 0)
-          message = message
-            .split(secret)
-            .join("[redacted transport credential]");
-    }
-  }
-  return new Error(message, { cause });
+): ((message: string) => string) => {
+  const headers = "headers" in config ? Object.entries(config.headers) : [];
+  const values = headers.flatMap(([name, value]) => {
+    if (!/^(?:authorization|proxy-authorization|cookie)$/iu.test(name))
+      return [];
+    // Fetch normalizes surrounding HTTP whitespace before sending headers.
+    const normalized = value.replace(/^[ \t\r\n]+|[ \t\r\n]+$/gu, "");
+    if (normalized.length === 0) return [];
+    const credential = normalized.match(
+      /^(?:Bearer|Basic)\s+([\s\S]+)$/iu,
+    )?.[1];
+    return credential === undefined
+      ? [value, normalized]
+      : [value, normalized, credential];
+  });
+  const secrets = [...new Set(values.filter((value) => value.length > 0))].sort(
+    (left, right) => right.length - left.length,
+  );
+  if (secrets.length === 0) return (message) => message;
+  const pattern = new RegExp(
+    secrets
+      .map((secret) => secret.replace(/[.*+?^${}()|[\]\\]/gu, "\\$&"))
+      .join("|"),
+    "gu",
+  );
+  // One pass over the original text keeps overlapping values and the
+  // replacement marker independent of header iteration order.
+  return (message) =>
+    message.replace(pattern, "[redacted transport credential]");
 };
 
 /** Create a standard SDK connection to an existing upstream registration. */
@@ -136,8 +149,16 @@ export const createIdaMcpConnection = (
   environment: Readonly<NodeJS.ProcessEnv>,
 ): IdaMcpConnection => {
   const client = new Client({ name: "rea-ida-provider", version: "1" });
+  const redactDiagnostic = createIdaDiagnosticRedactor(config);
   const transportFailure = (cause: unknown): never => {
-    throw redactIdaTransportFailure(cause, config);
+    throw new Error(
+      redactDiagnostic(
+        cause instanceof Error
+          ? cause.message
+          : "Unknown IDA MCP transport failure",
+      ),
+      { cause },
+    );
   };
   const transport =
     "command" in config
@@ -184,6 +205,7 @@ export const createIdaMcpConnection = (
           .callTool({ name, arguments: args }, { timeout: config.timeoutMs })
           .catch(transportFailure),
         config.protocol,
+        redactDiagnostic,
       );
     },
     async readResource(uri) {

@@ -8,7 +8,10 @@ import {
 import type { JsonValue } from "../domain/jsonValue.js";
 import { projectAnalysisError } from "../domain/analysisErrorProjection.js";
 import { AnalysisInputError } from "../domain/analysisErrorCore.js";
-import { decodeIdaToolResult } from "./IdaMcpConnection.js";
+import {
+  createIdaDiagnosticRedactor,
+  decodeIdaToolResult,
+} from "./IdaMcpConnection.js";
 import type { AnalysisOperation } from "../application/AnalysisProvider.js";
 import { IdaSessionClient } from "./IdaSessionClient.js";
 
@@ -24,25 +27,32 @@ it("preserves a rejected headless decompile diagnostic with completed lookup evi
   const producer = new RecordingIdaMcp(target, "headless");
   const reason =
     "Invalid params: unexpected parameters: ['offset', 'max_lines']";
+  const config = {
+    url: "http://127.0.0.1:12345/mcp",
+    headers: { Authorization: "Bearer transport-fixture-secret" },
+    mode: "headless" as const,
+    timeoutMs: 1000,
+    workspaceRoot: root,
+  };
+  const redact = createIdaDiagnosticRedactor(config);
   producer.beforeCall = async (name) => {
     if (name === "decompile")
-      decodeIdaToolResult({
-        isError: true,
-        content: [{ type: "text", text: reason }],
-      });
+      decodeIdaToolResult(
+        {
+          isError: true,
+          content: [
+            {
+              type: "text",
+              text: reason + " (Bearer transport-fixture-secret)",
+            },
+          ],
+        },
+        undefined,
+        redact,
+      );
   };
-  const client = new IdaSessionClient(
-    {
-      command: "fixture",
-      args: [],
-      env: {},
-      mode: "headless",
-      timeoutMs: 1000,
-      workspaceRoot: root,
-    },
-    target,
-    producer,
-  );
+  const safeReason = reason + " ([redacted transport credential])";
+  const client = new IdaSessionClient(config, target, producer);
   try {
     const result = await client.execute("procedure_pseudo_code", {
       procedure: "main",
@@ -51,18 +61,24 @@ it("preserves a rejected headless decompile diagnostic with completed lookup evi
     expect(projectAnalysisError(result.error)).toMatchObject({
       code: "unreadable_output",
       details: {
-        diagnostics: { reason },
+        diagnostics: { reason: safeReason },
         partial_observation: {
           provider: { id: "ida" },
           operation: "procedure_pseudo_code",
           normalized_result: {
             status: "partial",
             observations: [expect.objectContaining({ tool: "lookup_funcs" })],
-            target_binding: { status: "not_verified" },
+            target_binding: {
+              status: "not_verified",
+              reason: "IDA MCP tool failed: " + safeReason,
+            },
           },
         },
       },
     });
+    expect(JSON.stringify(projectAnalysisError(result.error))).not.toContain(
+      "transport-fixture-secret",
+    );
     expect(
       producer.calls.find(({ name }) => name === "decompile"),
     ).toMatchObject({

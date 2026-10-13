@@ -2,6 +2,7 @@ import { createServer } from "node:http";
 import { afterEach, expect, it } from "vitest";
 import { z } from "zod";
 import { AnalysisProtocolError } from "../../../src/domain/analysisErrorCore.js";
+import type { JsonValue } from "../../../src/domain/jsonValue.js";
 import { projectAnalysisError } from "../../../src/domain/analysisErrorProjection.js";
 import { createIdaMcpConnection } from "../../../src/ida/IdaMcpConnection.js";
 import type { IdaMcpConnection } from "../../../src/ida/IdaMcpConnection.js";
@@ -25,12 +26,16 @@ const fixture = async ({
   redirectUrl,
   cycle = false,
   native = false,
-  toolError,
+  toolResult,
+  toolStatus = 200,
+  configurationHeaders = { Authorization: "Bearer transport-fixture-secret" },
 }: {
   readonly redirectUrl?: string;
   readonly cycle?: boolean;
   readonly native?: boolean;
-  readonly toolError?: string;
+  readonly toolResult?: JsonValue;
+  readonly toolStatus?: number;
+  readonly configurationHeaders?: Readonly<Record<string, string>>;
 } = {}) => {
   const methods: string[] = [];
   const headers: (string | undefined)[] = [];
@@ -99,11 +104,8 @@ const fixture = async ({
                   },
                 ],
               }
-            : toolError !== undefined
-              ? {
-                  isError: true,
-                  content: [{ type: "text", text: toolError }],
-                }
+            : toolResult !== undefined
+              ? toolResult
               : native
                 ? {
                     content: [
@@ -115,7 +117,9 @@ const fixture = async ({
                     structuredContent: { result: [], _output_truncated: true },
                   }
                 : { content: [], structuredContent: { observed: true } };
-    response.writeHead(200, { "Content-Type": "application/json" });
+    response.writeHead(input.method === "tools/call" ? toolStatus : 200, {
+      "Content-Type": "application/json",
+    });
     response.end(JSON.stringify({ jsonrpc: "2.0", id: input.id, result }));
   });
   await new Promise<void>((resolve) => server.listen(0, "127.0.0.1", resolve));
@@ -134,7 +138,7 @@ const fixture = async ({
   const connection: IdaMcpConnection = createIdaMcpConnection(
     {
       url: `http://127.0.0.1:${address.port}/mcp`,
-      headers: { Authorization: "Bearer transport-fixture-secret" },
+      headers: configurationHeaders,
       mode: native ? "attached" : "headless",
       ...(native ? { protocol: "native" as const } : {}),
       timeoutMs: 2000,
@@ -199,7 +203,13 @@ it.each([false, true])(
   async (native) => {
     const reason =
       "Invalid params: unexpected parameters: ['offset', 'max_lines']";
-    const { connection } = await fixture({ native, toolError: reason });
+    const { connection } = await fixture({
+      native,
+      toolResult: {
+        isError: true,
+        content: [{ type: "text", text: reason }],
+      },
+    });
     await connection.connect();
     const failure = await connection
       .call("first", {
@@ -220,3 +230,91 @@ it.each([false, true])(
     });
   },
 );
+
+it.each([false, true])(
+  "redacts configured credentials from SDK tool errors while retaining caller context (native: %s)",
+  async (native) => {
+    const configurationHeaders = {
+      aUtHoRiZaTiOn: "\r\n \tBearer transport-fixture-secret \r\n",
+      "Proxy-Authorization": "Basic proxy-fixture-secret",
+      CoOkIe: "session=cookie-fixture-secret",
+      "X-Evidence": "selected-header-evidence",
+    };
+    const context =
+      "/caller/input?cursor=visible API_KEY=caller-evidence selected-header-evidence";
+    const { connection } = await fixture({
+      native,
+      configurationHeaders,
+      toolResult: {
+        isError: true,
+        content: [
+          {
+            type: "text",
+            text:
+              "Rejected Bearer transport-fixture-secret / transport-fixture-secret / Basic proxy-fixture-secret / proxy-fixture-secret / session=cookie-fixture-secret at " +
+              context,
+          },
+        ],
+      },
+    });
+    await connection.connect();
+    const failure = await connection
+      .call("first", {})
+      .catch((cause: unknown) => cause);
+    if (!(failure instanceof AnalysisProtocolError))
+      throw new Error(
+        "Expected the upstream rejection to remain a protocol error",
+      );
+    const reason =
+      "Rejected [redacted transport credential] / [redacted transport credential] / [redacted transport credential] / [redacted transport credential] / [redacted transport credential] at " +
+      context;
+    expect(failure.message).toBe("IDA MCP tool failed: " + reason);
+    expect(projectAnalysisError(failure)).toMatchObject({
+      code: "unreadable_output",
+      details: { diagnostics: { reason } },
+    });
+  },
+);
+
+it.each([false, true])(
+  "retains successful credential-like evidence through SDK transport (native: %s)",
+  async (native) => {
+    const evidence = { observed: "Bearer transport-fixture-secret" };
+    const { connection } = await fixture({
+      native,
+      toolResult: native
+        ? { content: [{ type: "text", text: JSON.stringify(evidence) }] }
+        : { content: [], structuredContent: evidence },
+    });
+    await connection.connect();
+    expect(await connection.call("first", {})).toEqual(evidence);
+  },
+);
+
+it("redacts credentials echoed in an HTTP failure through the SDK rejection path", async () => {
+  const context = "/caller/input?cursor=visible API_KEY=caller-evidence";
+  const { connection } = await fixture({
+    toolStatus: 500,
+    toolResult: {
+      isError: true,
+      content: [
+        {
+          type: "text",
+          text:
+            "Transport rejected Bearer transport-fixture-secret at " + context,
+        },
+      ],
+    },
+  });
+  await connection.connect();
+  const failure = await connection
+    .call("first", {})
+    .catch((cause: unknown) => cause);
+  expect(failure).not.toBeInstanceOf(AnalysisProtocolError);
+  if (!(failure instanceof Error))
+    throw new Error("Expected the SDK to reject the HTTP failure");
+  expect(failure.message).toContain(
+    "Transport rejected [redacted transport credential] at " + context,
+  );
+  expect(failure.message).not.toContain("transport-fixture-secret");
+});
