@@ -973,7 +973,7 @@ describe("headless IDA cleanup diagnostics", () => {
         return {
           sessions: [
             {
-              session_id: producer.database,
+              session_id: String(producer.database),
               input_path: producer.inputPath,
               owned: true,
               backend: "worker",
@@ -1015,7 +1015,7 @@ describe("headless IDA cleanup diagnostics", () => {
   it("preserves an observed conflicting input binding after close", async () => {
     const { producer, client } = await fixture("headless");
     expect((await client.execute("health", {})).ok).toBe(true);
-    const requested = producer.database;
+    const requested = String(producer.database);
     producer.overrideCall = (name) =>
       name === "idb_list"
         ? {
@@ -1064,7 +1064,9 @@ describe("headless IDA cleanup diagnostics", () => {
       ),
     );
   });
+});
 
+describe("headless IDA cleanup diagnostics for observed peers", () => {
   it("drops the requested worker from blockers once its close is confirmed", async () => {
     const { producer, client, requested, entry } = await rejectedOpenFixture();
     let inventories = 0;
@@ -1203,6 +1205,29 @@ describe("headless IDA unresolved successful-open ownership", () => {
     expect(producer.closes).toBe(1);
     expect(await readdir(root)).toEqual(["target.elf"]);
   });
+
+  it("retains cleanup when a rejected open leaves the requested ID on another input", async () => {
+    const { producer, client, requested } = await rejectedOpenFixture();
+    producer.overrideCall = (name) =>
+      name === "idb_list"
+        ? {
+            sessions: [
+              {
+                session_id: requested,
+                input_path: "/different/input",
+                owned: false,
+                backend: "worker",
+                is_active: true,
+              },
+            ],
+          }
+        : undefined;
+
+    const result = await client.close();
+    expect(result.ok).toBe(false);
+    if (!result.ok) expect(result.error.cleanupIncomplete).toBe(true);
+    expect(producer.closes).toBe(0);
+  });
 });
 
 describe("headless IDA cleanup verification", () => {
@@ -1280,7 +1305,7 @@ it("retains a conflicting requested session ID during pre-close recovery", async
       ? {
           sessions: [
             {
-              session_id: producer.database,
+              session_id: String(producer.database),
               input_path: "/conflicting/input",
               owned: true,
               backend: "worker",
@@ -1290,7 +1315,7 @@ it("retains a conflicting requested session ID during pre-close recovery", async
         }
       : undefined;
   expect((await client.execute("health", {})).ok).toBe(false);
-  const requested = producer.database;
+  const requested = String(producer.database);
   const result = await client.close();
   expect(result).toMatchObject(
     reportsSessions({
