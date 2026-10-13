@@ -8,9 +8,9 @@ import { JavaScriptDeobfuscationService } from "./JavaScriptDeobfuscationService
 
 const file = { path: "/tmp/source.js", sha256: "a".repeat(64), bytes: 12 };
 const provider = {
-  id: "js-redox",
-  name: "js-redox",
-  version: "0.1.0",
+  id: "fixture-deobfuscator",
+  name: "Fixture deobfuscator",
+  version: "1",
 } as const;
 const result = (): JavaScriptDeobfuscationResult => ({
   source: { ...file, published_copy: file },
@@ -19,7 +19,10 @@ const result = (): JavaScriptDeobfuscationResult => ({
   output: file,
   report: file,
   manifest: file,
-  proof: { report: "provider-owned proof summary" },
+  proof: {
+    input_sha256: file.sha256,
+    output_sha256: file.sha256,
+  },
   analysis_input: {
     input_path: "/tmp/output/deobfuscated",
     format: "directory",
@@ -154,7 +157,6 @@ describe("JavaScript deobfuscation workflow", () => {
     "missing-subject",
     "subject-mismatch",
     "subject-format-mismatch",
-    "engine-mismatch",
     "proof-output-mismatch",
   ])("rejects %s returned across the provider boundary", async (mode) => {
     const service = new JavaScriptDeobfuscationService({
@@ -168,13 +170,11 @@ describe("JavaScript deobfuscation workflow", () => {
                     ...result(),
                     proof: {
                       ...result().proof,
-                      analysis_source_sha256: "b".repeat(64),
+                      output_sha256: "b".repeat(64),
                     },
                   }
                 : result(),
-            mode === "engine-mismatch"
-              ? { ...provider, id: "other" }
-              : provider,
+            provider,
             mode === "missing-subject"
               ? {}
               : {

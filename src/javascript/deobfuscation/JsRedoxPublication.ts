@@ -181,7 +181,10 @@ const buildResult = (
     report: files.report,
     manifest: files.manifest,
     diagnostics: jsonObjectSchema.parse(files.diagnostics),
-    proof: jsonObjectSchema.parse(input.report),
+    proof: {
+      input_sha256: input.report.analysis_source_sha256,
+      output_sha256: input.output.sha256,
+    },
     analysis_input: {
       input_path: join(input.tree.outputRoot, "deobfuscated"),
       format: "directory",

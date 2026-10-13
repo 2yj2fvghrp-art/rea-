@@ -71,6 +71,8 @@ export class JavaScriptDeobfuscationService {
       result.data.source.path !== parsed.data.path ||
       result.data.source.published_copy.sha256 !== result.data.source.sha256 ||
       result.data.source.published_copy.bytes !== result.data.source.bytes ||
+      result.data.proof.input_sha256 !== result.data.source.sha256 ||
+      result.data.proof.output_sha256 !== result.data.output.sha256 ||
       execution.value.subject.path !== result.data.source.path ||
       execution.value.subject.sha256 !== result.data.source.sha256 ||
       result.data.options.max_iterations !== parsed.data.max_iterations ||

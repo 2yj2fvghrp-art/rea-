@@ -33,8 +33,11 @@ export const javascriptDeobfuscationResultSchema = z.strictObject({
   report: fileSchema,
   manifest: fileSchema,
   diagnostics: jsonObjectSchema.optional(),
-  /** Provider-specific proof is validated and normalized by the adapter. */
-  proof: jsonObjectSchema,
+  /** Generic binding between the selected source and the published output. */
+  proof: z.strictObject({
+    input_sha256: digestSchema,
+    output_sha256: digestSchema,
+  }),
   analysis_input: z.strictObject({
     input_path: analyzeJavaScriptApplicationInputSchema.shape.input_path,
     format: z.literal("directory"),

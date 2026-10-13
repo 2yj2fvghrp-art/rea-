@@ -31,9 +31,8 @@ it.skipIf(process.platform !== "linux" || process.arch !== "x64")(
         status: "changed",
         runtime_execution: "not-performed",
         proof: {
-          schema: "js-safe-deobfuscate/v1",
-          transforms: { static_array_lookup: 2, constant_fold: 1 },
-          runtime_semantics_preserved_by_design: true,
+          input_sha256: response.value.subject.sha256,
+          output_sha256: response.value.normalized_result.output.sha256,
         },
       },
     });
@@ -43,6 +42,15 @@ it.skipIf(process.platform !== "linux" || process.arch !== "x64")(
     await expect(
       access(`${fixture.output}/manifest.json`),
     ).resolves.toBeUndefined();
+    const manifest = JSON.parse(
+      await readFile(`${fixture.output}/manifest.json`, "utf8"),
+    ) as { report: { path: string } };
+    const report = JSON.parse(await readFile(manifest.report.path, "utf8"));
+    expect(report).toMatchObject({
+      schema: "js-safe-deobfuscate/v1",
+      transforms: { static_array_lookup: 2, constant_fold: 1 },
+      runtime_semantics_preserved_by_design: true,
+    });
     expect(fixture.engineSnapshots).toHaveLength(2);
     expect(new Set(fixture.engineSnapshots.map(({ path }) => path)).size).toBe(
       2,
