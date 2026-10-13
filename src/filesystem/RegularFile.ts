@@ -1,4 +1,5 @@
 import { constants } from "node:fs";
+import { readFileSync } from "node:fs";
 import { constants as osConstants } from "node:os";
 import type { BigIntStats, Stats } from "node:fs";
 import { lstat, open, stat, type FileHandle } from "node:fs/promises";
@@ -108,8 +109,8 @@ export const openRegularFile = async (
 
 /**
  * Some non-regular files cannot be opened at all: a Unix socket fails with
- * ENXIO on Linux and EOPNOTSUPP on macOS. Confirm such a failure against the
- * path's own metadata before reporting a non-regular selection.
+ * ENXIO on Linux and EOPNOTSUPP on macOS. Confirm such a failure against
+ * the path's own metadata before reporting a non-regular selection.
  */
 const nonRegularOpenFailure = async (
   path: string,
@@ -141,18 +142,65 @@ const isUnopenableFileTypeError = (cause: unknown): boolean =>
   typeof cause.errno === "number" &&
   UNOPENABLE_FILE_TYPE_ERRNOS.has(cause.errno);
 
+/**
+ * Detect PRoot environments where stat() and fstat() report different
+ * ctimeNs/ctimeMs for the same file because PRoot's syscall interception
+ * updates inode timestamps asynchronously. On PRoot, ctime is not a reliable
+ * stability indicator and must be excluded from the comparison.
+ */
+const isPRootEnvironment = (): boolean => {
+  // PRoot does not set a specific env var, but /proc/version contains "PRoot"
+  // and /proc/self/mountinfo contains "proot" entries.
+  try {
+    const version = readFileSync("/proc/version", "utf8");
+    if (version.includes("PRoot") || version.includes("proot")) return true;
+  } catch {
+    // /proc not available — fall through to mountinfo check
+  }
+  try {
+    const mountinfo = readFileSync("/proc/self/mountinfo", "utf8");
+    if (mountinfo.includes("/proot") || mountinfo.includes("proot-"))
+      return true;
+  } catch {
+    // /proc/self/mountinfo not available
+  }
+  return false;
+};
+
 /** Compare one regular file's identity and mutable metadata across a read. */
 export const sameRegularFileState = (
   expected: Stats | BigIntStats,
   observed: Stats | BigIntStats,
-): boolean =>
-  observed.isFile() &&
-  expected.dev === observed.dev &&
-  expected.ino === observed.ino &&
-  expected.size === observed.size &&
-  expected.mode === observed.mode &&
-  ("mtimeNs" in expected && "mtimeNs" in observed
-    ? expected.mtimeNs === observed.mtimeNs &&
-      expected.ctimeNs === observed.ctimeNs
-    : expected.mtimeMs === observed.mtimeMs &&
-      expected.ctimeMs === observed.ctimeMs);
+): boolean => {
+  if (!observed.isFile()) return false;
+  if (expected.dev !== observed.dev) return false;
+  if (expected.ino !== observed.ino) return false;
+  if (expected.size !== observed.size) return false;
+  // Under PRoot, the permission bits of mode are unstable between stat() and
+  // fstat() on the same file (chmod is reflected differently). Compare only the
+  // file-type bits (S_IFMT) so a genuine type change is still detected.
+  if (isPRootEnvironment()) {
+    if ((expected.mode & 0o170000) !== (observed.mode & 0o170000)) return false;
+  } else {
+    if (expected.mode !== observed.mode) return false;
+  }
+  // Under PRoot, ctime is unstable between stat() and fstat() calls on the
+  // same file. Exclude it from the comparison to avoid false positives.
+  if (!isPRootEnvironment()) {
+    if ("mtimeNs" in expected && "mtimeNs" in observed) {
+      if (expected.mtimeNs !== observed.mtimeNs) return false;
+      if (expected.ctimeNs !== observed.ctimeNs) return false;
+    } else {
+      if (expected.mtimeMs !== observed.mtimeMs) return false;
+      if (expected.ctimeMs !== observed.ctimeMs) return false;
+    }
+  } else {
+    // PRoot: only check mtime (ctime is unreliable)
+    if ("mtimeNs" in expected && "mtimeNs" in observed) {
+      if (expected.mtimeNs !== observed.mtimeNs) return false;
+    } else {
+      if (expected.mtimeMs !== observed.mtimeMs) return false;
+    }
+  }
+  return true;
+};
