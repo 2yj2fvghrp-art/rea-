@@ -234,17 +234,16 @@ fi
 printf 'unexpected arguments: %s\\n' "$@"
 exit 1`;
 
-/** Stub dispatching one canned stdout per first shell word (and optional second). */
+/** Stub dispatching one canned stdout per first shell word (and optional second and third). */
 const shellStub = (
   dispatch: Readonly<Record<string, string>>,
 ): ((root: string) => string) => {
   const cases = Object.entries(dispatch)
     .map(([key, output]) => {
-      const [first, second] = key.split(":");
-      const guard =
-        second === undefined
-          ? `[ "$4" = "${first}" ]`
-          : `[ "$4" = "${first}" ] && [ "$5" = "${second}" ]`;
+      const guard = key
+        .split(":")
+        .map((word, index) => `[ "$${index + 4}" = "${word}" ]`)
+        .join(" && ");
       return `  if ${guard}; then printf '%b' '${output.replaceAll("\\", "\\\\").replaceAll("\0", "\\000").replace(/'/gu, "'\\''")}'; exit 0; fi`;
     })
     .join("\n");
@@ -1012,6 +1011,64 @@ it("inspects the display and window focus", async () => {
   });
   expect(window.focused_window).toBe(
     "Window{abcdef u0 com.example.app/com.example.app.MainActivity}",
+  );
+});
+
+const focusLauncherWindow =
+  "Window{62b7d6c u0 com.example.launcher/com.example.launcher.HomeActivity}";
+const focusLauncherApp =
+  "ActivityRecord{29617218 u0 com.example.launcher/.HomeActivity t2}";
+const inspectWindow = async (dispatch: Readonly<Record<string, string>>) => {
+  const { binary } = await writeAdbStub(shellStub(dispatch));
+  const result = await providerOver(binary).execute({
+    operation: "inspect_adb_window",
+    input: { serial: "emulator-5554" },
+  });
+  if (!result.ok) throw new Error(result.error.message);
+  return {
+    window: result.value.result as Record<string, unknown>,
+    limitations: result.value.limitations,
+  };
+};
+
+it("reads focus from the displays section when the windows section declares none (Android 16)", async () => {
+  const { window, limitations } = await inspectWindow({
+    "dumpsys:window:windows":
+      "WINDOW MANAGER WINDOWS (dumpsys window windows)\n  Window #0 Window{1a2b u0 StatusBar}:\n",
+    "dumpsys:window:displays": `WINDOW MANAGER DISPLAY CONTENTS (dumpsys window displays)\n  mCurrentFocus=${focusLauncherWindow}\n  mFocusedApp=${focusLauncherApp}\n`,
+  });
+  expect(window.focused_window).toBe(focusLauncherWindow);
+  expect(window.focused_app).toBe(focusLauncherApp);
+  expect(window.observed_lines).toEqual([
+    focusLauncherWindow,
+    focusLauncherApp,
+  ]);
+  expect(limitations).toContain(
+    "Focus declarations were read from `dumpsys window displays`",
+  );
+});
+
+it("keeps the windows section when it declares focus (earlier builds)", async () => {
+  const { window, limitations } = await inspectWindow({
+    "dumpsys:window:windows": `  mCurrentFocus=${focusLauncherWindow}\n  mFocusedApp=${focusLauncherApp}\n`,
+  });
+  expect(window.focused_window).toBe(focusLauncherWindow);
+  expect(window.focused_app).toBe(focusLauncherApp);
+  expect(limitations).toContain(
+    "Focus declarations were read from `dumpsys window windows`",
+  );
+});
+
+it("reports focus as unknown when neither section declares it", async () => {
+  const { window, limitations } = await inspectWindow({
+    "dumpsys:window:windows": "WINDOW MANAGER WINDOWS\n",
+    "dumpsys:window:displays": "WINDOW MANAGER DISPLAY CONTENTS\n",
+  });
+  expect(window.focused_window).toBeNull();
+  expect(window.focused_app).toBeNull();
+  expect(window.observed_lines).toEqual([]);
+  expect(limitations).toContain(
+    "Neither `dumpsys window windows` nor `dumpsys window displays` declared mCurrentFocus or mFocusedApp; focus is unknown, not absent",
   );
 });
 

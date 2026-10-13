@@ -224,7 +224,7 @@ export const ADB_TOOL_CONTRACTS = [
     name: "inspect_adb_window",
     ...toolContractMetadata("inspect_adb_window"),
     description:
-      "Report the window manager's current focus declarations (`dumpsys window windows`: mCurrentFocus and mFocusedApp) — what is on screen at read time without any interaction. Read-only.",
+      "Report the window manager's current focus declarations (mCurrentFocus and mFocusedApp from `dumpsys window windows`, or from `dumpsys window displays` when the windows section declares neither, as on Android 16) — what is on screen at read time without any interaction. Read-only.",
     kind: "adb-provider",
     inputSchema: adbInputSchemas.inspect_adb_window,
     outputSchema: evidenceResultOf(adbResultSchemas.inspect_adb_window),

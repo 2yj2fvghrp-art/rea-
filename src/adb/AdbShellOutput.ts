@@ -172,7 +172,7 @@ export const parseWmDensityOutput = (
   return { physical, override };
 };
 
-/** Parse the focus declarations from `dumpsys window windows`. */
+/** Parse the focus declarations from `dumpsys window windows` or `dumpsys window displays`. */
 export const parseWindowFocusOutput = (
   stdout: string,
 ): {

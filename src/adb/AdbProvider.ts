@@ -1095,14 +1095,29 @@ export class AdbProvider {
         );
       }
       case "inspect_adb_window": {
-        const ran = await shell(["dumpsys", "window", "windows"], {
+        // Builds before Android 16 print the focus declarations in the
+        // `windows` section; Android 16 prints them only in `displays`.
+        let section = "windows";
+        const ran = await shell(["dumpsys", "window", section], {
           timeoutMs: SHELL_TIMEOUT_MS,
           maxOutputBytes: DUMPSYS_WINDOW_MAX_OUTPUT_BYTES,
         });
         if (!ran.ok) return ran;
-        const { focusedWindow, focusedApp } = parseWindowFocusOutput(
+        let { focusedWindow, focusedApp } = parseWindowFocusOutput(
           ran.value.stdout,
         );
+        if (focusedWindow === null && focusedApp === null) {
+          section = "displays";
+          const fallback = await shell(["dumpsys", "window", section], {
+            timeoutMs: SHELL_TIMEOUT_MS,
+            maxOutputBytes: DUMPSYS_WINDOW_MAX_OUTPUT_BYTES,
+          });
+          if (!fallback.ok) return fallback;
+          ({ focusedWindow, focusedApp } = parseWindowFocusOutput(
+            fallback.value.stdout,
+          ));
+        }
+        const declared = focusedWindow !== null || focusedApp !== null;
         return ok(
           createAnalysisExecution(
             {
@@ -1119,6 +1134,9 @@ export class AdbProvider {
             {
               limitations: [
                 "Focus values are the window manager's declarations at read time; no interaction occurred",
+                declared
+                  ? `Focus declarations were read from \`dumpsys window ${section}\``
+                  : "Neither `dumpsys window windows` nor `dumpsys window displays` declared mCurrentFocus or mFocusedApp; focus is unknown, not absent",
               ],
             },
           ),
