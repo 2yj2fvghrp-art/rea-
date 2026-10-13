@@ -51,6 +51,8 @@ it("passes Windows installation, JVM and analysis paths literally through Launch
     analyzeHeadlessPath: `${root}\\ghidra\\support\\analyzeHeadless.bat`,
     javaHome: `${root}\\jdk`,
     homeRoot: `${root}\\home`,
+    configRoot: `${root}\\config`,
+    cacheRoot: `${root}\\cache`,
     tempRoot: `${root}\\tmp`,
     arguments: arguments_,
     environment: {},
@@ -80,3 +82,50 @@ it("passes Windows installation, JVM and analysis paths literally through Launch
     ]),
   );
 });
+
+it.each(["win32", "linux"] as const)(
+  "keeps %s release-configured application directories inside the owned runtime",
+  async (platform) => {
+    vi.spyOn(output, "execFileOutput")
+      .mockResolvedValueOnce({ stdout: "", stderr: "" })
+      .mockResolvedValueOnce({
+        // LaunchSupport emits these properties from the selected installation.
+        stdout: [
+          "-Dapplication.settingsdir=/shared/settings",
+          "-Dapplication.cachedir=/shared/cache",
+          "-Dapplication.tempdir=/shared/tmp",
+          "-Dfile.encoding=UTF8",
+        ].join("\n"),
+        stderr: "",
+      });
+    const root =
+      platform === "win32" ? "E:\\private runtime" : "/private runtime";
+    const separator = platform === "win32" ? "\\" : "/";
+    const result = await ghidraJavaLaunch({
+      platform,
+      analyzeHeadlessPath: `${root}${separator}ghidra${separator}support${separator}analyzeHeadless`,
+      javaHome: `${root}${separator}jdk`,
+      homeRoot: `${root}${separator}home`,
+      configRoot: `${root}${separator}config`,
+      cacheRoot: `${root}${separator}cache`,
+      tempRoot: `${root}${separator}tmp`,
+      arguments: [],
+      environment: {},
+      onStderr: () => {},
+    });
+    const effective = Object.fromEntries(
+      result.arguments
+        .filter((argument) => argument.startsWith("-D"))
+        .map((argument) => {
+          const separator = argument.indexOf("=");
+          return [argument.slice(2, separator), argument.slice(separator + 1)];
+        }),
+    );
+    expect(effective).toMatchObject({
+      "application.settingsdir": `${root}${separator}config`,
+      "application.cachedir": `${root}${separator}cache`,
+      "application.tempdir": `${root}${separator}tmp`,
+      "file.encoding": "UTF8",
+    });
+  },
+);

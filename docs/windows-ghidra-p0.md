@@ -149,7 +149,10 @@ then starts the inspected JVM directly. Installation, bridge and runtime paths
 travel as separate arguments, preserving spaces, Unicode and literal `%`, `!`
 and `&` without command-interpreter expansion. JVM home and temporary properties
 also travel as separate arguments. `APPDATA` and `LOCALAPPDATA` point into the
-private runtime, isolating Ghidra preferences, logs, and caches.
+private runtime, isolating Ghidra preferences, logs, and caches. Session-owned
+`application.settingsdir`, `application.cachedir`, and `application.tempdir`
+properties take precedence over shared directory overrides in `launch.properties`;
+the Ghidra installation itself is left unchanged.
 
 Process creation assigns a suspended child atomically to an owned Job Object.
 Membership and kill-on-owner-close policy are verified before resume.

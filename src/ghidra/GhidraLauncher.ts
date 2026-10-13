@@ -290,6 +290,8 @@ export class GhidraHeadlessLauncher implements GhidraLauncher {
           ? {}
           : { javaVmName: this.options.javaVmName }),
         homeRoot: paths.homeRoot,
+        configRoot: paths.configRoot,
+        cacheRoot: paths.cacheRoot,
         tempRoot: paths.tempRoot,
         arguments: headlessArguments,
         environment,

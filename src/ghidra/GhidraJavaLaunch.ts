@@ -9,6 +9,8 @@ export const ghidraJavaLaunch = async (options: {
   readonly javaHome: string;
   readonly javaVmName?: string;
   readonly homeRoot: string;
+  readonly configRoot: string;
+  readonly cacheRoot: string;
   readonly tempRoot: string;
   readonly arguments: readonly string[];
   readonly environment: NodeJS.ProcessEnv;
@@ -30,6 +32,11 @@ export const ghidraJavaLaunch = async (options: {
   const isolatedProperties = [
     `-Duser.home=${options.homeRoot}`,
     `-Djava.io.tmpdir=${options.tempRoot}`,
+    // Ghidra's application properties take precedence over XDG/Windows env.
+    // These follow release VM arguments so settings/cache/temp stay session-owned.
+    `-Dapplication.settingsdir=${options.configRoot}`,
+    `-Dapplication.cachedir=${options.cacheRoot}`,
+    `-Dapplication.tempdir=${options.tempRoot}`,
   ];
   const supportArguments = [
     ...isolatedProperties,

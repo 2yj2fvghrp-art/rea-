@@ -3,7 +3,14 @@
 import assert from "node:assert/strict";
 import { execFile } from "node:child_process";
 import { createHash } from "node:crypto";
-import { mkdir, mkdtemp, readFile, rm, writeFile } from "node:fs/promises";
+import {
+  copyFile,
+  mkdir,
+  mkdtemp,
+  readFile,
+  rm,
+  writeFile,
+} from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { isAbsolute, join, relative, resolve } from "node:path";
 import { parseArgs, promisify } from "node:util";
@@ -42,7 +49,7 @@ const node = join(directory, "runtime/node.exe");
 const entry = join(directory, "app/scripts/rea.mjs");
 let complete = false;
 try {
-  const sample = join(workspace, "sample");
+  const sample = join(workspace, "sample %REA_PORTABLE_PROBE% & !NAME! 中文");
   await mkdir(sample);
   const source = 'export function greet(name) { return "Hello " + name; }\n';
   await writeFile(join(sample, "app.js"), source, "utf8");
@@ -66,18 +73,11 @@ try {
     TMP: workspace,
     NODE_OPTIONS: `--require "${guard.replaceAll("\\", "/")}"`,
     npm_command: "exec",
+    REA_PORTABLE_PROBE: "expanded-probe",
     NO_COLOR: "1",
   };
-  const run = async (args) =>
-    execute(node, [entry, ...args], {
-      cwd: workspace,
-      env: environment,
-      windowsHide: true,
-      timeout: 120_000,
-      maxBuffer: 8 * 1024 * 1024,
-    });
   // Keep %NAME% paths out of cmd text and exercise a caller with delayed expansion.
-  const launcher = async (args) =>
+  const batchLauncher = async (args) =>
     execute(
       join(process.env.SystemRoot, "System32/cmd.exe"),
       [
@@ -96,6 +96,63 @@ try {
         maxBuffer: 8 * 1024 * 1024,
       },
     );
+  // Invoke the full script path through inbox Windows PowerShell (including 5.1).
+  // The artifact is local test output; bypass policy only in this child process.
+  const powershell = async (root, args) =>
+    execute(
+      join(
+        process.env.SystemRoot,
+        "System32/WindowsPowerShell/v1.0/powershell.exe",
+      ),
+      [
+        "-NoProfile",
+        "-NonInteractive",
+        "-ExecutionPolicy",
+        "Bypass",
+        "-File",
+        join(root, "rea.ps1"),
+        ...args,
+      ],
+      {
+        cwd: workspace,
+        env: environment,
+        windowsHide: true,
+        timeout: 120_000,
+        maxBuffer: 8 * 1024 * 1024,
+      },
+    );
+  const launcher = (args) => powershell(directory, args);
+  // Use the shipped launcher unchanged with a controlled child to prove argv,
+  // cleared npm context and exit-code forwarding independently of REA.
+  const capture = join(workspace, "argv %REA_PORTABLE_PROBE% & !NAME! 中文");
+  await mkdir(join(capture, "runtime"), { recursive: true });
+  await mkdir(join(capture, "app/scripts"), { recursive: true });
+  await copyFile(node, join(capture, "runtime/node.exe"));
+  await copyFile(join(directory, "rea.ps1"), join(capture, "rea.ps1"));
+  await writeFile(
+    join(capture, "app/scripts/rea.mjs"),
+    "process.stdout.write(JSON.stringify({args:process.argv.slice(2),npm:process.env.npm_command??null}));process.exitCode=17;\n",
+    "utf8",
+  );
+  const capturedArgs = [
+    'text with "quotes" & ^ %REA_PORTABLE_PROBE% !',
+    "C:\\has spaces\\",
+    "",
+    "中文",
+  ];
+  await assert.rejects(powershell(capture, capturedArgs), (cause) => {
+    assert.equal(cause.code, 17);
+    assert.deepEqual(JSON.parse(cause.stdout), {
+      args: capturedArgs,
+      npm: null,
+    });
+    assert.equal(cause.stderr, "");
+    return true;
+  });
+  assert.match(
+    (await batchLauncher(["--help"])).stdout,
+    /analyze-javascript-application/u,
+  );
   assert.match(
     (await launcher(["--help"])).stdout,
     /analyze-javascript-application/u,
@@ -105,7 +162,9 @@ try {
       .stdout,
   );
   assert.equal(planned.status, "planned");
-  await launcher(["setup", "--client", "codex", "--yes", "--json"]);
+  const setupArgs = ["setup", "--client", "codex", "--yes", "--json"];
+  const setup = JSON.parse((await launcher(setupArgs)).stdout);
+  assert.equal(setup.status, "ready");
   const registration = parseToml(
     await readFile(join(workspace, ".codex/config.toml"), "utf8"),
   ).mcp_servers.rea;
@@ -129,8 +188,13 @@ try {
       ?.state,
     "aligned",
   );
+  const repeated = JSON.parse((await launcher(setupArgs)).stdout);
+  assert.equal(repeated.status, "ready");
+  assert.deepEqual(repeated.plannedActions, []);
+  assert.deepEqual(repeated.appliedActions, []);
   const cli = JSON.parse(
-    (await run(["analyze-javascript-application", sample, "--json"])).stdout,
+    (await launcher(["analyze-javascript-application", sample, "--json"]))
+      .stdout,
   );
   assert.equal(cli.operation, "analyze_javascript_application");
   const client = new Client({
@@ -164,7 +228,27 @@ try {
     await client.close();
   }
   assert.equal(await readFile(join(sample, "app.js"), "utf8"), source);
-  await launcher(["uninstall", "--json"]);
+  const uninstalled = JSON.parse(
+    (await launcher(["uninstall", "--json"])).stdout,
+  );
+  assert.equal(uninstalled.status, "complete");
+  for (const name of ["codex", "skill"])
+    assert.equal(
+      uninstalled.items.find((item) => item.name === name)?.status,
+      "removed",
+      `Portable uninstall must remove ${name}`,
+    );
+  const config = parseToml(
+    await readFile(join(workspace, ".codex/config.toml"), "utf8"),
+  );
+  assert.equal(config.mcp_servers?.rea, undefined);
+  await assert.rejects(
+    readFile(
+      join(workspace, ".agents/skills/reverse-engineer-anything/SKILL.md"),
+    ),
+    { code: "ENOENT" },
+    "Portable uninstall must remove the installed skill manifest",
+  );
   complete = true;
 } finally {
   if (complete) await rm(workspace, { recursive: true, force: true });

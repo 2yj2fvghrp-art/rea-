@@ -8,17 +8,24 @@ manager or download is required to start the included CLI or MCP server.
 Run from PowerShell:
 
 ```powershell
-.\rea.cmd --help
-.\rea.cmd setup --client codex --dry-run --json
+.\rea.ps1 --help
+.\rea.ps1 setup --client codex --dry-run --json
 ```
 
 Review the setup plan before applying it with `setup --client codex --yes`.
 Setup changes the selected client's configuration and installs REA's skill.
-After setup, run `.\rea.cmd doctor --client codex --skill --json` to check
+After setup, run `.\rea.ps1 doctor --client codex --skill --json` to check
 the bundled runtime, client registration, and installed skill offline.
 Registrations use the absolute paths of this directory's Node and REA entry
 point. If you move the directory later, rerun setup from the new location and
 restart the client. Moving a running server is not supported.
+
+Use `rea.ps1` from PowerShell to keep literal percent-bearing paths intact.
+For Command Prompt, change into the portable directory and use `rea.cmd`.
+Command Prompt expands `%NAME%` in command text before the launcher runs;
+for inputs containing those characters, use the PowerShell entrypoint.
+If local policy disables PowerShell scripts, call the bundled runtime directly:
+`& .\runtime\node.exe .\app\scripts\rea.mjs --help`. The same CLI arguments apply.
 
 External tools such as Ghidra, Java, Hopper, browsers, and optional analysis
 toolchains are not included. Prepare the tools needed for your task separately
@@ -60,7 +67,8 @@ npm run verify:portable:windows -- --directory C:\relocated\rea-portable
 ```
 
 This checks the file inventory, the actual command launcher, isolated setup,
-offline `doctor --client codex --skill`, uninstall, and matching CLI/MCP static
+offline `doctor --client codex --skill`, repeated setup without additional writes,
+removal of the client registration and installed skill, and matching CLI/MCP static
 JavaScript analysis. Doctor must report the selected client and skill as healthy
 and identify the bundled Node version; external provider readiness is outside
 this selected scope. The registered MCP command must point to the included Node

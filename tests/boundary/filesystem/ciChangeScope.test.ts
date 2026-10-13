@@ -306,6 +306,18 @@ it.each([
     { code: true, runtime: true, package: true, apple: false, evm: false },
   ],
   [
+    "scripts/lib/portable-dependencies.mjs",
+    { code: true, runtime: true, package: true, apple: false, evm: false },
+  ],
+  [
+    "scripts/lib/portable-inventory.mjs",
+    { code: true, runtime: true, package: true, apple: false, evm: false },
+  ],
+  [
+    "scripts/lib/portable-launcher.ps1",
+    { code: true, runtime: true, package: true, apple: false, evm: false },
+  ],
+  [
     "tests/process-global/runnerCancellation.test.ts",
     { code: true, runtime: true, package: true, apple: false, evm: false },
   ],

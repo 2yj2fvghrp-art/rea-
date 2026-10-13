@@ -128,6 +128,12 @@ await writeFile(
   '@echo off\r\nsetlocal DisableDelayedExpansion\r\nset "npm_command="\r\n"%~dp0runtime\\node.exe" "%~dp0app\\scripts\\rea.mjs" %*\r\nexit /b %errorlevel%\r\n',
   "utf8",
 );
+// PowerShell sends batch paths through cmd.exe before the batch can disable
+// expansion. Its own entrypoint keeps percent-bearing paths out of cmd text.
+await cp(
+  join(root, "scripts/lib/portable-launcher.ps1"),
+  join(output, "rea.ps1"),
+);
 await cp(join(root, "docs/portable-windows.md"), join(output, "README.md"));
 
 const files = [];

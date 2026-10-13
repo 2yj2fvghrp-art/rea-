@@ -40,6 +40,7 @@ export const SCOPES = {
     "scripts/verify-windows-*.mjs",
     "scripts/package-portable-windows.mjs",
     "scripts/verify-portable-windows.mjs",
+    "scripts/lib/portable-*",
     "scripts/build-windows-native.mjs",
     "scripts/windows-capabilities.mjs",
     "scripts/prepack.mjs",
