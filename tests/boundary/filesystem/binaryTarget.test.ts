@@ -26,6 +26,7 @@ import {
   thinMach,
 } from "../../../src/domain/binaryTarget.fixture.js";
 import { projectAnalysisError } from "../../../src/domain/analysisErrorProjection.js";
+import { hasXmlPlistSignature } from "../../../src/domain/apple/appleArchiveFormat.js";
 import { createEvidence, parseEvidence } from "../../../src/domain/evidence.js";
 import { createTestTempDirectory } from "../../fixtures/temporaryDirectory.js";
 
@@ -281,6 +282,12 @@ describe("binary target I/O: package classification", () => {
 });
 
 describe("binary target I/O: XML plist probe", () => {
+  it("scans repeated comments without backtracking on a non-plist prefix", () => {
+    const bytes = Buffer.from(`${"<!--x-->".repeat(30)}x`);
+
+    expect(hasXmlPlistSignature(bytes)).toBe(false);
+  });
+
   it("continues probing through legal XML whitespace beyond the initial window", async () => {
     const directory = await createTestTempDirectory("rea-xml-long-prolog-");
     const path = join(directory, "Model.archive");
@@ -319,7 +326,7 @@ describe("binary target I/O: package classification", () => {
   it("keeps a DMG classification when its data starts with an XML plist prolog", async () => {
     const directory = await createTestTempDirectory("rea-xml-dmg-target-");
     const path = join(directory, "image.dmg");
-    const image = Buffer.alloc(512);
+    const image = Buffer.alloc(1024);
     Buffer.from('<?xml version="1.0"?><plist>').copy(image);
     image.write("koly", image.length - 512, "ascii");
     await writeFile(path, image);
