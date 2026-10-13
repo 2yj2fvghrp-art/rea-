@@ -106,4 +106,14 @@ it("preserves a cancellation that races a completed observation", async () => {
   expect(result.ok).toBe(false);
   if (result.ok) return;
   expect(result.error).toBeInstanceOf(AnalysisCancelledError);
+  // The observation the provider completed is retained on the cancellation, so
+  // a session still records the Evidence instead of losing finished work.
+  const retained = parseEvidence(result.error.partialObservation);
+  expect(retained.operation).toBe("decode_android_resources");
+  expect(retained.provider).toEqual(identity);
+  expect(retained.parameters).toEqual({
+    path: "/targets/app.apk",
+    include_strings: true,
+  });
+  expect(retained.confidence).toBe("observed");
 });
