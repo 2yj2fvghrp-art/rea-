@@ -207,18 +207,56 @@ const connectedFixture = async () => {
   return { ...native, manager, session, server, client, start, load };
 };
 
+const scriptLoadFixture = async (stage: "create" | "load" = "load") => {
+  const fixture = await connectedFixture();
+  const id = await fixture.start();
+  const original = await fixture.load(id, "original");
+  const held = gate();
+  onTestFinished(held.release);
+  fixture.controls[stage] = held.wait;
+  return { fixture, id, original, held };
+};
+
+const pendingShutdown = async (server: { close(): Promise<void> }) => {
+  let closed = false;
+  const closing = server
+    .close()
+    .then(
+      () => undefined,
+      (cause: unknown) => cause,
+    )
+    .finally(() => {
+      closed = true;
+    });
+  await setImmediate();
+  expect(closed).toBe(false);
+  return { closing };
+};
+
+const retryCancelledScriptUnload = async (
+  fixture: Awaited<ReturnType<typeof connectedFixture>>,
+  sessionId: string,
+) => {
+  const scriptId = fixture.manager.status(sessionId)?.scripts[1]?.scriptId;
+  if (scriptId === undefined)
+    throw new Error("Cancelled script was not retained");
+  const retry = await fixture.client.callTool({
+    name: "unload_frida_script",
+    arguments: {
+      session_id: sessionId,
+      script_id: scriptId,
+    },
+  });
+  expect(retry.isError).not.toBe(true);
+};
+
 it.each(["load", "resume", "unload"] as const)(
   "does not dispatch a cancelled queued Frida %s through MCP",
   async (operation) => {
-    const fixture = await connectedFixture();
-    const id = await fixture.start();
-    const original = await fixture.load(id, "original");
+    const { fixture, id, original, held } = await scriptLoadFixture();
     const scriptId = toolContract("load_frida_script").outputSchema.parse(
       original.structuredContent,
     ).normalized_result.script_id;
-    const held = gate();
-    onTestFinished(held.release);
-    fixture.controls.load = held.wait;
     const first = fixture.load(id, "blocking");
     await held.entered;
     const controller = new AbortController();
@@ -258,12 +296,7 @@ it.each(["load", "resume", "unload"] as const)(
 it.each(["create", "load"] as const)(
   "releases only the new script when MCP cancellation arrives during native %s",
   async (stage) => {
-    const fixture = await connectedFixture();
-    const id = await fixture.start();
-    await fixture.load(id, "original");
-    const held = gate();
-    onTestFinished(held.release);
-    fixture.controls[stage] = held.wait;
+    const { fixture, id, held } = await scriptLoadFixture(stage);
     const controller = new AbortController();
     const cancelled = fixture.load(id, "cancelled-native", controller.signal);
     const rejected = expect(cancelled).rejects.toThrow(
@@ -319,18 +352,7 @@ it("awaits an admitted attach on server shutdown and retries failed native clean
     })
     .catch(() => undefined);
   await held.entered;
-  let closed = false;
-  const closing = fixture.server
-    .close()
-    .then(
-      () => undefined,
-      (cause: unknown) => cause,
-    )
-    .finally(() => {
-      closed = true;
-    });
-  await setImmediate();
-  expect(closed).toBe(false);
+  const { closing } = await pendingShutdown(fixture.server);
   expect(fixture.controls.detachCalls).toBe(0);
   held.release();
   expect(await closing).toBeInstanceOf(AggregateError);
@@ -365,18 +387,7 @@ it("drains remote discovery before shutdown and retains failed connection cleanu
     })
     .catch(() => undefined);
   await held.entered;
-  let closed = false;
-  const closing = fixture.server
-    .close()
-    .then(
-      () => undefined,
-      (cause: unknown) => cause,
-    )
-    .finally(() => {
-      closed = true;
-    });
-  await setImmediate();
-  expect(closed).toBe(false);
+  const { closing } = await pendingShutdown(fixture.server);
   held.release();
   expect(await closing).toBeInstanceOf(AggregateError);
   await discovering;
@@ -386,12 +397,7 @@ it("drains remote discovery before shutdown and retains failed connection cleanu
 });
 
 it("retains a cancelled script whose unload fails for an explicit MCP retry", async () => {
-  const fixture = await connectedFixture();
-  const id = await fixture.start();
-  await fixture.load(id, "original");
-  const held = gate();
-  onTestFinished(held.release);
-  fixture.controls.load = held.wait;
+  const { fixture, id, held } = await scriptLoadFixture();
   fixture.controls.unloadFailures = 1;
   const controller = new AbortController();
   const cancelled = fixture.load(id, "cancelled-native", controller.signal);
@@ -413,17 +419,7 @@ it("retains a cancelled script whose unload fails for an explicit MCP retry", as
       }),
     }),
   );
-  const scriptId = fixture.manager.status(id)?.scripts[1]?.scriptId;
-  if (scriptId === undefined)
-    throw new Error("Cancelled script was not retained");
-  const retry = await fixture.client.callTool({
-    name: "unload_frida_script",
-    arguments: {
-      session_id: id,
-      script_id: scriptId,
-    },
-  });
-  expect(retry.isError).not.toBe(true);
+  await retryCancelledScriptUnload(fixture, id);
   expect(fixture.unloaded).toEqual(["cancelled-native", "cancelled-native"]);
   expect(fixture.manager.status(id)?.scripts).toHaveLength(2);
   expect(fixture.controls.detachCalls).toBe(0);
@@ -432,12 +428,7 @@ it("retains a cancelled script whose unload fails for an explicit MCP retry", as
 it.each([0, 1])(
   "settles cancelled native-load cleanup before a queued resume (unload failures: %i)",
   async (unloadFailures) => {
-    const fixture = await connectedFixture();
-    const id = await fixture.start();
-    await fixture.load(id, "original");
-    const held = gate();
-    onTestFinished(held.release);
-    fixture.controls.load = held.wait;
+    const { fixture, id, held } = await scriptLoadFixture();
     fixture.controls.unloadFailures = unloadFailures;
     const controller = new AbortController();
     const loading = fixture.load(id, "cancelled-native", controller.signal);
@@ -481,17 +472,7 @@ it.each([0, 1])(
     expect(resumed.isError).toBe(true);
     expect(fixture.manager.status(id)?.state).toBe("paused");
     expect((await resume()).isError).toBe(true);
-    const scriptId = fixture.manager.status(id)?.scripts[1]?.scriptId;
-    if (scriptId === undefined)
-      throw new Error("Cancelled script was not retained");
-    const retry = await fixture.client.callTool({
-      name: "unload_frida_script",
-      arguments: {
-        session_id: id,
-        script_id: scriptId,
-      },
-    });
-    expect(retry.isError).not.toBe(true);
+    await retryCancelledScriptUnload(fixture, id);
     expect((await resume()).isError).not.toBe(true);
     expect(fixture.scriptsAtResume).toEqual([["original"]]);
   },
@@ -500,12 +481,7 @@ it.each([0, 1])(
 it.each([0, 1, 2, 3, 4, 8])(
   "keeps MCP load Evidence consistent with queued resume across settlement timing %i",
   async (microtasks) => {
-    const fixture = await connectedFixture();
-    const id = await fixture.start();
-    await fixture.load(id, "original");
-    const held = gate();
-    onTestFinished(held.release);
-    fixture.controls.load = held.wait;
+    const { fixture, id, held } = await scriptLoadFixture();
     const controller = new AbortController();
     fixture.controls.afterLoad = () => {
       let remaining = microtasks;
