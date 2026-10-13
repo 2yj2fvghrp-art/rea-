@@ -48,9 +48,20 @@ terminal runs under Rosetta. Check that
 `/usr/local/lib` intact. Do not move its files and do not link ARM files into
 it. That breaks Intel programs that use the same names. Use an unprotected ARM
 Python, not Apple `/usr/bin/python3`. A venv from the Apple interpreter stays
-protected and purges `DYLD` at launch. Recreate the venv with the ARM
-interpreter, activate it, and reinstall with
-`python3 -m pip install -r website/requirements.txt`. A rebuilt venv is empty
+protected and purges `DYLD` at launch. Deactivate any active venv, confirm the
+shell reports `arm64`, then recreate the venv with the ARM interpreter by its
+full path:
+
+```sh
+deactivate || true
+arch
+/opt/homebrew/bin/brew install python3
+/opt/homebrew/bin/python3 -m venv website/.venv --clear
+source website/.venv/bin/activate
+python3 -m pip install -r website/requirements.txt
+```
+
+A rebuilt venv is empty
 without this step. Export `DYLD_LIBRARY_PATH=/opt/homebrew/lib` and
 `DYLD_FALLBACK_LIBRARY_PATH=/opt/homebrew/lib` inside the ARM shell. Verify
 with `python3 -c "import ctypes.util;
