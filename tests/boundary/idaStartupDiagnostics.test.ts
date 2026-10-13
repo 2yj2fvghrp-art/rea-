@@ -84,3 +84,28 @@ it("drops a leading partial UTF-8 character from the bounded stderr tail", async
     await connection.close();
   }
 });
+
+it("retains an in-budget undecodable leading byte without claiming tail truncation", async () => {
+  const connection = createIdaMcpConnection(
+    {
+      command: process.execPath,
+      args: [
+        "-e",
+        "process.stderr.write(Buffer.from([0x80, 0x61, 0x62]), () => process.exit(2));",
+      ],
+      env: {},
+      mode: "headless",
+      timeoutMs: 1000,
+    },
+    {},
+  );
+  try {
+    const failure = await connection.connect().catch((cause: unknown) => cause);
+    expect(failure).toMatchObject({
+      capturedOutput: { stderr: "�ab", stderr_bytes: 3, truncated: false },
+    });
+    expect(failure).not.toHaveProperty("diagnostics.upstream_stderr");
+  } finally {
+    await connection.close();
+  }
+});

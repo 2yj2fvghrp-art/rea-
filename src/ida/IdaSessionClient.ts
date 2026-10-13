@@ -334,7 +334,26 @@ export class IdaSessionClient implements AnalysisClient {
     context: IdaOperationFailureContext,
   ) {
     let failure: AnalysisError;
-    if (
+    if (wasCancelled(options))
+      failure = new AnalysisCancelledError(operation, {
+        cause,
+        ...(cause instanceof AnalysisError
+          ? {
+              capturedOutput: cause.capturedOutput,
+              diagnostics: cause.diagnostics,
+              partialObservation: cause.partialObservation,
+              cleanup:
+                cause.cleanup ??
+                (cause.cleanupIncomplete
+                  ? {
+                      reason: cause.message,
+                      resources: cause.cleanupResources,
+                    }
+                  : undefined),
+            }
+          : {}),
+      });
+    else if (
       cause instanceof ProviderAdapterError &&
       cause.operation === "transport"
     )
@@ -356,8 +375,6 @@ export class IdaSessionClient implements AnalysisClient {
         cause.capturedOutput !== undefined)
     )
       failure = cause;
-    else if (wasCancelled(options))
-      failure = new AnalysisCancelledError(operation);
     else if (cause instanceof AnalysisError) failure = cause;
     else if (cause instanceof z.ZodError)
       failure = new AnalysisOutputError(
