@@ -83,7 +83,10 @@ export class ReverseEngineeringService {
   readonly #stat: (path: string) => Promise<Stats>;
   readonly #pendingCleanup = new Map<
     ProviderProcessSupervisor,
-    { readonly observation: AnalysisCleanupObservation; readonly failures: Set<AnalysisError> }
+    {
+      readonly observation: AnalysisCleanupObservation;
+      readonly failures: Set<AnalysisError>;
+    }
   >();
   readonly #activeOperations = new Map<
     AbortController,
@@ -99,27 +102,46 @@ export class ReverseEngineeringService {
       options.run ??
       runOwnedCommandOutput(
         options.runOwned ?? runOwnedCommand,
-        (owner, cleanup) => this.#pendingCleanup.set(owner, { observation: cleanup, failures: this.#pendingCleanup.get(owner)?.failures ?? new Set() }),
+        (owner, cleanup) =>
+          this.#pendingCleanup.set(owner, {
+            observation: cleanup,
+            failures: this.#pendingCleanup.get(owner)?.failures ?? new Set(),
+          }),
       );
     this.#digest = options.digest ?? digestFile;
     this.#stat = options.stat ?? statPath;
   }
 
   /** Ask retained process owners to settle cleanup before admitting more work. */
-  async retryCleanup(operation = "reverse_engineering_cleanup"): Promise<Result<null, AnalysisError>> {
+  async retryCleanup(
+    operation = "reverse_engineering_cleanup",
+  ): Promise<Result<null, AnalysisError>> {
     let failure: AnalysisError | undefined;
     for (const [owner, retained] of this.#pendingCleanup) {
       let stopped: Awaited<ReturnType<ProviderProcessSupervisor["stop"]>>;
       try {
         stopped = await owner.stop();
       } catch (cause) {
-        stopped = { status: "incomplete", reason: cause instanceof Error ? cause.message : String(cause) };
+        stopped = {
+          status: "incomplete",
+          reason: cause instanceof Error ? cause.message : String(cause),
+        };
       }
       if (stopped.status === "incomplete") {
-        const observation = { reason: stopped.reason, resources: retained.observation.resources };
-        this.#pendingCleanup.set(owner, { observation, failures: retained.failures });
+        const observation = {
+          reason: stopped.reason,
+          resources: retained.observation.resources,
+        };
+        this.#pendingCleanup.set(owner, {
+          observation,
+          failures: retained.failures,
+        });
         if (failure === undefined) {
-          failure = new AnalysisOutputError(operation, "A previous provider process still requires cleanup.", { cleanup: observation });
+          failure = new AnalysisOutputError(
+            operation,
+            "A previous provider process still requires cleanup.",
+            { cleanup: observation },
+          );
         }
       } else {
         for (const previous of retained.failures) previous.resolveCleanup();
@@ -293,7 +315,8 @@ export class ReverseEngineeringService {
       stdoutInvalidUtf8 = output.stdoutInvalidUtf8 === true;
       stderrInvalidUtf8 = output.stderrInvalidUtf8 === true;
     } catch (cause) {
-      cleanupOwner = cause instanceof OwnedOutputFailure ? cause.cleanupOwner : undefined;
+      cleanupOwner =
+        cause instanceof OwnedOutputFailure ? cause.cleanupOwner : undefined;
       if (
         cause instanceof OwnedOutputFailure &&
         cause.capabilityError !== undefined
@@ -688,7 +711,9 @@ const runOwnedCommandOutput =
                 resources: cause.resources,
               },
             }),
-        ...(cause.cleanupOwner === undefined ? {} : { cleanupOwner: cause.cleanupOwner }),
+        ...(cause.cleanupOwner === undefined
+          ? {}
+          : { cleanupOwner: cause.cleanupOwner }),
         cause,
       });
     }

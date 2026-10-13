@@ -247,7 +247,10 @@ it("rebinds when an external mutation uses a hard link to the active target", as
     (_value, error) => error,
   );
 
-  expect(result).toMatchObject({ ok: true, value: { ok: true, value: "changed" } });
+  expect(result).toMatchObject({
+    ok: true,
+    value: { ok: true, value: "changed" },
+  });
   expect(session.activeTarget()).toMatchObject({ path: target });
   expect(session.activeTarget()?.sha256).not.toBe(before);
   await session.close();
@@ -299,7 +302,10 @@ it("reopens an app bundle from its source path after a session mutation", async 
   );
 
   if (!result.ok) throw result.error;
-  expect(result).toMatchObject({ ok: true, value: { ok: true, value: "observed" } });
+  expect(result).toMatchObject({
+    ok: true,
+    value: { ok: true, value: "observed" },
+  });
   expect(session.activeTarget()).toMatchObject({
     path: await realpath(executable),
     sourcePath: await realpath(app),
@@ -323,7 +329,10 @@ it("omits provider identity when rebinding an unbound auxiliary-only session", a
     (_value, error) => error,
   );
 
-  expect(result).toMatchObject({ ok: true, value: { ok: true, value: "observed" } });
+  expect(result).toMatchObject({
+    ok: true,
+    value: { ok: true, value: "observed" },
+  });
   expect(session.activeTarget()?.path).toBe(target);
   await session.close();
 });
@@ -1483,7 +1492,6 @@ describe("selector origin forwarding", () => {
   });
 });
 
-
 it("blocks analysis rebinding until the external writer cleanup settles", async () => {
   const [target] = await createBinarySessionTargets();
   const session = createTestBinarySession(createCacheProvider([]));
@@ -1501,7 +1509,14 @@ it("blocks analysis rebinding until the external writer cleanup settles", async 
   expect(session.activeTarget()).toBeUndefined();
   expect(await session.open(target)).toEqual(err(failure));
   const unrelated = vi.fn(async () => resultOk("unrelated success"));
-  expect(await session.withAdmittedExternalMutation(target, undefined, unrelated, (_value, error) => error)).toEqual(err(failure));
+  expect(
+    await session.withAdmittedExternalMutation(
+      target,
+      undefined,
+      unrelated,
+      (_value, error) => error,
+    ),
+  ).toEqual(err(failure));
   expect(unrelated).not.toHaveBeenCalled();
   failure.resolveCleanup(); // The retained process owner confirmed its stop.
   expect((await session.open(target)).ok).toBe(true);
@@ -1515,13 +1530,15 @@ it("requires explicit close before an external mutation of an active Ghidra sess
   const session = createTestBinarySession({
     ...base,
     identity: () => identity,
-    resolveAnalysisProfile: async () => resultOk({
-      profile: createAnalysisProfile(identity, { fixture: true }),
-    }),
-    capabilities: () => base.capabilities().map((capability) => ({
-      ...capability,
-      provider: identity,
-    })),
+    resolveAnalysisProfile: async () =>
+      resultOk({
+        profile: createAnalysisProfile(identity, { fixture: true }),
+      }),
+    capabilities: () =>
+      base.capabilities().map((capability) => ({
+        ...capability,
+        provider: identity,
+      })),
   });
   expect((await session.open(target)).ok).toBe(true);
   const mutate = vi.fn(async () => resultOk("mutated"));
@@ -1531,9 +1548,14 @@ it("requires explicit close before an external mutation of an active Ghidra sess
     mutate,
     (_value, error) => error,
   );
-  expect(result).toMatchObject({ ok: false, error: {
-    message: expect.stringContaining("Close the active Ghidra session explicitly"),
-  }});
+  expect(result).toMatchObject({
+    ok: false,
+    error: {
+      message: expect.stringContaining(
+        "Close the active Ghidra session explicitly",
+      ),
+    },
+  });
   expect(mutate).not.toHaveBeenCalled();
   expect(session.activeTarget()?.path).toBe(target);
   await session.close();

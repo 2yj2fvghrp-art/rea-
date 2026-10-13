@@ -53,7 +53,10 @@ export interface BinarySessionPort
     path: string,
     signal: AbortSignal | undefined,
     operation: () => Promise<Result<Value, AnalysisError>>,
-    rebindFailure: (value: Result<Value, AnalysisError>, error: AnalysisError) => AnalysisError,
+    rebindFailure: (
+      value: Result<Value, AnalysisError>,
+      error: AnalysisError,
+    ) => AnalysisError,
   ): Promise<Result<Result<Value, AnalysisError>, AnalysisError>>;
   open(
     path: string,

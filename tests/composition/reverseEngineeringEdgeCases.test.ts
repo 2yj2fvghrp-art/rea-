@@ -276,11 +276,15 @@ it("retains and retries an owned cleanup after an output-limit failure", async (
     expect(stop).toHaveBeenCalledTimes(3);
     await service.close();
     expect(stop).toHaveBeenCalledTimes(4);
-    if (result.ok || blocked.ok) throw new Error("Expected retained cleanup failures");
+    if (result.ok || blocked.ok)
+      throw new Error("Expected retained cleanup failures");
     expect(result.error.cleanupIncomplete).toBe(false);
     // The retry refusal is a historical observation, not another live writer owner.
     expect(blocked.error.cleanupIncomplete).toBe(true);
-    expect(result.error.cleanup).toEqual({ reason: "still running", resources: ["run-id", "pid:42"] });
+    expect(result.error.cleanup).toEqual({
+      reason: "still running",
+      resources: ["run-id", "pid:42"],
+    });
   } finally {
     await rm(directory, { recursive: true, force: true });
   }

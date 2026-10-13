@@ -5,7 +5,10 @@ import {
   analysisProfilesEqual,
   type AnalysisProfileCommitment,
 } from "../../domain/analysisProfile.js";
-import { AnalysisCancelledError, AnalysisOutputError } from "../../domain/analysisErrorCore.js";
+import {
+  AnalysisCancelledError,
+  AnalysisOutputError,
+} from "../../domain/analysisErrorCore.js";
 import type { AnalysisError } from "../../domain/analysisErrorBase.js";
 import { err, ok, type Result } from "../../domain/result.js";
 import type { JsonValue } from "../../domain/jsonValue.js";
@@ -368,7 +371,10 @@ export class BinarySession
     path: string,
     signal: AbortSignal | undefined,
     operation: () => Promise<Result<Value, AnalysisError>>,
-    rebindFailure: (value: Result<Value, AnalysisError>, error: AnalysisError) => AnalysisError,
+    rebindFailure: (
+      value: Result<Value, AnalysisError>,
+      error: AnalysisError,
+    ) => AnalysisError,
   ): Promise<Result<Result<Value, AnalysisError>, AnalysisError>> {
     return this.#serialize(async (admittedThrough) => {
       if (this.#externalMutationCleanupFailure?.cleanupIncomplete === true)
@@ -381,10 +387,12 @@ export class BinarySession
 
       const activeAtDispatch = this.#active;
       if (activeAtDispatch?.route.identity.id === "ghidra")
-        return err(new AnalysisOutputError(
-          "execute_rizin_command",
-          "Close the active Ghidra session explicitly before an external mutation; rebinding would discard its ephemeral analysis edits.",
-        ));
+        return err(
+          new AnalysisOutputError(
+            "execute_rizin_command",
+            "Close the active Ghidra session explicitly before an external mutation; rebinding would discard its ephemeral analysis edits.",
+          ),
+        );
       // Rizin commands are unrestricted: a hard link, symlink alias, plugin,
       // or command script can mutate the active file through another path.
       // Rebind every active session after the admitted call rather than infer

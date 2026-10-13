@@ -33,7 +33,10 @@ export const registerReverseEngineeringTools = (
     path: string,
     signal: AbortSignal | undefined,
     operation: () => Promise<Result<Value, AnalysisError>>,
-    rebindFailure: (value: Result<Value, AnalysisError>, error: AnalysisError) => AnalysisError,
+    rebindFailure: (
+      value: Result<Value, AnalysisError>,
+      error: AnalysisError,
+    ) => AnalysisError,
   ) => Promise<Result<Result<Value, AnalysisError>, AnalysisError>>,
 ): void => {
   const objdump = toolContract("inspect_with_objdump");
@@ -75,7 +78,8 @@ export const registerReverseEngineeringTools = (
       const parsed = rizinInputSchema.safeParse(input);
       if (parsed.success && withAdmittedExternalMutation !== undefined) {
         const cleanup = await service.retryCleanup();
-        if (!cleanup.ok) return deliverFailure(cleanup.error, rizin, delivery, recordEvidence);
+        if (!cleanup.ok)
+          return deliverFailure(cleanup.error, rizin, delivery, recordEvidence);
         const admitted = await withAdmittedExternalMutation(
           parsed.data.path,
           context.mcpReq.signal,
@@ -89,15 +93,21 @@ export const registerReverseEngineeringTools = (
           },
           (value, cause) => {
             if (!value.ok)
-              return value.error.retainSecondaryFailure(cause, { rebind_error: projectAnalysisError(cause) });
+              return value.error.retainSecondaryFailure(cause, {
+                rebind_error: projectAnalysisError(cause),
+              });
             const observation = value.value;
             return new AnalysisOutputError(
               rizin.name,
               "Rizin may have changed the bound artifact, but the active analysis session could not be rebound.",
               {
                 cause,
-                ...(cause.cleanup === undefined ? {} : { cleanup: cause.cleanup }),
-                ...(cause.capturedOutput === undefined ? {} : { capturedOutput: cause.capturedOutput }),
+                ...(cause.cleanup === undefined
+                  ? {}
+                  : { cleanup: cause.cleanup }),
+                ...(cause.capturedOutput === undefined
+                  ? {}
+                  : { capturedOutput: cause.capturedOutput }),
                 ...(observation === undefined
                   ? {}
                   : { partialObservation: observation }),
