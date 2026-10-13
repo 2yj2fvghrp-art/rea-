@@ -90,6 +90,10 @@ function status(info) {
   console.log("REA Cordis patch: " + (info.correctPatch ? "valid" : "missing/invalid"));
   console.log("Enabled in dsh.profile.bundles: "
     + (info.active ? "yes" : "NO") + " (" + info.selected.length + " bundles)");
+  if (info.installed && info.correctBundle && info.correctPatch && !info.active) {
+    console.log("Next: enable dsh-rea-bundle in Desktop > Plugins > Installed plugins.");
+    console.log("If the switch is unavailable, quit Desktop and run --activate.");
+  }
 }
 
 function activate(info) {
@@ -141,11 +145,19 @@ function verify(info) {
   if (!existsSync(compiled)) {
     fail("Missing generated Cordis config; restart Desktop first: " + compiled);
   }
+  if (!info.correctBundle || !info.correctPatch) {
+    fail("Installed REA bundle metadata or its Cordis patch is invalid");
+  }
+  // A compiled config older than the current profile may represent a previous
+  // Desktop session, so a matching row alone is insufficient verification.
+  if (statSync(compiled).mtimeMs < statSync(info.manifest).mtimeMs - 1000) {
+    fail("Cordis config is older than the profile change; restart Desktop first");
+  }
   const contents = readFileSync(compiled, "utf8");
   if (!hasRow(contents, "rea-launcher") || !hasRow(contents, "rea-mcp")) {
     fail("Compiled Cordis config lacks rea-launcher / rea-mcp. Check Desktop loader errors.");
   }
-  console.log("PASS: selected bundle and compiled Cordis rea-launcher + rea-mcp rows.");
+  console.log("PASS: selected bundle and newly compiled Cordis rea-launcher + rea-mcp rows.");
   console.log("Check mcp__rea__* tools in a live session; this check does not prove MCP startup.");
 }
 

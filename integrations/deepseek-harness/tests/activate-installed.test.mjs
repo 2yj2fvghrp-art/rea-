@@ -6,6 +6,7 @@ import {
   readFileSync,
   readdirSync,
   rmSync,
+  utimesSync,
   writeFileSync,
 } from "node:fs";
 import { tmpdir } from "node:os";
@@ -127,6 +128,37 @@ test("unknown options and malformed bundle array fail closed", () => {
     p.dsh.profile.bundles = "invalid";
     writeFileSync(manifest, JSON.stringify(p));
     assert.notEqual(run(["--activate"]).status, 0);
+    assert.deepEqual(backups(profile), []);
+  });
+});
+
+test("verification rejects stale Cordis output despite matching row IDs", () => {
+  fixture(({ manifest, profile, run }) => {
+    const compiled = join(profile, "cordis.yml");
+    writeFileSync(compiled, "- id: rea-launcher\n- id: rea-mcp\n");
+    const now = new Date();
+    const stale = new Date(now.getTime() - 10000);
+    utimesSync(compiled, stale, stale);
+    utimesSync(manifest, now, now);
+    const old = run(["--verify"]);
+    assert.notEqual(old.status, 0);
+    assert.match(old.stderr, /older than the profile change/);
+    const fresh = new Date(now.getTime() + 2000);
+    utimesSync(compiled, fresh, fresh);
+    assert.equal(run(["--verify"]).status, 0);
+  }, { active: true });
+});
+
+test("duplicate bundle selection is rejected without modifying any file", () => {
+  fixture(({ manifest, profile, run }) => {
+    const p = JSON.parse(readFileSync(manifest, "utf8"));
+    p.dsh.profile.bundles.push("other-2");
+    writeFileSync(manifest, JSON.stringify(p) + "\n");
+    const before = readFileSync(manifest);
+    const outcome = run(["--activate"]);
+    assert.notEqual(outcome.status, 0);
+    assert.match(outcome.stderr, /duplicates/);
+    assert.deepEqual(readFileSync(manifest), before);
     assert.deepEqual(backups(profile), []);
   });
 });
