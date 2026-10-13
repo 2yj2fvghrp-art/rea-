@@ -544,6 +544,25 @@ describe("managed implementation classification", () => {
     );
   });
 
+  it("preserves ReadyToRun runtime identity after metadata capacity is exhausted", () => {
+    const bytes = buildManagedPeFixture({
+      readyToRun: true,
+      cliFlags: 0xc,
+      fieldName: "x".repeat(12 * 1024 * 1024),
+    });
+    const result = inspectManagedArtifactBytes(
+      bytes,
+      managedPeFixtureTarget(bytes),
+    );
+    expect(result.classification).toMatchObject({
+      status: "managed",
+      runtime_family: "modern-dotnet",
+    });
+    expect(result.coverage.issues).toContainEqual(
+      expect.objectContaining({ code: "resource-limit" }),
+    );
+  });
+
   it("keeps a clear ILONLY flag without ReadyToRun as mixed CLR/native", () => {
     const bytes = buildManagedPeFixture({ cliFlags: 0 });
     const result = inspectManagedArtifactBytes(

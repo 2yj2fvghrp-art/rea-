@@ -157,6 +157,15 @@ interface RuntimeClassificationInput {
   readonly inventory: ManagedMetadataInventory;
 }
 
+const runtimeFamilyFromCliHeader = (
+  cli: ManagedCliHeader | null,
+): ManagedArtifactInspection["classification"]["runtime_family"] =>
+  cli?.readyToRunSignature === true
+    ? "modern-dotnet"
+    : cli !== null && (cli.flags & 1) === 0
+      ? "mixed-clr-native"
+      : "unknown";
+
 const runtimeFamilyFor = (
   cli: ManagedCliHeader,
   inventory: ManagedMetadataInventory,
@@ -181,7 +190,7 @@ const runtimeFamilyFor = (
     "unknown";
   // crossgen2 clears ILONLY on ReadyToRun output, so only a clear flag
   // without the ReadyToRun signature indicates mixed CLR/native code.
-  if ((cli.flags & 1) === 0 && !cli.readyToRunSignature) {
+  if (runtimeFamilyFromCliHeader(cli) === "mixed-clr-native") {
     runtimeFamily = "mixed-clr-native";
     evidence.push({
       code: "cli-il-only-clear",
@@ -304,8 +313,7 @@ const partialMetadataResult = ({
   classification: {
     status: issue.code === "resource-limit" ? "managed" : "malformed",
     container: "pe",
-    runtime_family:
-      (layout.cli?.flags ?? 1) & 1 ? "unknown" : "mixed-clr-native",
+    runtime_family: runtimeFamilyFromCliHeader(layout.cli),
     implementation: "unknown",
     managed_architecture: "unknown",
     evidence: [
