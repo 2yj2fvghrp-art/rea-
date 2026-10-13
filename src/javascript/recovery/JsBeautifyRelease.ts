@@ -7,9 +7,6 @@ export const JSBEAUTIFY_PROVIDER_IDENTITY = {
   version: "unverified",
 } as const;
 
-export const JSBEAUTIFY_REPOSITORY =
-  "https://github.com/coleleavitt/jsbeautify";
-
 /**
  * Per-operation bounds. jsbeautify builds before 9949993 reserve a worker
  * stack of 2 KiB per input byte regardless of the address-space limit: a

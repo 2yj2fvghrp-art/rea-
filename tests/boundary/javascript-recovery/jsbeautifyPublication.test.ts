@@ -226,3 +226,17 @@ it.skipIf(process.platform === "win32")(
     expect(lines).not.toContain("# other.js");
   },
 );
+
+it("does not attribute the configured executable to an audited source", async () => {
+  const evidence = await recover(["a.js"]);
+  if (!evidence.ok) throw evidence.error;
+  const result = javascriptRecoveryResultSchema.parse(
+    evidence.value.normalized_result,
+  );
+  expect(result.engine).toMatchObject({
+    version: "1.0",
+    audited_source_revision: null,
+    executed_source_revision: null,
+  });
+  expect(JSON.stringify(evidence.value)).not.toContain("github.com");
+});

@@ -59,8 +59,10 @@ be claimed. No such provider run was performed for this revision.
 [jsbeautify](https://github.com/coleleavitt/jsbeautify) binary on Linux
 (any architecture). Set `REA_JSBEAUTIFY_COMMAND` to its absolute path; util-linux
 `prlimit` is required as for Wakaru. REA neither installs nor pins it: the
-result reports the executable's path, SHA-256 and `jsbeautify --version` banner,
-and `audited_source_revision` says the build is unaudited.
+result reports the executable's path, SHA-256, size and the version parsed from
+`jsbeautify --version`. `audited_source_revision` is `null`: REA has audited no
+jsbeautify source, and a version banner cannot prove which source produced the
+binary.
 
 jsbeautify rewrites each selected file whole. Modules are not split, so
 `extraction_mode` must stay `structural` and each module's byte range is its

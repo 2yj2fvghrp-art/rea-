@@ -62,7 +62,8 @@ export const javascriptRecoveryResultSchema = z.strictObject({
     id: z.string().min(1),
     version: z.string().min(1),
     executable: fileSchema,
-    audited_source_revision: z.string().min(1),
+    /** Null when REA audited no source for the configured engine. */
+    audited_source_revision: z.string().min(1).nullable(),
     executed_source_revision: z.string().nullable(),
   }),
   options: z.strictObject({

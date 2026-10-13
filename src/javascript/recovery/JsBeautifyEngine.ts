@@ -30,7 +30,6 @@ import {
   JSBEAUTIFY_LIMITATIONS,
   JSBEAUTIFY_LIMITS,
   JSBEAUTIFY_PROVIDER_IDENTITY,
-  JSBEAUTIFY_REPOSITORY,
 } from "./JsBeautifyRelease.js";
 
 const OPERATION = "recover_javascript_sources";
@@ -383,7 +382,7 @@ const executeJsBeautify = async (context: RecoveryWorkspace) => {
         sha256: tool.sha256,
         bytes: tool.bytes,
       },
-      audited_source_revision: `unaudited caller-supplied build of ${JSBEAUTIFY_REPOSITORY}`,
+      audited_source_revision: null,
       executed_source_revision: null,
     },
     options: {
