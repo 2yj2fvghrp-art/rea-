@@ -95,8 +95,8 @@ output and errors are kept separate so the standard-output tab remains valid JSO
 Large analysis results can consume substantial memory in the results window; use
 the CLI to save and inspect very large Evidence output. A running operation
 cannot be cancelled from the GUI, and the window stays open until it finishes.
-If the GUI process is
-force-terminated, Windows closes its owned Job Object and terminates the CLI and
-its child processes. The portable ZIP is Windows x64 only; native analysis
+If `rea-gui.exe` or the GUI process is force-terminated, Windows closes its
+owned Job Objects and terminates the PowerShell GUI, CLI, and their child
+processes. The portable ZIP is Windows x64 only; native analysis
 remains subject to the selected provider's requirements and the Windows native
 artifact's NTFS limitations.

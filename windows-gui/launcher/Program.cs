@@ -2,6 +2,7 @@ using System.ComponentModel;
 using System.Diagnostics;
 using System.Text;
 using System.Windows.Forms;
+using Rea.WindowsGui.Launcher;
 
 internal static class Program
 {
@@ -75,6 +76,7 @@ internal static class Program
 
         try
         {
+            using var ownerJob = LauncherJobObject.AssignCurrentProcess();
             using var process = new Process { StartInfo = startInfo };
             var standardOutput = new StringBuilder();
             var standardError = new StringBuilder();
