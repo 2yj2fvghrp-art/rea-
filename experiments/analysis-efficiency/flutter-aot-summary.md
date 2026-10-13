@@ -139,3 +139,22 @@ refusals and unsupported snapshot kinds. Fixture successes are distinguished
 from the real LocalSend SDK/migration workflows. Other Flutter apps, architectures,
 SDK layouts, typed class recovery and runtime behavior remain unverified here.
 Raw replies, binaries, model traces and temporary credentials stay outside Git.
+
+## Integration with the newer main
+
+The rebased verification runtime is `63984ce0898bd7997e6d9b138e6d96d0a24f2b09`
+on main `a2d8b94dd50dab8d966239dd63ab84718aa8b4b4`, with compiled file-table
+SHA-256 `19c8ccdd3e99bb46a5c54f4edd8c6b2d2eb4f3a4870b3c129061d38145382b68`.
+Targeted Flutter/SAZ/shared-view integration passes 35 tests; one opposite
+runtime-capacity branch is skipped because this host enforces decoder memory.
+Documentation checks and two README conformance tests pass.
+
+Fresh real complete/summary SDK checks on this runtime match the earlier selected
+facts and settings, with unchanged 151,341 / 12,037-byte AOT replies. Fifteen
+old-Evidence migration calls again preserve every original string and record
+with the source APK absent. The real one-shot CLI complete result also matches
+the previous-runtime normalized report, subject, parameters and original ID.
+An initial CLI-only controller check lacked an owned resource receipt; it is
+retained and excluded from resource/performance claims, then repeated in the
+bounded owned scope. These checks establish integration, rather than relabeling
+the earlier paired model/SDK measurements as the rebased runtime.
