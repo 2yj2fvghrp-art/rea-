@@ -1,4 +1,10 @@
 import { expect, it, onTestFinished, vi } from "vitest";
+import { execFile } from "node:child_process";
+import { readFile, writeFile } from "node:fs/promises";
+import { join } from "node:path";
+import { promisify } from "node:util";
+import { parseEvidence } from "../../../src/domain/evidence.js";
+import { createTestTempDirectory } from "../../fixtures/temporaryDirectory.js";
 import { CdpBrowserProvider } from "../../../src/browser/CdpBrowserProvider.js";
 import { inspectWebPageInputSchema } from "../../../src/domain/browserObservation.js";
 import { analyzeWebBundleInputSchema } from "../../../src/domain/webBundleAnalysis.js";
@@ -8,6 +14,88 @@ import {
 } from "../../fixtures/fakeCdpBrowser.js";
 
 const source = 'postMessage("worker 🧪");';
+
+it.each([
+  ["https://foreign.example/a.js", "disallowed_origin"],
+  ["file:///worker.js", "unsupported_url"],
+  ["", "unattributed_origin"],
+  [undefined, "unattributed_origin"],
+] as const)(
+  "retains the exclusion reason for worker URL %s",
+  async (url, reason) => {
+    const { provider, input } = await fixture({
+      commandResult: (command) =>
+        command.method === "Target.getTargets"
+          ? {
+              targetInfos: [
+                { targetId: "excluded", type: "worker", attached: false, url },
+              ],
+            }
+          : undefined,
+    });
+    const result = await provider.inspectPage(input);
+    if (!result.ok) throw result.error;
+    expect(result.value.completeness.excluded).toContainEqual({
+      section: "workers",
+      reason,
+      count: 1,
+    });
+  },
+);
+
+it("preserves worker coverage and warnings through CLI export even without worker scripts", async () => {
+  const { provider, input } = await fixture({
+    commandError: (command) =>
+      command.method === "Debugger.enable" && command.sessionId === "worker-own"
+        ? { code: -32601, message: "Debugger is unavailable" }
+        : undefined,
+  });
+  const result = await provider.inspectPage(input);
+  if (!result.ok) throw result.error;
+  const own = result.value.workers.find(
+    ({ target_id }) => target_id === "own",
+  )!;
+  const observation = own.observation!;
+  expect(observation.scripts).toEqual([]);
+  expect(observation.completeness.unavailable_sections).toContain("scripts");
+  result.value.workers.push({
+    ...own,
+    target_id: "legacy",
+    observation: undefined,
+  });
+  const root = await createTestTempDirectory("rea-worker-export-coverage-");
+  const capture = join(root, "capture.json");
+  await writeFile(capture, JSON.stringify(result.value));
+  const { stdout } = await promisify(execFile)(
+    process.execPath,
+    [
+      "scripts/rea.mjs",
+      "export-web-scripts",
+      capture,
+      join(root, "export"),
+      "--json",
+    ],
+    { maxBuffer: 8 * 1024 * 1024 },
+  );
+  const exported = parseEvidence(JSON.parse(stdout)).normalized_result;
+  const expected = [
+    {
+      target_id: "own",
+      completeness: observation.completeness,
+      limitations: observation.limitations,
+    },
+    { target_id: "legacy", completeness: null, limitations: [] },
+  ];
+  expect(exported).toMatchObject({
+    worker_coverage: expect.arrayContaining(expected),
+  });
+  const manifest = JSON.parse(
+    await readFile(join(root, "export", "manifest.json"), "utf8"),
+  );
+  expect(manifest).toMatchObject({
+    worker_coverage: expect.arrayContaining(expected),
+  });
+}, 30000);
 
 it("does not enter worker observation for page-only bundle analysis", async () => {
   const { provider, input, browser } = await fixture({

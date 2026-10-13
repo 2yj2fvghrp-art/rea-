@@ -4,6 +4,7 @@ import type { CdpEvent } from "./CdpConnection.js";
 import { CdpCaptureEvents } from "./CdpCaptureEvents.js";
 import { optionalCdpCommand } from "./CdpOptionalCommand.js";
 import { CdpCommandRejection } from "./CdpCommandRejection.js";
+import { exclusionReasonForUrl } from "./CdpCaptureEventHelpers.js";
 import { BrowserObservationError } from "../domain/browserObservationError.js";
 import { WEB_RUNTIME_LIMITS } from "../domain/webRuntime.js";
 import { compareUnicodeCodePoints } from "../domain/unicodeCodePointOrder.js";
@@ -211,7 +212,9 @@ export class CdpWorkerCapture {
         this.#invalidTargets.add(key);
         this.pageEvents.completeness.exclude(
           "workers",
-          url === undefined ? "unattributed_origin" : "invalid_protocol_value",
+          id === undefined || id === ""
+            ? "invalid_protocol_value"
+            : exclusionReasonForUrl(cdpStringValue(target.url)),
         );
       }
       return;

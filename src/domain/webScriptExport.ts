@@ -88,6 +88,18 @@ export const webScriptExportManifestSchema = z.strictObject({
     browserCompletenessSchema,
     browserScenarioCompletenessSchema,
   ]),
+  worker_coverage: z
+    .array(
+      z.strictObject({
+        target_id: z.string().min(1),
+        completeness: browserCompletenessSchema.nullable(),
+        limitations: z.array(z.string()),
+      }),
+    )
+    .optional()
+    .describe(
+      "Per-worker capture coverage, including workers without scripts; null completeness means no worker observation was retained in the input capture",
+    ),
   output_directory: z.string().min(1),
   analysis_input: z
     .strictObject({

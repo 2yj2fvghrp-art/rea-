@@ -210,6 +210,14 @@ export async function verifyBrowserWorkers(
     const exportedWorkers = manifest.scripts.filter(
       (s) => s.source.kind === "worker-script",
     );
+    assert.deepEqual(
+      manifest.worker_coverage,
+      explicit.workers.map((worker) => ({
+        target_id: worker.target_id,
+        completeness: worker.observation.completeness,
+        limitations: worker.observation.limitations,
+      })),
+    );
     assert.equal(exportedWorkers.length, 4);
     for (const script of exportedWorkers) {
       const bytes = await readFile(
