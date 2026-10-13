@@ -40,6 +40,47 @@ inspection is needed; see [selected member inspection](#selected-member-inspecti
 Compare separate builds with [member comparison](#member-comparison), preserving
 their paths, digests, and selection scope.
 
+### Metadata overview and retained rows
+
+The existing CLI and omitted/complete MCP detail return complete metadata
+inventories. For identity and classification questions, select
+`inspect_managed_artifact` with
+`{"path":"/absolute/path/Assembly.dll","detail":"summary"}` on the first call.
+This keeps the complete source in the session and returns a distinct linked
+`inspect_analysis_view` overview with complete PE/CLI, classification and its
+evidence, metadata status, module/MVID, assembly, frameworks, returned-row counts,
+coverage/issues and limitations. No assembly is loaded or executed.
+
+Use `normalized_result.parent_evidence_id` to page original rows:
+
+```json
+{
+  "source": {
+    "kind": "retained-evidence",
+    "evidence_id": "<parent_evidence_id>"
+  },
+  "view": {
+    "kind": "managed",
+    "collection": "attributes",
+    "offset": 0,
+    "limit": 16
+  }
+}
+```
+
+Collections are `references`, `resources` and `attributes`; rows retain their
+original values, nulls, order, metadata tokens and offsets. Pages retain source
+metadata status and coverage. Exhaustion covers the returned parent collection,
+not all possible metadata, and empty rows under partial/unavailable metadata do
+not establish absence. Tokens are build-local and require the recorded artifact
+SHA-256 and known module MVID for cross-observation matching.
+
+Retained views do not repeat the parser or require the source file to remain
+available. Portable views use the authenticated original Evidence inline,
+including the existing `inspect-analysis-view` CLI. Session record lifetime and
+export/import semantics remain unchanged. A server without Evidence retention
+rejects selected summary before analysis; complete delivery remains available.
+
 ## Shipped scope
 
 The canonical parser admits PE/CLI bytes and their metadata/CIL without loading
@@ -106,11 +147,33 @@ opposite observation's selection unknown, and application graphs report their
 selected scope as partial. Neither makes an absence claim about the whole
 assembly. Older member Evidence without `selection` remains readable.
 
+### Edge target declaring types
+
+`member_refs[].parent_name`, `call_edges[].target_declaring_type`, and
+`field_accesses[].field_declaring_type` name the type that declares each
+target. Referenced spec signatures validate encoded type coordinates against
+the metadata tables, including nested type arguments and custom modifiers.
+TypeRef resolution scopes are checked transitively with cycle detection;
+readable names survive malformed scopes as partial evidence.
+TypeDef and TypeRef names use the namespace-qualified `full_name`
+form, and nested types keep bare names. A generic-instantiation TypeSpec
+parent names its generic type, such as ``System.Collections.Generic.List`1``.
+Other well-formed TypeSpec forms and ModuleRef or MethodDef parents stay
+`null`. A `method-spec` call edge reports the name and declaring type of the
+generic method it instantiates. A field access is named only by a field or a
+field-signature MemberRef. TypeSpec and MethodSpec blobs are decoded with the
+member-signature grammar, and a MethodSpec must instantiate a generic method
+with as many type arguments as it declares. Malformed or unsupported rows and
+blobs, and arity mismatches, make coverage partial. A readable MethodSpec
+method column that names a method, or a TypeRef whose resolution scope is
+invalid, keeps its name.
+Older member Evidence without these fields reads them as `null`: unknown.
+
 ## Analysis objective
 
 Start by identifying the artifact with `inspect_managed_artifact`, then inspect
 its types and CIL with `inspect_managed_members`. Use [member comparison](#member-comparison)
-for another build, and [managed/native boundary rules](#managednative-boundary-rules)
+for another build, and [managed/native boundary rules](#managed-native-boundaries)
 when matching declared native calls to supplied native Evidence. Static inspection
 does not load or execute the assembly. Reconstructed structure and unresolved
 native/runtime questions retain their own authority and coverage.
@@ -178,6 +241,8 @@ and report recovered type data with its returned provenance. Linking those types
 to native function addresses requires verified
 provider evidence; names or vtable similarity alone do not prove that a native
 function implements a specific managed method.
+
+<div id="managed-native-boundaries"></div>
 
 ## Managed/native boundary rules
 

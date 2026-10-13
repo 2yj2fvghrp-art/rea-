@@ -260,25 +260,24 @@ export const closeOwnedDebuggerSessions = async <
   stop: (session: Session) => Promise<OwnedDebuggerStopResult>,
   debuggerName: string,
 ): Promise<void> => {
+  const entries = [...sessions.entries()];
   const results = await Promise.allSettled(
-    [...sessions.entries()].map(async ([key, session]) => ({
-      key,
-      session,
-      result: await stop(session),
-    })),
+    entries.map(async ([, session]) => stop(session)),
   );
   const failures: Error[] = [];
-  for (const settled of results) {
+  for (const [index, [key, session]] of entries.entries()) {
+    const settled = results[index]!;
+    const identity = `Owned ${debuggerName} session ${JSON.stringify(session.id)} (key ${JSON.stringify(key)})`;
     if (settled.status === "rejected") {
+      const cause: unknown = settled.reason;
       failures.push(
-        settled.reason instanceof Error
-          ? settled.reason
-          : new Error(String(settled.reason)),
+        new Error(
+          `${identity}: ${cause instanceof Error ? cause.message : String(cause)}`,
+          { cause },
+        ),
       );
-      continue;
-    }
-    const { key, session, result } = settled.value;
-    if (result.status === "incomplete") failures.push(new Error(result.reason));
+    } else if (settled.value.status === "incomplete")
+      failures.push(new Error(`${identity}: ${settled.value.reason}`));
     else if (sessions.get(key) === session) sessions.delete(key);
   }
   if (failures.length > 0)

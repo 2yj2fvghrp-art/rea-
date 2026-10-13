@@ -1,10 +1,13 @@
-/** Provider-neutral CPU families detected from supported executable headers. */
+import type { ZipPackageFormat } from "./zipPackageFormat.js";
+
+/** Provider-neutral CPU families detected from headers or explicitly selected raw loads. */
 export const BINARY_ARCHITECTURES = [
   "x86",
   "x86_64",
   "arm",
   "arm64",
   "mips",
+  "6502",
   "riscv",
 ] as const;
 export type BinaryArchitecture = (typeof BINARY_ARCHITECTURES)[number];
@@ -38,7 +41,7 @@ export const isElfMetadataArchitecture = (
 /** Recognized family with no ELF metadata member; the header alone is the fact. */
 export type HeaderArchitecture = Exclude<
   BinaryArchitecture,
-  ElfMetadataArchitecture
+  ElfMetadataArchitecture | "6502"
 >;
 
 /** Raw ELF facts; family recognition does not establish ISA or ABI support. */
@@ -142,8 +145,17 @@ export type BinaryTarget =
       readonly executableRole?: never;
       readonly managed?: never;
     })
-  | (ExecutableTarget & {
+  | (BinaryTargetIdentity & {
+      readonly kind: "executable";
       readonly format: "raw-binary";
+      readonly architecture: Exclude<
+        BinaryArchitecture,
+        ElfMetadataArchitecture
+      >;
+      readonly availableArchitectures: readonly Exclude<
+        BinaryArchitecture,
+        ElfMetadataArchitecture
+      >[];
       readonly entryPoint: string;
       readonly entryPointSource: string;
       readonly executableRole?: never;
@@ -167,18 +179,7 @@ export type BinaryTarget =
   | (BinaryTargetIdentity &
       NonExecutableMetadata & {
         readonly kind: "archive";
-        readonly format:
-          | "zip"
-          | "ipa"
-          | "apk"
-          | "msix"
-          | "appx"
-          | "hap"
-          | "hsp"
-          | "app-pack"
-          | "asar"
-          | "dmg"
-          | "pkg";
+        readonly format: ZipPackageFormat | "asar" | "dmg" | "pkg";
       })
   | (BinaryTargetIdentity &
       NonExecutableMetadata & {

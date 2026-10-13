@@ -146,7 +146,7 @@ describe("Windows Job Object lifecycle and poll ownership", () => {
     }
   });
 
-  it("bounds repeated poll failures while retaining the job for explicit cleanup retry", async () => {
+  it("backs off persistent observation failures and observes natural settlement without terminating the job", async () => {
     vi.useFakeTimers();
     const original = authority({
       polls: [
@@ -156,16 +156,10 @@ describe("Windows Job Object lifecycle and poll ownership", () => {
         settledPoll,
       ],
     });
-    const native: WindowsNativeAuthority = {
-      ...original.native,
-      call: (operation, arguments_) =>
-        operation === "process_terminate"
-          ? true
-          : original.native.call(operation, arguments_),
-    };
+    const native = original.native;
     const child = launch(native);
     try {
-      await vi.advanceTimersByTimeAsync(2_000);
+      await vi.advanceTimersByTimeAsync(1_000);
       expect(
         original.calls.filter(({ operation }) => operation === "process_poll"),
       ).toHaveLength(3);
@@ -173,9 +167,12 @@ describe("Windows Job Object lifecycle and poll ownership", () => {
         original.calls.some(({ operation }) => operation === "process_close"),
       ).toBe(false);
       expect(vi.getTimerCount()).toBe(1);
-      const closing = child.cleanup();
-      await vi.advanceTimersByTimeAsync(25);
-      expect(await closing).toEqual({ cleaned: true, signaled: true });
+      await vi.advanceTimersByTimeAsync(1_000);
+      expect(
+        original.calls.some(
+          ({ operation }) => operation === "process_terminate",
+        ),
+      ).toBe(false);
       expect(vi.getTimerCount()).toBe(0);
       expect(
         original.calls.filter(({ operation }) => operation === "process_close"),

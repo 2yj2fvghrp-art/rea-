@@ -1193,7 +1193,12 @@ it("removes stopped sessions and retains incomplete sessions when closing all", 
       "GDB",
     ),
   ).rejects.toMatchObject({
-    errors: [expect.objectContaining({ message: "process remains alive" })],
+    errors: [
+      expect.objectContaining({
+        message:
+          'Owned GDB session "incomplete" (key "incomplete"): process remains alive',
+      }),
+    ],
   });
   expect([...sessions.keys()]).toEqual(["incomplete"]);
 });
@@ -1234,18 +1239,19 @@ it("closes an empty owned-session collection", async () => {
 it("settles every stop and retains rejected sessions while removing successful ones", async () => {
   const sessions = new Map([
     ["stopped", { id: "stopped" }],
-    ["rejected", { id: "rejected" }],
+    ["rejected", { id: "debugger-session-42" }],
     ["string-rejected", { id: "string-rejected" }],
     ["incomplete", { id: "incomplete" }],
   ]);
   const calls: string[] = [];
+  const signalFailure = new Error("signal failed");
 
   await expect(
     closeOwnedDebuggerSessions(
       sessions,
       async (session) => {
         calls.push(session.id);
-        if (session.id === "rejected") throw new Error("signal failed");
+        if (session.id === "debugger-session-42") throw signalFailure;
         if (session.id === "string-rejected") throw "string rejection";
         if (session.id === "incomplete")
           return { status: "incomplete", reason: "still alive" };
@@ -1256,9 +1262,20 @@ it("settles every stop and retains rejected sessions while removing successful o
   ).rejects.toMatchObject({
     message: "One or more owned GDB processes did not stop cleanly",
     errors: [
-      expect.objectContaining({ message: "signal failed" }),
-      expect.objectContaining({ message: "string rejection" }),
-      expect.objectContaining({ message: "still alive" }),
+      expect.objectContaining({
+        message:
+          'Owned GDB session "debugger-session-42" (key "rejected"): signal failed',
+        cause: signalFailure,
+      }),
+      expect.objectContaining({
+        message:
+          'Owned GDB session "string-rejected" (key "string-rejected"): string rejection',
+        cause: "string rejection",
+      }),
+      expect.objectContaining({
+        message:
+          'Owned GDB session "incomplete" (key "incomplete"): still alive',
+      }),
     ],
   });
 
