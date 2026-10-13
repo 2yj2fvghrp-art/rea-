@@ -140,16 +140,21 @@ REA ko Node.js 22.x (>=22.19), 24.x (>=24.11) ya 26+ aur npm chahiye. Baaki tool
 | Go binaries            | Embedded compiler version, modules, replacements aur build settings                  | Built-in static ELF/PE/thin Mach-O inspection; Go install karne ki zaroorat nahi                                                      |
 | WASM artifact          | Validation, sections, exact import/export WAT forms aur decoded WAT                  | Caller ka diya hua WABT 1.0.42; `inspect_wasm_artifact`                                                                               |
 | EVM bytecode           | Dispatch selectors, byte offsets, inferred arguments aur mutability                  | Linux x64 par local raw/hex carrier; [offline EVM guide](docs/evm-bytecode.md)                                                        |
+| SQLite databases       | Tables, columns, indexes, views, triggers aur chuni hui ordinary-table rows          | Local database/WAL snapshot; Node.js 24.x >=24.15 ya 26+, native SQLite limits ke saath                                               |
 | Recorded Linux crashes | Raw notes, har recorded thread ke registers/signals aur optional mapping candidates  | Linux x64 par caller ka diya hua pwntools; optional GDB/pwndbg; [recorded crashes](docs/recorded-crashes.md)                          |
 | JavaScript / Electron  | Modules, imports, source maps, routes, IPC aur native add-on relationships           | Node.js aur npm; [application analysis](https://rea.tools/guides/javascript/)                                                         |
 | Websites               | Page structure, scripts, network observations aur maange gaye screenshots            | Chrome-family browser; [browser analysis](https://rea.tools/guides/browser/)                                                          |
-| Saved network captures | Requests, responses, exposed payloads aur source locations                           | HAR; native mitmproxy captures ke liye Linux par mitmdump; [capture guide](docs/web-network-captures.md)                              |
+| Saved network captures | Requests, responses, exposed payloads aur source locations                           | HAR ya Fiddler Everywhere SAZ; native mitmproxy ke liye Linux par mitmdump; [capture guide](docs/web-network-captures.md)             |
 | .NET assemblies        | Metadata, CIL instructions, declared native dependencies aur build comparisons       | Kuch nahi (sirf static); [managed-code guide](docs/managed-code-analysis.md)                                                          |
 | Android APKs           | Manifest declarations, classes, decompiled methods aur references                    | Linux/macOS/Windows x64 par headless JADX aur full JDK; [Android guide](docs/android-analysis.md)                                     |
 | Android devices        | Devices, packages, processes, logs, dumps, screen captures aur APK/file transfers    | Caller ka diya hua adb (emulator ya hardware); [ADB guide](docs/adb-device-analysis.md)                                               |
 | JEB projects           | Engine-backed project units, artifact digests aur type/method pseudo-code            | Caller ka start kiya hua, MCP serve karne wala JEB client, jo REA_JEB_MCP_URL se select hota hai; [JEB guide](docs/jeb-analysis.md)   |
 | Android resources      | Decoded manifest, string tables, locales aur version facts                           | Caller ka diya hua Apktool launcher; [resource guide](docs/apktool-resource-analysis.md)                                              |
+| Flutter apps           | Dart snapshot hash, per-ABI library digests aur engine build provenance              | Kuch nahi (static APK parsing); [Flutter guide](docs/flutter-analysis.md)                                                             |
 | Firmware               | Regions, extraction results aur native-analysis handoffs                             | Linux par Binwalk / Unblob; [firmware guide](docs/firmware-analysis.md)                                                               |
+| Recorded packets       | Chune hue fields, repeated values, filters aur decode-as rules                       | Linux: TShark 4.x + prlimit; [capture guide](docs/packet-captures.md)                                                                 |
+| Packet summaries       | Endpoints, DNS, TLS SNI, protocol distribution aur HTTP requests                     | Caller ke diye hue tshark aur capinfos (Linux-verified); [pcap guide](docs/pcap-analysis.md)                                          |
+| Recorded logic signals | Decoder annotations, sample ranges aur diagnostics                                   | Linux: sigrok-cli 0.7.2 + prlimit; [signal recordings](docs/signal-recordings.md)                                                     |
 | Packages aur resources | File inventories, digests, plists, Apple bundle anatomy aur extracted resources      | [Artifact aur JavaScript guide](docs/javascript-artifact-reconstruction.md), [Apple applications](docs/apple-application-analysis.md) |
 | Process behavior       | Terminal output, interactions, exit aur filesystem observations, aur run comparisons | Native PTY wala Linux/macOS; [process capture](docs/process-capture.md)                                                               |
 
@@ -157,7 +162,7 @@ Static JavaScript aur .NET inspection di gayi files ko padhte hain, application 
 
 <a id="choosing-a-deep-analysis-provider"></a>
 
-Native formats aur host support har provider mein alag hote hain. [Hopper aur Ghidra setup](docs/installation.md#hopper), [IDA guide](docs/ida-provider.md) aur [experimental Windows Ghidra support](docs/windows-ghidra-p0.md) dekhiye. Ghidra [16-bit DOS analysis](docs/ghidra-dos.md) bhi support karta hai. Badi binaries ke liye provider ki startup deadline `REA_GHIDRA_STARTUP_TIMEOUT_MS` ya `REA_HOPPER_STARTUP_TIMEOUT_MS` se badhaiye. Provider selection ke liye [CLI guide](docs/cli.md#choose-a-provider) dekhiye. Latest npm release ke baad add hue features ke liye [release availability](docs/installation.md#released-package-and-main) check kijiye.
+Native formats aur host support har provider mein alag hote hain. [Hopper aur Ghidra setup](docs/installation.md#hopper), [IDA guide](docs/ida-provider.md) (jisme ek optional native MCP bridge bhi shaamil hai) aur [experimental Windows Ghidra support](docs/windows-ghidra-p0.md) dekhiye. Ghidra [16-bit DOS analysis](docs/ghidra-dos.md) bhi support karta hai. Badi binaries ke liye provider ki startup deadline `REA_GHIDRA_STARTUP_TIMEOUT_MS` ya `REA_HOPPER_STARTUP_TIMEOUT_MS` se badhaiye. Provider selection ke liye [CLI guide](docs/cli.md#choose-a-provider) dekhiye. Latest npm release ke baad add hue features ke liye [release availability](docs/installation.md#released-package-and-main) check kijiye.
 
 ## Showcases
 
@@ -265,7 +270,7 @@ Vulnerabilities [SECURITY.md](SECURITY.md) ke zariye report kijiye.
 
 ## Star history
 
-🎉 **110,000 GitHub stars — bahut bahut shukriya!**
+🎉 **170,000 GitHub stars — bahut bahut shukriya!**
 
 REA use karne, bugs report karne, features request karne, builds test karne aur fixes contribute karne wale sabhi logon ka shukriya.
 
