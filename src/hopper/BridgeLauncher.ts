@@ -8,6 +8,7 @@ import {
   HopperProcessError,
   HopperStartError,
 } from "../domain/hopperErrors.js";
+import { HOPPER_PUBLISHER } from "../application/MacHopper.js";
 import { err, ok, type Result } from "../domain/result.js";
 import { cleanupOwnedProcessGroup } from "../process/ProcessOwnership.js";
 import { execFileOutput } from "../process/ExecFileOutput.js";
@@ -49,6 +50,8 @@ export interface BridgeSession {
 export type BridgeLaunch = {
   /** Only literal native-helper arguments support a pre-handoff denial conclusion. */
   readonly authorizationDenialBeforeHandoff?: true;
+  /** Only a vendor-signed native helper supports a pre-handoff not-found conclusion. */
+  readonly applicationNotFoundBeforeHandoff?: true;
   /** Release application/target exclusivity only after verified document and process cleanup. */
   readonly releaseLease?: () => Promise<void>;
   /** Exact launch command retained in local ownership metadata. */
@@ -114,6 +117,11 @@ export interface HopperApplicationLauncherDependencies {
     readonly helperPath: string;
     readonly signal?: AbortSignal;
   }) => Promise<LinuxPrivateDisplaySelection>;
+  /** Whether the launcher file is Hopper's vendor-signed native helper. */
+  readonly verifyNativeHelper?: (
+    launcherPath: string,
+    environment: Readonly<NodeJS.ProcessEnv>,
+  ) => Promise<boolean>;
 }
 
 /**
@@ -225,6 +233,17 @@ export class HopperApplicationLauncher implements BridgeLauncher {
         argumentsForTarget,
         display.strategy,
       );
+      const darwin =
+        (this.dependencies.platform ?? process.platform) === "darwin";
+      // Verify the exact file before it runs: only Hopper's own helper is known
+      // to report "not found" from its Spotlight lookup, before any Apple event.
+      const nativeHelper =
+        darwin &&
+        !ownsProcessLifetime &&
+        linuxDemo === undefined &&
+        (await (
+          this.dependencies.verifyNativeHelper ?? verifyHopperNativeHelper
+        )(this.options.launcherPath, this.options.environment));
       const started = await launchHopperProcess({
         options: this.options,
         session,
@@ -260,11 +279,14 @@ export class HopperApplicationLauncher implements BridgeLauncher {
             // The vendor helper interpolates these values into AppleScript
             // literals without escaping. Preserve them, but withhold the
             // pre-handoff conclusion when they can alter that script.
-            ...((this.dependencies.platform ?? process.platform) === "darwin" &&
+            ...(darwin &&
             ![this.options.launcherPath, ...argumentsForTarget].some((value) =>
               /["\\\r\n]/u.test(value),
             )
               ? { authorizationDenialBeforeHandoff: true as const }
+              : {}),
+            ...(nativeHelper
+              ? { applicationNotFoundBeforeHandoff: true as const }
               : {}),
           });
     } catch (cause: unknown) {
@@ -506,6 +528,39 @@ const prepareHopperApplication = async (
     (await waitForAbortableDelay(HOPPER_BACKGROUND_STARTUP_MS, signal)) ===
     "elapsed"
   );
+};
+
+/**
+ * Code requirement for the `hopper` helper inside the official bundle. The
+ * helper carries its own signature (identifier `hopper`) from the same team as
+ * the application, so a wrapper that prints the same report cannot satisfy it.
+ */
+const HOPPER_NATIVE_HELPER_REQUIREMENT =
+  `= identifier "hopper"` +
+  ` and anchor apple generic` +
+  ` and certificate leaf[subject.OU] = "${HOPPER_PUBLISHER.teamIdentifier}"`;
+
+const verifyHopperNativeHelper = async (
+  launcherPath: string,
+  environment: Readonly<NodeJS.ProcessEnv>,
+): Promise<boolean> => {
+  try {
+    await execFileAsync(
+      "/usr/bin/codesign",
+      [
+        "--verify",
+        "--strict",
+        `-R${HOPPER_NATIVE_HELPER_REQUIREMENT}`,
+        launcherPath,
+      ],
+      { env: environment },
+    );
+    return true;
+  } catch (cause: unknown) {
+    // An unverifiable helper keeps the conservative unknown-handoff outcome.
+    void cause;
+    return false;
+  }
 };
 
 const hopperApplicationBundle = (launcherPath: string): string | undefined => {

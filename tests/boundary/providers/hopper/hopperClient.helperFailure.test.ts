@@ -118,6 +118,87 @@ it("does not equate an owned native helper exit with an external GUI exit", asyn
   });
 });
 
+const SPOTLIGHT_NOT_FOUND =
+  "Hopper has not been found.\nPlease make sure that Spotlight is active in order for this tool to find Hopper's executable.\n";
+
+const spotlightNotFoundLauncher = (
+  verified: boolean,
+  stdout = "",
+): BridgeLauncher & { readonly sessions: BridgeSession[] } => {
+  const sessions: BridgeSession[] = [];
+  return {
+    sessions,
+    launch(session) {
+      sessions.push(session);
+      return Promise.resolve(
+        ok({
+          process: spawn(
+            process.execPath,
+            [
+              "-e",
+              `process.stdout.write(${JSON.stringify(stdout)}, () => process.stderr.write(${JSON.stringify(SPOTLIGHT_NOT_FOUND)}, () => process.exit(3)));`,
+            ],
+            { stdio: ["ignore", "pipe", "pipe"] },
+          ),
+          ownsProcessLifetime: false as const,
+          providerLifetime: "external-application" as const,
+          shutdownMode: "bridge-request" as const,
+          ...(verified
+            ? { applicationNotFoundBeforeHandoff: true as const }
+            : {}),
+        }),
+      );
+    },
+  };
+};
+
+it("releases a verified native helper's Spotlight not-found launch so the session can retry", async () => {
+  const launcher = spotlightNotFoundLauncher(true);
+  const client = new HopperClient({ launcher, startupTimeoutMs: 10_000 });
+  onTestFinished(async () => {
+    const closed = await client.close();
+    if (!closed.ok) throw closed.error;
+  });
+  for (const attempt of [1, 2]) {
+    const result = await client.start();
+    if (result.ok) throw new Error("Expected the native helper to fail");
+    expect(result.error).toMatchObject({
+      _tag: "HopperStartError",
+      cleanupIncomplete: false,
+    });
+    expect(projectAnalysisError(result.error)).toMatchObject({
+      message: expect.stringContaining("Spotlight"),
+      details: { stage: "launch", launcher: { exit_code: 3 } },
+    });
+    expect(launcher.sessions).toHaveLength(attempt);
+    await expect(
+      access(launcher.sessions[attempt - 1]?.directory ?? ""),
+    ).rejects.toMatchObject({ code: "ENOENT" });
+  }
+});
+
+it.each([
+  ["an unverified launcher", false, ""],
+  ["a verified helper with stdout", true, "extra output\n"],
+] as const)(
+  "keeps ownership unknown when %s reports Spotlight not found",
+  async (_case, verified, stdout) => {
+    const client = trackFailedHelperClient(
+      spotlightNotFoundLauncher(verified, stdout),
+    );
+    const result = await client.start();
+    if (result.ok) throw new Error("Expected the launcher to fail");
+    expect(result.error).toMatchObject({
+      cleanupIncomplete: true,
+      cause: { cause: { _tag: "HopperStartError" } },
+    });
+    expect(client.operationHealth()).toMatchObject({
+      state: "unknown",
+      stage: "launch",
+    });
+  },
+);
+
 it.each(["exit", "signal", "exit75"] as const)(
   "reports a failed non-owning launcher %s without waiting for bridge timeout or inventing a GUI exit",
   async (termination) => {

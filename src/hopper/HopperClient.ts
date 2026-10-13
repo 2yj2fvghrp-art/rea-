@@ -770,6 +770,10 @@ export class HopperClient {
       });
     }
     if (hopperLauncherReportedApplicationNotFound(launcherFailure)) {
+      // A verified vendor helper fails its Spotlight lookup before any Apple
+      // event, so no document exists. Other launchers keep the handoff unknown.
+      if (this.#resources.launch?.applicationNotFoundBeforeHandoff === true)
+        this.#resources.shutdownConfirmed = true;
       return new HopperStartError({
         userMessage:
           "Hopper's launcher could not find Hopper because it relies on Spotlight. Enable Spotlight indexing for the volume that contains Hopper (for example: sudo mdutil -i on /System/Volumes/Data), wait for indexing to finish, then retry opening the target.",
