@@ -143,31 +143,72 @@ const isUnopenableFileTypeError = (cause: unknown): boolean =>
 
 // S_IFMT isolates the file type from a POSIX mode value (regular file,
 // directory, socket, ...). The remaining bits are the permission bits.
+// Stats.mode is a Number and BigIntStats.mode is a BigInt; mixing the two in
+// a bitwise operation throws a TypeError, so both masks are needed.
 const FILE_TYPE_MASK = 0o170000;
+const FILE_TYPE_MASK_BIGINT = 0o170000n;
 
-/**
- * Detect PRoot environments (e.g. Termux on Android) where stat() and fstat()
- * report different mode permission bits and ctime for the very same file,
- * because PRoot's syscall interception resolves inode metadata per call. On
- * those hosts the permission bits of mode and ctime are not reliable stability
- * indicators, so sameRegularFileState excludes them from its comparison.
- */
-const isPRootEnvironment = (): boolean => {
-  // PRoot sets no dedicated environment variable. /proc/version reports
-  // "PRoot-Distro" inside every PRoot-Distro container and
-  // /proc/self/mountinfo lists proot-managed mounts.
+const sameFileType = (
+  expected: number | bigint,
+  observed: number | bigint,
+): boolean => {
+  if (typeof expected === "bigint" && typeof observed === "bigint") {
+    return (
+      (expected & FILE_TYPE_MASK_BIGINT) === (observed & FILE_TYPE_MASK_BIGINT)
+    );
+  }
+  if (typeof expected === "bigint" || typeof observed === "bigint") {
+    // A Number and a BigInt cannot be mixed in one bitwise operation, so
+    // normalise both sides to Number. A POSIX mode always fits in 32 bits.
+    return (
+      Number(expected & FILE_TYPE_MASK_BIGINT) ===
+      Number(observed & FILE_TYPE_MASK_BIGINT)
+    );
+  }
+  return (expected & FILE_TYPE_MASK) === (observed & FILE_TYPE_MASK);
+};
+
+// The host does not change during a process lifetime, so the /proc probes run
+// once and their answer is cached. Without the cache every comparison would
+// re-read both files synchronously.
+let prootEnvironment: boolean | undefined;
+
+const detectPRootEnvironment = (): boolean => {
+  // /proc/version reports "PRoot-Distro" inside every PRoot-Distro container.
+  // The kernel release string is the most reliable marker: PRoot sets it
+  // itself, so it cannot collide with ordinary mount names or file paths.
   try {
     if (readFileSync("/proc/version", "utf8").includes("PRoot")) return true;
   } catch {
     // /proc/version unreadable — fall through to the mountinfo probe.
   }
+  // /proc/self/mountinfo lists proot-managed bind mounts whose mount point
+  // contains a "/proot" path component (e.g. Termux's proot-XXXXXX temp dirs).
+  // Matching a whole path component rather than a bare substring keeps an
+  // unrelated mount such as "/srv/proot-backups" from counting as PRoot.
   try {
-    if (readFileSync("/proc/self/mountinfo", "utf8").includes("/proot"))
+    if (
+      /(?:^|\s)\/\S*\/proot(?:-\S*)?(?:\s|\/)/u.test(
+        readFileSync("/proc/self/mountinfo", "utf8"),
+      )
+    )
       return true;
   } catch {
     // /proc/self/mountinfo unreadable — treat the host as non-PRoot.
   }
   return false;
+};
+
+/**
+ * True on PRoot hosts (Termux on Android), where stat() and fstat() report
+ * different mode permission bits and ctime for the very same file, because
+ * PRoot's syscall interception resolves inode metadata per call. On those
+ * hosts sameRegularFileState excludes the permission bits and ctime from its
+ * comparison, because they are not reliable stability indicators there.
+ */
+const isPRootEnvironment = (): boolean => {
+  prootEnvironment ??= detectPRootEnvironment();
+  return prootEnvironment;
 };
 
 /** Compare one regular file's identity and mutable metadata across a read. */
@@ -182,8 +223,7 @@ export const sameRegularFileState = (
   if (isPRootEnvironment()) {
     // Permission bits differ between stat() and fstat() under PRoot; only a
     // genuine change of the file type itself still counts as a change.
-    if ((expected.mode & FILE_TYPE_MASK) !== (observed.mode & FILE_TYPE_MASK))
-      return false;
+    if (!sameFileType(expected.mode, observed.mode)) return false;
     // ctime is updated asynchronously by PRoot, so it is never compared here.
     if ("mtimeNs" in expected && "mtimeNs" in observed) {
       if (expected.mtimeNs !== observed.mtimeNs) return false;
