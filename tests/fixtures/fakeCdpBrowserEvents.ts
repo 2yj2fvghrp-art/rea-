@@ -61,7 +61,12 @@ const emitWebMcpEvents = (
             properties: inputSchemaProperties,
             required: ["orderId"],
           },
-          annotations: webMcpToolAnnotations,
+          annotations: {
+            ...webMcpToolAnnotations,
+            consequential: Object.hasOwn(options, "webMcpConsequential")
+              ? options.webMcpConsequential
+              : true,
+          },
           stackTrace: {
             callFrames: [
               {
