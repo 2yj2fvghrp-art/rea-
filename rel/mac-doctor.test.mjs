@@ -42,7 +42,12 @@ test("Apple Silicon and Intel Macs receive accurate architecture explanations", 
   assert.equal(m.capabilities.visualLab, true);
   assert.match(m.guidance.join(" "), /Low-memory profile/);
   const intel = assessMacHost(
-    fixture({ architecture: "x64", nodeArchitecture: "x64", rosetta: "unknown", totalMemoryGiB: 16 }),
+    fixture({
+      architecture: "x64",
+      nodeArchitecture: "x64",
+      rosetta: "unknown",
+      totalMemoryGiB: 16,
+    }),
   );
   assert.equal(intel.host.architecture, "x64");
   assert.equal(intel.host.rosetta, "unknown");
@@ -50,21 +55,33 @@ test("Apple Silicon and Intel Macs receive accurate architecture explanations", 
 });
 
 test("Rosetta, low disk space and missing dependencies are actionable, not concealed", () => {
-  const r = assessMacHost(fixture({
-    nodeArchitecture: "x64", rosetta: "yes", diskFreeGiB: 4,
-    nodeVersion: "24.10.0", runtimeBuilt: false,
-    mcpBuilt: false, dependenciesPresent: false, tools: {},
-  }));
+  const r = assessMacHost(
+    fixture({
+      nodeArchitecture: "x64",
+      rosetta: "yes",
+      diskFreeGiB: 4,
+      nodeVersion: "24.10.0",
+      runtimeBuilt: false,
+      mcpBuilt: false,
+      dependenciesPresent: false,
+      tools: {},
+    }),
+  );
   assert.equal(r.node.supported, false);
   assert.equal(r.capabilities.visualLab, false);
   assert.match(r.guidance.join(" "), /Rosetta/);
   assert.match(r.guidance.join(" "), /10 GiB/);
   assert.match(r.guidance.join(" "), /npm ci/);
-  assert.match(formatMacDiagnosis(r), /No system configuration or software was changed/);
+  assert.match(
+    formatMacDiagnosis(r),
+    /No system configuration or software was changed/,
+  );
 });
 
 test("non-Mac CI still runs diagnosis without pretending to be a Mac", () => {
-  const r = assessMacHost(fixture({ platform: "linux", rosetta: "not-applicable" }));
+  const r = assessMacHost(
+    fixture({ platform: "linux", rosetta: "not-applicable" }),
+  );
   assert.equal(r.host.platform, "linux");
   assert.equal(r.host.rosetta, "not-applicable");
   assert.match(r.guidance.join(" "), /tuned for macOS/);
@@ -72,13 +89,19 @@ test("non-Mac CI still runs diagnosis without pretending to be a Mac", () => {
 
 test("actual doctor CLI is read-only, machine-readable and rejects analysis flags", () => {
   const root = fileURLToPath(new URL("../rel.mjs", import.meta.url));
-  const raw = execFileSync(process.execPath, [root, "doctor", "--json"], { encoding: "utf8" });
+  const raw = execFileSync(process.execPath, [root, "doctor", "--json"], {
+    encoding: "utf8",
+  });
   const result = JSON.parse(raw);
   assert.equal(result.profile, "macos-first-read-only");
   assert.equal(result.node.current, process.versions.node);
   assert.equal(result.capabilities.projectCodexConfig, true);
   assert.match(formatMacDiagnosis(diagnoseMac()), /REL \/ Mac readiness check/);
-  assert.throws(() =>
-    execFileSync(process.execPath, [root, "doctor", "--run"], { stdio: "pipe" }),
-  /Use doctor/);
+  assert.throws(
+    () =>
+      execFileSync(process.execPath, [root, "doctor", "--run"], {
+        stdio: "pipe",
+      }),
+    /Use doctor/,
+  );
 });

@@ -66,10 +66,22 @@ try {
     if (settings.open && mode !== "lab")
       throw new Error("--open is available only for the local visual lab.");
     if (mode === "doctor" && settings.positional.length === 1) {
-      if (settings.run || settings.authorized || settings.out || settings.question || settings.open)
-        throw new Error("Use doctor [--json] without execution or analysis flags.");
+      if (
+        settings.run ||
+        settings.authorized ||
+        settings.out ||
+        settings.question ||
+        settings.open
+      )
+        throw new Error(
+          "Use doctor [--json] without execution or analysis flags.",
+        );
       const diagnosis = diagnoseMac();
-      console.log(settings.json ? JSON.stringify(diagnosis, null, 2) : formatMacDiagnosis(diagnosis));
+      console.log(
+        settings.json
+          ? JSON.stringify(diagnosis, null, 2)
+          : formatMacDiagnosis(diagnosis),
+      );
     } else if (mode === "types" && settings.positional.length === 1) {
       if (settings.run || settings.authorized || settings.out)
         throw new Error("types is preview-only.");
