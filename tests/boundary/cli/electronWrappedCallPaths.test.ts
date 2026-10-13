@@ -147,7 +147,9 @@ cliTest(
       ["test:copy", "flag"],
       ["test:cut", "!(flag)"],
     ]) {
-      const edge = joins.find((candidate) => candidate.properties.channel === channel);
+      const edge = joins.find(
+        (candidate) => candidate.properties.channel === channel,
+      );
       expect(edge?.properties.bridge_conditions).toEqual([
         expect.objectContaining({ expression: bridgeCondition }),
       ]);
