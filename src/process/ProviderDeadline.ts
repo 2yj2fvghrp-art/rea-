@@ -61,20 +61,7 @@ export class ProviderStartupDeadline {
       return;
     }
     signal?.addEventListener("abort", this.#onExternalAbort, { once: true });
-    const checkDeadline = (): void => {
-      if (this.#controller.signal.aborted) return;
-      // Timer delivery can precede the high-resolution monotonic deadline.
-      const remaining = this.remainingMs();
-      if (remaining > 0) {
-        this.#timer = setTimeout(checkDeadline, remaining);
-        return;
-      }
-      this.#interruption = "timeout";
-      this.#abort(
-        new DOMException("Provider startup deadline elapsed", "TimeoutError"),
-      );
-    };
-    this.#timer = setTimeout(checkDeadline, timeoutMs);
+    this.#armDeadlineTimer(timeoutMs);
   }
 
   /** Composite signal aborted by either the caller or the absolute deadline. */
@@ -95,9 +82,36 @@ export class ProviderStartupDeadline {
     return Math.max(0, Math.ceil(this.#deadlineAt - performance.now()));
   }
 
-  /** Wait for at most one polling interval under the shared deadline signal. */
+  /**
+   * Wait for at most one polling interval under the shared deadline signal.
+   *
+   * Both timers may fire before their monotonic targets. Retain the earlier
+   * of the polling target and deadline, and wait again for any residual time.
+   */
   wait(milliseconds: number): Promise<AbortableWaitResult> {
-    return waitForAbortableDelay(milliseconds, this.signal);
+    const startedAt = performance.now();
+    // Absolute target: the earlier of the requested polling interval and the
+    // absolute monotonic deadline.
+    const targetAt = Math.min(startedAt + milliseconds, this.#deadlineAt);
+    const poll = (): Promise<AbortableWaitResult> => {
+      const budget = this.remainingMs();
+      const residual = Math.max(0, targetAt - performance.now());
+      return waitForAbortableDelay(
+        Math.min(residual, budget),
+        this.signal,
+      ).then((result) => {
+        if (result === "aborted") return "aborted";
+        const now = performance.now();
+        // The monotonic deadline expired: a full-budget wait resolves as an
+        // abort so polling stops at the boundary.
+        if (now >= this.#deadlineAt) return "aborted";
+        // The polling interval elapsed without expiring the deadline.
+        if (now >= targetAt) return "elapsed";
+        // A timer fired before the absolute target; keep waiting.
+        return poll();
+      });
+    };
+    return poll();
   }
 
   /** Release the deadline timer and external abort listener. */
@@ -115,5 +129,26 @@ export class ProviderStartupDeadline {
   #clearTimer(): void {
     if (this.#timer !== undefined) clearTimeout(this.#timer);
     this.#timer = undefined;
+  }
+
+  /**
+   * Arm (or re-arm) the timer that expires the absolute monotonic deadline.
+   *
+   * Re-check the clock before classifying expiry, and retain the residual
+   * budget when the timer arrives early.
+   */
+  #armDeadlineTimer(milliseconds: number): void {
+    this.#timer = setTimeout(() => {
+      this.#timer = undefined;
+      if (this.#controller.signal.aborted) return;
+      if (performance.now() >= this.#deadlineAt) {
+        this.#interruption = "timeout";
+        this.#abort(
+          new DOMException("Provider startup deadline elapsed", "TimeoutError"),
+        );
+        return;
+      }
+      this.#armDeadlineTimer(this.remainingMs());
+    }, milliseconds);
   }
 }
