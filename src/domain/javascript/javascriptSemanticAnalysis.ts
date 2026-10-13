@@ -927,7 +927,9 @@ const ambientNamespaceContext = (
   node: t.Node,
   state: JavaScriptSemanticAnalysisState,
 ): boolean => {
-  let candidate = state.parentsByNode.get(node);
+  // A declaration that is itself ambient (`declare namespace B`) exports its
+  // own name, so the walk starts at the declaration before climbing.
+  let candidate: t.Node | undefined = node;
   while (candidate !== undefined) {
     if (t.isTSModuleDeclaration(candidate) && candidate.declare === true)
       return true;
@@ -935,6 +937,20 @@ const ambientNamespaceContext = (
   }
   return false;
 };
+
+/**
+ * Identify a top-level `declare global` augmentation. Babel 8 carries no
+ * global flag, and a nested `declare namespace global` is an ordinary
+ * namespace with the same declaration shape.
+ */
+const globalAugmentationDeclaration = (
+  node: t.Node,
+  state: JavaScriptSemanticAnalysisState,
+): boolean =>
+  t.isTSModuleDeclaration(node) &&
+  node.declare === true &&
+  t.isIdentifier(node.id, { name: "global" }) &&
+  t.isProgram(state.parentsByNode.get(node) ?? null);
 
 const nestedScope = (
   node: t.Node,
@@ -956,36 +972,42 @@ const nestedScope = (
   if (kind === undefined) return undefined;
   let namespaceExportScopeId: string | undefined;
   if (t.isTSModuleBlock(node) && t.isTSModuleDeclaration(parent)) {
-    // Babel 8 stores dotted declarations as one qualified id, not nested
-    // TSModuleDeclaration bodies. Preserve every parsed segment in its owner.
-    const names: string[] = [];
-    let id = parent.id;
-    while (t.isTSQualifiedName(id)) {
-      names.unshift(id.right.name);
-      id = id.left;
-    }
-    if (t.isIdentifier(id) || t.isStringLiteral(id)) {
-      names.unshift(t.isIdentifier(id) ? id.name : id.value);
-      let owner = namespaceDeclarationScope(parent, parentScope, state);
-      for (const [index, name] of names.entries()) {
-        const key = JSON.stringify([owner.scopeId, name]);
-        let exported = state.namespaceExportScopes.get(key);
-        if (exported === undefined) {
-          exported = {
-            scopeId: `${semanticScopeId("namespace", parent)}:exports:${JSON.stringify(names.slice(0, index + 1))}`,
-            parentScopeId: owner.scopeId,
-            kind: "namespace",
-            location: range(parent),
-            bindingsComplete: true,
-            bindings: new Map(),
-          };
-          state.namespaceExportScopes.set(key, exported);
-          state.scopes.push(exported);
-          state.scopesById.set(exported.scopeId, exported);
-        }
-        owner = exported;
+    if (globalAugmentationDeclaration(parent, state)) {
+      // Global augmentations contribute to the surrounding global
+      // environment, so their members bind in the enclosing program scope.
+      namespaceExportScopeId = parentScope.scopeId;
+    } else {
+      // Babel 8 stores dotted declarations as one qualified id, not nested
+      // TSModuleDeclaration bodies. Preserve every parsed segment in its owner.
+      const names: string[] = [];
+      let id = parent.id;
+      while (t.isTSQualifiedName(id)) {
+        names.unshift(id.right.name);
+        id = id.left;
       }
-      namespaceExportScopeId = owner.scopeId;
+      if (t.isIdentifier(id) || t.isStringLiteral(id)) {
+        names.unshift(t.isIdentifier(id) ? id.name : id.value);
+        let owner = namespaceDeclarationScope(parent, parentScope, state);
+        for (const [index, name] of names.entries()) {
+          const key = JSON.stringify([owner.scopeId, name]);
+          let exported = state.namespaceExportScopes.get(key);
+          if (exported === undefined) {
+            exported = {
+              scopeId: `${semanticScopeId("namespace", parent)}:exports:${JSON.stringify(names.slice(0, index + 1))}`,
+              parentScopeId: owner.scopeId,
+              kind: "namespace",
+              location: range(parent),
+              bindingsComplete: true,
+              bindings: new Map(),
+            };
+            state.namespaceExportScopes.set(key, exported);
+            state.scopes.push(exported);
+            state.scopesById.set(exported.scopeId, exported);
+          }
+          owner = exported;
+        }
+        namespaceExportScopeId = owner.scopeId;
+      }
     }
   }
   const scope: JavaScriptSemanticScopeState = {

@@ -351,3 +351,24 @@ namespace N { export const x = require("not-a-module"); }`;
       .map(({ name }) => name),
   ).toEqual(["require", "x"]);
 });
+
+it("binds global augmentation members in the program scope", () => {
+  const ir = analyzeJavaScriptSemantics(`export {};
+declare global { const require: (s: string) => unknown; }
+require("not-a-module");`);
+  const [require] = ir.references.filter(({ name }) => name === "require");
+  expect(require?.resolution).toBe("resolved");
+  expect(ir.moduleLinks.filter(({ kind }) => kind === "require")).toEqual([]);
+  const [binding] = ir.bindings.filter(({ name }) => name === "require");
+  expect(
+    ir.scopes.find((scope) => scope.scopeId === binding?.scopeId)?.kind,
+  ).toBe("program");
+});
+
+it("shares nested ambient namespace names with reopened declarations", () => {
+  const ir =
+    analyzeJavaScriptSemantics(`namespace A { declare namespace B { const shared = 1; } }
+namespace A.B { export const use = shared; }`);
+  const [shared] = ir.references.filter(({ name }) => name === "shared");
+  expect(shared?.resolution).toBe("resolved");
+});
