@@ -297,6 +297,29 @@ describe("MSIX Claude Desktop registration lifecycle", () => {
     expect(await readJson(privateConfig)).toEqual({ preferences: {} });
   });
 
+  it("registers in AppData while the package has no private copy", async () => {
+    const { home, env, appDataConfig, privateConfig } = await windowsProfile();
+    await writeJson(join(dirname(privateConfig), "Preferences"), {});
+    await writeJson(appDataConfig, { preferences: { theme: "light" } });
+
+    const client = claudeDesktop(home, env);
+    expect(client.configPath).toBe(appDataConfig);
+    expect(client.msixPackage?.processView).toBe("direct");
+    await expect(
+      configureClientConfiguration(client, {}, command),
+    ).resolves.toMatchObject({ status: "configured" });
+
+    expect(await readJson(appDataConfig)).toEqual({
+      preferences: { theme: "light" },
+      mcpServers: { rea: reaEntry },
+    });
+    await expect(access(privateConfig)).rejects.toMatchObject({
+      code: "ENOENT",
+    });
+  });
+});
+
+describe("MSIX Claude Desktop uninstall", () => {
   it("refuses uninstall when the package view is unknown", async () => {
     const { home, env, appDataConfig, container } = await windowsProfile();
     await mkdir(container, { recursive: true });
@@ -385,26 +408,5 @@ describe("MSIX Claude Desktop registration lifecycle", () => {
       mcpServers: { other: { command: "other" } },
     });
     expect(await readJson(appDataConfig)).toEqual({ mcpServers: {} });
-  });
-
-  it("registers in AppData while the package has no private copy", async () => {
-    const { home, env, appDataConfig, privateConfig } = await windowsProfile();
-    await writeJson(join(dirname(privateConfig), "Preferences"), {});
-    await writeJson(appDataConfig, { preferences: { theme: "light" } });
-
-    const client = claudeDesktop(home, env);
-    expect(client.configPath).toBe(appDataConfig);
-    expect(client.msixPackage?.processView).toBe("direct");
-    await expect(
-      configureClientConfiguration(client, {}, command),
-    ).resolves.toMatchObject({ status: "configured" });
-
-    expect(await readJson(appDataConfig)).toEqual({
-      preferences: { theme: "light" },
-      mcpServers: { rea: reaEntry },
-    });
-    await expect(access(privateConfig)).rejects.toMatchObject({
-      code: "ENOENT",
-    });
   });
 });
