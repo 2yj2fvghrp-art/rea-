@@ -685,9 +685,7 @@ const registrationCurrent = (
 const clientRegistrationDefaults = (
   client: SetupClient,
 ): Readonly<Record<string, string>> =>
-  client.name === "kimi_code"
-    ? { REA_MCP_INPUT_SCHEMA_PROFILE: "compact" }
-    : {};
+  client.name === "kimi" ? { REA_MCP_INPUT_SCHEMA_PROFILE: "compact" } : {};
 
 const clientConfigurationDesired = (
   client: SetupClient,

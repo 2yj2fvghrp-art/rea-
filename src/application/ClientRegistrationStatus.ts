@@ -269,7 +269,7 @@ const registrationAligned = (
   // explicit value keeps the user's choice under platform environment-key
   // identity (Windows variable names are case-insensitive).
   if (
-    client.name === "kimi_code" &&
+    client.name === "kimi" &&
     environmentKey(
       registration.env ?? {},
       "REA_MCP_INPUT_SCHEMA_PROFILE",

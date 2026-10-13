@@ -27,19 +27,16 @@ const kimiPath = (
   home: string,
   platform: NodeJS.Platform,
   env: Parameters<typeof supportedClients>[2] = {},
-) =>
-  supportedClients(home, platform, env).find(
-    ({ name }) => name === "kimi_code",
-  );
+) => supportedClients(home, platform, env).find(({ name }) => name === "kimi");
 
 describe("Kimi Code configuration paths", () => {
   it("resolves the user mcp.json and marker directory", () => {
     expect(kimiPath("/home/a", "linux")).toEqual({
-      name: "kimi_code",
+      name: "kimi",
       displayName: "Kimi Code",
       configPath: join("/home/a", ".kimi-code", "mcp.json"),
       markerPath: join("/home/a", ".kimi-code"),
-      format: "json",
+      format: "kimi",
     });
     expect(kimiPath("/Users/a", "darwin")?.configPath).toBe(
       join("/Users/a", ".kimi-code", "mcp.json"),
@@ -54,7 +51,7 @@ describe("Kimi Code configuration paths", () => {
   ])("uses a nonempty KIMI_CODE_HOME as-is for %j", (override, directory) => {
     expect(
       supportedClients("/home/a", "linux", { KIMI_CODE_HOME: override }).find(
-        ({ name }) => name === "kimi_code",
+        ({ name }) => name === "kimi",
       ),
     ).toMatchObject({
       configPath: join(directory, "mcp.json"),
@@ -112,7 +109,7 @@ describe("Kimi Code client lifecycle", () => {
       await readClientRegistrationStatuses(home, resolve("scripts/rea.mjs"), {
         environment: {},
       })
-    ).find(({ client: name }) => name === "kimi_code");
+    ).find(({ client: name }) => name === "kimi");
     expect(status).toMatchObject({ state: "aligned" });
     expect((await systemUninstallHost(home).removeClient(client)).status).toBe(
       "removed",
@@ -223,7 +220,7 @@ describe("Kimi Code registration status", () => {
         await readClientRegistrationStatuses(home, resolve("scripts/rea.mjs"), {
           environment: {},
         })
-      ).find(({ client: name }) => name === "kimi_code");
+      ).find(({ client: name }) => name === "kimi");
     await writeFile(
       client.configPath,
       `{

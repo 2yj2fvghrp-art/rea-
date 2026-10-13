@@ -198,10 +198,6 @@ const qwenCodeDirectory = ({ home, env }: ClientPathContext): string => {
 const grokDirectory = ({ home, env }: ClientPathContext): string =>
   env.GROK_HOME || join(home, ".grok");
 
-/** Kimi Code returns a nonempty `KIMI_CODE_HOME` as-is and falls back when it is empty. */
-const kimiCodeDirectory = ({ home, env }: ClientPathContext): string =>
-  env.KIMI_CODE_HOME || join(home, ".kimi-code");
-
 /** Match Harness home-paths for both independent roots; trim only to detect blanks. */
 const dshDirectory = (
   home: string,
@@ -650,17 +646,6 @@ export const SUPPORTED_CLIENT_DEFINITIONS = [
     format: "hermes",
   },
   {
-    // Kimi Code discovers personal skills in the shared `~/.agents/skills`
-    // directory, and a project `.kimi-code/mcp.json` overrides this user file,
-    // so setup manages only the user-level registration.
-    name: "kimi_code",
-    displayName: "Kimi Code",
-    configPath: (context: ClientPathContext) =>
-      join(kimiCodeDirectory(context), "mcp.json"),
-    markerPath: kimiCodeDirectory,
-    format: "json",
-  },
-  {
     name: "qoder",
     displayName: "Qoder",
     skillPath: (context: ClientPathContext) =>
@@ -709,6 +694,14 @@ export const SUPPORTED_CLIENT_DEFINITIONS = [
     format: "unsupported",
   },
 ] as const satisfies readonly ClientDefinition[];
+
+/** Stable command-line spelling for Kimi Code; the Kimi config is detected once. */
+export const SUPPORTED_CLIENT_ALIASES = {
+  kimi_code: "kimi",
+} as const satisfies Readonly<Record<string, string>>;
+
+export const canonicalClientId = (id: string): string =>
+  SUPPORTED_CLIENT_ALIASES[id as keyof typeof SUPPORTED_CLIENT_ALIASES] ?? id;
 
 /**
  * Paths whose presence means doctor and setup should inspect the client.
