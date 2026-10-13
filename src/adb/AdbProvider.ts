@@ -400,6 +400,9 @@ const HOST_PATH_REFUSAL_REMEDIATION =
 const PM_PROTOCOL_PATH_REFUSAL_REMEDIATION =
   "Review details.diagnostics and details.captured_output for the rejected pm path. REA does not rewrite Package Manager paths; correct the device-reported path policy before retrying.";
 
+const MIXED_PATH_REFUSAL_REMEDIATION =
+  "Review details.diagnostics and details.captured_output for every rejected pm path. Correct Package Manager-incompatible path characters and host-incompatible file names; REA does not rewrite or rename device-reported paths.";
+
 /** The `pm path` listing a package pull refuses, with its retained output. */
 interface PmPathRefusalContext {
   readonly operation: string;
@@ -420,19 +423,26 @@ const unsafePackagePathsError = (
     rejected.length === 1
       ? ""
       : ` and ${String(rejected.length - 1)} other path(s)`;
-  const packageManagerPolicyRefusal = rejected.some(
+  const hasPackageManagerPolicyRefusal = rejected.some(
     ({ reason }) => reason === "unsupported_protocol_character",
   );
-  const userMessage =
-    first.reason === "unsupported_protocol_character"
+  const hasHostFileNameRefusal = rejected.some(
+    ({ reason }) => reason !== "unsupported_protocol_character",
+  );
+  const mixedRefusal = hasPackageManagerPolicyRefusal && hasHostFileNameRefusal;
+  const userMessage = mixedRefusal
+    ? `pm path for ${packageName} reported paths that violate both Package Manager's path policy and this host's file-name requirements: ${displayDevicePath(first.device_path)} (${first.reason})${others}. No APK was pulled.`
+    : first.reason === "unsupported_protocol_character"
       ? `pm path for ${packageName} reported a path rejected by Package Manager's path policy: ${displayDevicePath(first.device_path)} (${first.reason})${others}. No APK was pulled.`
       : `pm path for ${packageName} reported an APK path that cannot be written as a file on this host: ${displayDevicePath(first.device_path)} (${first.reason})${others}. No APK was pulled.`;
   return new AnalysisOutputError(operation, "unsafe_device_path", {
     capturedOutput,
     userMessage,
-    remediationAction: packageManagerPolicyRefusal
-      ? PM_PROTOCOL_PATH_REFUSAL_REMEDIATION
-      : HOST_PATH_REFUSAL_REMEDIATION,
+    remediationAction: mixedRefusal
+      ? MIXED_PATH_REFUSAL_REMEDIATION
+      : hasPackageManagerPolicyRefusal
+        ? PM_PROTOCOL_PATH_REFUSAL_REMEDIATION
+        : HOST_PATH_REFUSAL_REMEDIATION,
     diagnostics: {
       package_name: packageName,
       rejected_paths: rejected.map(({ device_path, reason }) => ({
@@ -452,7 +462,7 @@ const duplicatePackageDestinationError = (
   new AnalysisOutputError(operation, "duplicate_local_destination", {
     capturedOutput,
     userMessage: `pm path for ${packageName} reported multiple APK paths with the same local file name ${displayDevicePath(first.file_name)}: ${displayDevicePath(first.device_path)} and ${displayDevicePath(second.device_path)}. No APK was pulled.`,
-    remediationAction: PM_PATH_REFUSAL_REMEDIATION,
+    remediationAction: HOST_PATH_REFUSAL_REMEDIATION,
     diagnostics: {
       package_name: packageName,
       file_name: first.file_name,
@@ -500,7 +510,7 @@ const reservePackageDestinations = async (
           cause,
           capturedOutput,
           userMessage: `pm path for ${packageName} reported ${displayDevicePath(entry.device_path)}, whose file name ${displayDevicePath(entry.file_name)} cannot be written to a unique local destination in the output directory (${errorCode ?? "unknown error"}). No APK was pulled.`,
-          remediationAction: PM_PATH_REFUSAL_REMEDIATION,
+          remediationAction: HOST_PATH_REFUSAL_REMEDIATION,
           diagnostics: {
             package_name: packageName,
             device_path: entry.device_path,
