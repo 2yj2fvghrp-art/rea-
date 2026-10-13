@@ -422,7 +422,9 @@ describe("Ghidra Windows launcher", () => {
     expect(args).not.toContain("/package/bridge/ReaGhidraNoReturnFix.java");
     expect(args).toContain("/package/bridge/ReaGhidraBridge.java");
   });
+});
 
+describe("Ghidra Windows release configuration", () => {
   it.skipIf(process.platform !== "win32").each([
     {
       properties:
@@ -487,7 +489,9 @@ describe("Ghidra Windows launcher", () => {
       ).toBe(true);
     },
   );
+});
 
+describe("Ghidra Windows launcher process ownership", () => {
   it.skipIf(process.platform !== "win32")(
     "preserves portable bridge paths through the direct JVM launch and retains private process ownership",
     async () => {
