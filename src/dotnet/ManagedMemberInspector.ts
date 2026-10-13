@@ -190,15 +190,19 @@ export const inspectManagedMembersBytes = (
       selected,
     });
     appendManagedParseIssues(issues, fields.issues, methods.issues);
+    // #US literals sit beside the member inventory: their issues make coverage
+    // partial without making the member metadata incomplete.
     const userStrings = parseUserStrings(bytes, layout, methods.methods);
-    appendManagedParseIssues(issues, userStrings.issues);
     const targets = edgeTargets(bytes, layout, methods.methods, [
       fields.core,
       memberRefs.core,
       methods.core,
     ]);
     appendManagedParseIssues(issues, targets.issues);
-    const coverageIssues = uniqueManagedParseIssues(issues);
+    const coverageIssues = uniqueManagedParseIssues([
+      ...issues,
+      ...userStrings.issues,
+    ]);
     const incompleteMembers =
       [...fields.fields, ...memberRefs.refs, ...methods.methods].some(
         (member) => member.signature.parse_status !== "decoded",
@@ -247,7 +251,7 @@ export const inspectManagedMembersBytes = (
           selection,
           coverage: {
             state:
-              issues.length === 0 && !incompleteMembers
+              coverageIssues.length === 0 && !incompleteMembers
                 ? "complete"
                 : "partial",
             issues: coverageIssues,
