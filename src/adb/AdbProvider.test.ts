@@ -1041,7 +1041,13 @@ exit 1`,
     operation: "install_adb_package",
     input: { serial: "emulator-5554", apk_path: apk, replace: false },
   });
-  expect(projected).toMatchObject({ code: "unsupported_target" });
+  expect(projected).toMatchObject({
+    code: "unsupported_target",
+    details: {
+      reason:
+        "INSTALL_FAILED_ALREADY_EXISTS: Attempt to re-install com.example without first uninstalling.",
+    },
+  });
   expect(projected.message).toContain(
     "INSTALL_FAILED_ALREADY_EXISTS: Attempt to re-install com.example without first uninstalling.",
   );
@@ -1057,7 +1063,10 @@ exit 1`,
     operation: "uninstall_adb_package",
     input: { serial: "emulator-5554", package: "com.absent" },
   });
-  expect(projected).toMatchObject({ code: "unsupported_target" });
+  expect(projected).toMatchObject({
+    code: "unsupported_target",
+    details: { reason: "not installed for 0" },
+  });
   expect(projected.message).toContain("not installed for 0");
 });
 
