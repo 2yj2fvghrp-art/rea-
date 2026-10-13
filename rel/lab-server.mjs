@@ -14,12 +14,27 @@ import { spawn } from "node:child_process";
 const REPO = resolve(dirname(fileURLToPath(import.meta.url)), "..");
 const LAB = "/experiments/rel-visual-lab/index.html";
 const SOURCES = Object.freeze({
-  "/experiments/rel-visual-lab/": ["experiments/rel-visual-lab/index.html", "text/html; charset=utf-8"],
+  "/experiments/rel-visual-lab/": [
+    "experiments/rel-visual-lab/index.html",
+    "text/html; charset=utf-8",
+  ],
   [LAB]: ["experiments/rel-visual-lab/index.html", "text/html; charset=utf-8"],
-  "/experiments/rel-first-lab/cli.mjs": ["experiments/rel-first-lab/cli.mjs", "text/javascript; charset=utf-8"],
-  "/experiments/rel-first-lab/notes.mjs": ["experiments/rel-first-lab/notes.mjs", "text/javascript; charset=utf-8"],
-  "/experiments/rel-first-lab/search.mjs": ["experiments/rel-first-lab/search.mjs", "text/javascript; charset=utf-8"],
-  "/experiments/rel-first-lab/VERIFIED_RESULTS.md": ["experiments/rel-first-lab/VERIFIED_RESULTS.md", "text/markdown; charset=utf-8"],
+  "/experiments/rel-first-lab/cli.mjs": [
+    "experiments/rel-first-lab/cli.mjs",
+    "text/javascript; charset=utf-8",
+  ],
+  "/experiments/rel-first-lab/notes.mjs": [
+    "experiments/rel-first-lab/notes.mjs",
+    "text/javascript; charset=utf-8",
+  ],
+  "/experiments/rel-first-lab/search.mjs": [
+    "experiments/rel-first-lab/search.mjs",
+    "text/javascript; charset=utf-8",
+  ],
+  "/experiments/rel-first-lab/VERIFIED_RESULTS.md": [
+    "experiments/rel-first-lab/VERIFIED_RESULTS.md",
+    "text/markdown; charset=utf-8",
+  ],
 });
 
 export const allowedLabPaths = Object.freeze(Object.keys(SOURCES));
@@ -42,7 +57,9 @@ export async function startLabServer({ port = 0 } = {}) {
   }
   const server = createServer(async (req, res) => {
     if (req.method !== "GET" && req.method !== "HEAD") {
-      respond(res, 405, "Read-only lab: use GET or HEAD.", { Allow: "GET, HEAD" });
+      respond(res, 405, "Read-only lab: use GET or HEAD.", {
+        Allow: "GET, HEAD",
+      });
       return;
     }
     let route;
@@ -70,7 +87,8 @@ export async function startLabServer({ port = 0 } = {}) {
         "Cache-Control": "no-store",
         "X-Content-Type-Options": "nosniff",
         // Only our local page and its inline learning script can run.
-        "Content-Security-Policy": "default-src 'none'; script-src 'self' 'unsafe-inline'; style-src 'unsafe-inline'; connect-src 'none'; img-src 'self' data:; object-src 'none'; base-uri 'none'; form-action 'none'",
+        "Content-Security-Policy":
+          "default-src 'none'; script-src 'self' 'unsafe-inline'; style-src 'unsafe-inline'; connect-src 'none'; img-src 'self' data:; object-src 'none'; base-uri 'none'; form-action 'none'",
         "Referrer-Policy": "no-referrer",
       });
       res.end(req.method === "HEAD" ? undefined : data);
@@ -106,7 +124,9 @@ export function openLabInBrowser(url) {
     windowsHide: true,
   });
   child.on("error", () => {
-    console.error("Browser could not be opened automatically. Copy the printed local URL instead.");
+    console.error(
+      "Browser could not be opened automatically. Copy the printed local URL instead.",
+    );
   });
   child.unref();
 }

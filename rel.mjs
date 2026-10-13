@@ -61,7 +61,8 @@ try {
   } else {
     const settings = options(args);
     const [mode, target] = settings.positional;
-    if (settings.open && mode !== "lab") throw new Error("--open is available only for the local visual lab.");
+    if (settings.open && mode !== "lab")
+      throw new Error("--open is available only for the local visual lab.");
     if (mode === "types" && settings.positional.length === 1) {
       if (settings.run || settings.authorized || settings.out)
         throw new Error("types is preview-only.");
@@ -93,12 +94,22 @@ try {
         "Project settings are not your personal Codex config. Only this REL fork was changed.",
       );
     } else if (mode === "lab" && settings.positional.length === 1) {
-      if (settings.run || settings.authorized || settings.out || settings.json || settings.question)
-        throw new Error("Use node rel.mjs lab [--open] with no analysis flags.");
+      if (
+        settings.run ||
+        settings.authorized ||
+        settings.out ||
+        settings.json ||
+        settings.question
+      )
+        throw new Error(
+          "Use node rel.mjs lab [--open] with no analysis flags.",
+        );
       const { url } = await startLabServer();
       console.log("REL Visual Lab — learn by seeing what the code does.");
       console.log("Open this local address: " + url);
-      console.log("No internet, target execution, global Codex installation, or other projects involved.");
+      console.log(
+        "No internet, target execution, global Codex installation, or other projects involved.",
+      );
       console.log("Press Ctrl+C to close the local lab.");
       if (settings.open) openLabInBrowser(url);
     } else if (mode === "demo" && settings.positional.length === 1) {

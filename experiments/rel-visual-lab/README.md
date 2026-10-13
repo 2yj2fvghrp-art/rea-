@@ -34,18 +34,18 @@ The **two import relationships** linked from `cli.mjs` to `notes.mjs` and `searc
 
 ## Computer language, translated
 
-| Term | Everyday meaning | In this lab |
-| --- | --- | --- |
-| JavaScript | A written set of computer instructions | The search code |
-| File | A named drawer containing instructions or information | `search.mjs` |
-| Import | One drawer borrows something from another | `cli.mjs` imports `searchNotes` |
-| Function | A reusable task: inputs go in, a result comes out | `searchNotes(notes, query)` |
-| Array | An ordered collection of items | The five notes |
-| Ranking | The rules deciding which result comes first | Title before tag |
-| Static analysis | Inspect structure without launching a target | REA's module relationship scan |
-| Runtime test | Watch actual execution | The left-hand search results |
-| Evidence | A concrete observation or source location | `cli.mjs:1` and `cli.mjs:2` |
-| Unknown | Something the available evidence cannot establish | Whether a relationship executed in an untested environment |
+| Term            | Everyday meaning                                      | In this lab                                                |
+| --------------- | ----------------------------------------------------- | ---------------------------------------------------------- |
+| JavaScript      | A written set of computer instructions                | The search code                                            |
+| File            | A named drawer containing instructions or information | `search.mjs`                                               |
+| Import          | One drawer borrows something from another             | `cli.mjs` imports `searchNotes`                            |
+| Function        | A reusable task: inputs go in, a result comes out     | `searchNotes(notes, query)`                                |
+| Array           | An ordered collection of items                        | The five notes                                             |
+| Ranking         | The rules deciding which result comes first           | Title before tag                                           |
+| Static analysis | Inspect structure without launching a target          | REA's module relationship scan                             |
+| Runtime test    | Watch actual execution                                | The left-hand search results                               |
+| Evidence        | A concrete observation or source location             | `cli.mjs:1` and `cli.mjs:2`                                |
+| Unknown         | Something the available evidence cannot establish     | Whether a relationship executed in an untested environment |
 
 The same question can appear in different computer languages:
 

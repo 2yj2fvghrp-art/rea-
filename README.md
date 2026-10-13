@@ -24,7 +24,7 @@ From a local checkout of this draft branch, with Node.js available:
 node rel.mjs lab --open
 ```
 
-This opens **REL Visual Lab 01** in your own browser. You can search five fictional notes, trace the code's relationships, read plain-English explanations of terms such as *import* and *function*, and compare a real result with a clearly labeled hypothetical change. Nothing from other repositories is accessed; it does not require an REA build or Codex connection. See the [visual lab guide and learning levels](experiments/rel-visual-lab/README.md).
+This opens **REL Visual Lab 01** in your own browser. You can search five fictional notes, trace the code's relationships, read plain-English explanations of terms such as _import_ and _function_, and compare a real result with a clearly labeled hypothetical change. Nothing from other repositories is accessed; it does not require an REA build or Codex connection. See the [visual lab guide and learning levels](experiments/rel-visual-lab/README.md).
 
 **Our learning progression:** Observe → Map → Explain → Prove → Experiment. Future work may add native-binary analysis and actual side-by-side artifact comparison; the visual lab today is not a live REA graph viewer.
 
