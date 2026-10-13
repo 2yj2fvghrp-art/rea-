@@ -94,7 +94,10 @@ const readMethodSpec = (
     });
   const generic = metadataCodedToken(methodRaw, 1, [6, 10], layout.rowCounts);
   const target = generic === null ? undefined : members.get(generic);
-  if (target !== undefined) members.set(token, { ...target, token });
+  // A MethodSpec instantiates a method, so a field target never lends it a
+  // name, even to a field operand.
+  if (target !== undefined && target.kind !== "field")
+    members.set(token, { ...target, token });
   const types = specSignature(
     layout,
     readMetadataBlob(bytes, layout, instantiation, layout.blob.size),

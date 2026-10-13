@@ -448,6 +448,27 @@ describe("managed MethodSpec call targets", () => {
     },
   );
 
+  it("never names a field through a MethodSpec", () => {
+    const result = inspect({
+      memberRefName: "Empty",
+      // FIELD string: a MethodSpec on it is malformed.
+      memberRefSignature: Buffer.from([0x06, 0x0e]),
+      methodSpecMethods: [(1 << 1) | 1],
+      ilBody: tokenBody([
+        [ldsfld, 0x2b00_0001],
+        [call, 0x2b00_0001],
+      ]),
+    });
+
+    expect(result.field_accesses).toMatchObject([
+      { field_name: null, field_declaring_type: null },
+    ]);
+    expect(result.call_edges).toMatchObject([
+      { target_name: null, target_declaring_type: null },
+    ]);
+    expect(result.coverage.state).toBe("partial");
+  });
+
   it("keeps a readable MethodSpec method beside a malformed instantiation", () => {
     const result = inspect({
       methodSpecMethods: [(1 << 1) | 1, (9 << 1) | 1],
