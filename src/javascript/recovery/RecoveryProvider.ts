@@ -1,6 +1,6 @@
 import { mkdir, mkdtemp, rm } from "node:fs/promises";
 import { tmpdir } from "node:os";
-import { join } from "node:path";
+import { isAbsolute, join } from "node:path";
 import type { JavaScriptRecoveryPort } from "../../application/javascript/JavaScriptRecoveryPort.js";
 import type {
   AnalysisExecution,
@@ -61,6 +61,29 @@ export class RecoveryProvider implements JavaScriptRecoveryPort {
 
   get engines(): readonly JavaScriptRecoveryInput["engine"][] {
     return [...this.#engines.keys()];
+  }
+
+  get engineAvailability(): Partial<
+    Record<JavaScriptRecoveryInput["engine"], boolean>
+  > {
+    const linux = process.platform === "linux";
+    return {
+      ...(this.#engines.has("wakaru")
+        ? {
+            wakaru:
+              linux &&
+              process.arch === "x64" &&
+              isAbsolute(this.environment.REA_WAKARU_COMMAND ?? ""),
+          }
+        : {}),
+      ...(this.#engines.has("jsbeautify")
+        ? {
+            jsbeautify:
+              linux &&
+              isAbsolute(this.environment.REA_JSBEAUTIFY_COMMAND ?? ""),
+          }
+        : {}),
+    };
   }
 
   /** Recover selected scripts using validated reports and verified output bytes. */
