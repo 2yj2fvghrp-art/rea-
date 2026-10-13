@@ -173,8 +173,15 @@ const sameFileType = (
 // re-read both files synchronously.
 let prootEnvironment: boolean | undefined;
 
+export const isPRootDistroEnvironment = (
+  environment: Readonly<NodeJS.ProcessEnv>,
+): boolean => environment.container === "proot-distro";
+
 const detectPRootEnvironment = (): boolean => {
-  // /proc/version reports "PRoot-Distro" inside every PRoot-Distro container.
+  // PRoot-Distro exports this identity variable in login/run, including its
+  // minimal mode; unlike a bound /proc, it identifies the userspace runtime.
+  if (isPRootDistroEnvironment(process.env)) return true;
+  // /proc/version can report a PRoot release when the runtime exposes one.
   // The kernel release string is the most reliable marker: PRoot sets it
   // itself, so it cannot collide with ordinary mount names or file paths.
   try {

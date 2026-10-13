@@ -4,11 +4,15 @@ import { readFileSync } from "node:fs";
 
 import { expect, it } from "vitest";
 
-import { sameRegularFileState } from "../../src/filesystem/RegularFile.js";
+import {
+  isPRootDistroEnvironment,
+  sameRegularFileState,
+} from "../../src/filesystem/RegularFile.js";
 import { createTestTempDirectory } from "../fixtures/temporaryDirectory.js";
 
 /** Mirrors the host probe inside sameRegularFileState. */
 const isPRootHost = (): boolean => {
+  if (process.env.container === "proot-distro") return true;
   try {
     if (readFileSync("/proc/version", "utf8").includes("PRoot")) return true;
   } catch {
@@ -26,6 +30,11 @@ const isPRootHost = (): boolean => {
   }
   return false;
 };
+
+it("recognizes the PRoot-Distro identity marker", () => {
+  expect(isPRootDistroEnvironment({ container: "proot-distro" })).toBe(true);
+  expect(isPRootDistroEnvironment({ container: "podman" })).toBe(false);
+});
 
 it("accepts identical regular-file metadata", async () => {
   const root = await createTestTempDirectory("rea-regularfile-");
