@@ -4,10 +4,15 @@ import { pathToFileURL } from "node:url";
 import { summarizeEvidence } from "../experiments/rel-first-lab/report.mjs";
 
 const MAX_FILE = 64 * 1024 * 1024;
-const isObject = (v) => v !== null && typeof v === "object" && !Array.isArray(v);
-const string = (v) => typeof v === "string" || typeof v === "number" ? String(v) : null;
+const isObject = (v) =>
+  v !== null && typeof v === "object" && !Array.isArray(v);
+const string = (v) =>
+  typeof v === "string" || typeof v === "number" ? String(v) : null;
 const first = (...values) => values.map(string).find((v) => v !== null) ?? null;
-const limitText = (v) => String(v ?? "not provided").replaceAll(/[\r\n|]/gu, " ").slice(0, 240);
+const limitText = (v) =>
+  String(v ?? "not provided")
+    .replaceAll(/[\r\n|]/gu, " ")
+    .slice(0, 240);
 
 export function exploreEvidence(record, { find = "", limit = 12 } = {}) {
   if (typeof find !== "string" || find.length > 160)
@@ -19,17 +24,19 @@ export function exploreEvidence(record, { find = "", limit = 12 } = {}) {
   const summary = summarizeEvidence(record);
   const graph = record.normalized_result.graph;
   const byId = new Map(
-    graph.nodes.filter(isObject).map((node) => [
-      first(node.id, node.node_id),
-      node,
-    ]).filter(([id]) => id !== null),
+    graph.nodes
+      .filter(isObject)
+      .map((node) => [first(node.id, node.node_id), node])
+      .filter(([id]) => id !== null),
   );
   const resolveEndpoint = (id) => {
     const key = isObject(id) ? first(id.id, id.node_id) : string(id);
     const node = byId.get(key);
     return {
       id: key,
-      label: node ? first(node.path, node.module_path, node.label, node.name, key) : key,
+      label: node
+        ? first(node.path, node.module_path, node.label, node.name, key)
+        : key,
     };
   };
   const edges = [];
@@ -38,17 +45,27 @@ export function exploreEvidence(record, { find = "", limit = 12 } = {}) {
     if (!isObject(edge)) continue;
     const source = resolveEndpoint(edge.source ?? edge.source_id ?? edge.from);
     const target = resolveEndpoint(edge.target ?? edge.target_id ?? edge.to);
-    const rawLocation = edge.location ?? edge.source_location ?? edge.source_range;
+    const rawLocation =
+      edge.location ?? edge.source_location ?? edge.source_range;
     const entry = {
       relation: string(edge.relation) ?? "unknown",
       source,
       target,
-      location: rawLocation === undefined ? null : JSON.stringify(rawLocation).slice(0, 1200),
+      location:
+        rawLocation === undefined
+          ? null
+          : JSON.stringify(rawLocation).slice(0, 1200),
       state: string(edge.state),
       confidence: string(edge.confidence),
       authority: string(edge.authority),
     };
-    if (find.trim() && !JSON.stringify({ ...entry, raw: edge }).toLowerCase().includes(find.trim().toLowerCase())) continue;
+    if (
+      find.trim() &&
+      !JSON.stringify({ ...entry, raw: edge })
+        .toLowerCase()
+        .includes(find.trim().toLowerCase())
+    )
+      continue;
     matching += 1;
     if (edges.length < limit) edges.push(entry);
   }
@@ -73,20 +90,34 @@ export function asText(result) {
     "REL / Saved Evidence Explorer",
     "Evidence: " + result.evidence_id,
     "Artifact: " + result.artifact_sha256,
-    "Recorded graph: " + result.counts.nodes + " nodes, " + result.counts.edges + " edges",
+    "Recorded graph: " +
+      result.counts.nodes +
+      " nodes, " +
+      result.counts.edges +
+      " edges",
     "Matching: " + result.matching + ", displayed: " + result.displayed,
     "",
   ];
   for (const [i, e] of result.edges.entries()) {
     out.push(
-      String(i + 1) + ". " + limitText(e.source.label) + " --[" + limitText(e.relation) + "]--> " + limitText(e.target.label),
+      String(i + 1) +
+        ". " +
+        limitText(e.source.label) +
+        " --[" +
+        limitText(e.relation) +
+        "]--> " +
+        limitText(e.target.label),
       "   Source location: " + limitText(e.location),
       "   State / confidence / authority: " +
         [e.state, e.confidence, e.authority].map(limitText).join(" / "),
     );
   }
-  if (!result.edges.length) out.push("No recorded relationships match the query.");
-  if (result.truncated) out.push("Display truncated. Narrow --find or increase --limit (maximum 40).");
+  if (!result.edges.length)
+    out.push("No recorded relationships match the query.");
+  if (result.truncated)
+    out.push(
+      "Display truncated. Narrow --find or increase --limit (maximum 40).",
+    );
   out.push(
     "",
     "Evidence boundaries:",
@@ -100,9 +131,14 @@ export function asText(result) {
 }
 
 export function asDot(result) {
-  const quote = (v) => '"' + String(v ?? "?")
-    .replaceAll("\\", "\\\\").replaceAll('"', '\\"')
-    .replaceAll(/[\r\n]/gu, " ").slice(0, 180) + '"';
+  const quote = (v) =>
+    '"' +
+    String(v ?? "?")
+      .replaceAll("\\", "\\\\")
+      .replaceAll('"', '\\"')
+      .replaceAll(/[\r\n]/gu, " ")
+      .slice(0, 180) +
+    '"';
   const lines = [
     "digraph REL {",
     '  graph [label="Saved REA static relationships (NOT runtime)", labelloc=t];',
@@ -115,7 +151,13 @@ export function asDot(result) {
     lines.push(
       "  " + quote(from) + " [label=" + quote(edge.source.label) + "];",
       "  " + quote(to) + " [label=" + quote(edge.target.label) + "];",
-      "  " + quote(from) + " -> " + quote(to) + " [label=" + quote(edge.relation) + "];",
+      "  " +
+        quote(from) +
+        " -> " +
+        quote(to) +
+        " [label=" +
+        quote(edge.relation) +
+        "];",
     );
   }
   return [...lines, "}"].join("\n");
@@ -131,7 +173,10 @@ export function readEvidence(path, options) {
   return exploreEvidence(JSON.parse(readFileSync(file, "utf8")), options);
 }
 
-if (process.argv[1] && import.meta.url === pathToFileURL(resolve(process.argv[1])).href) {
+if (
+  process.argv[1] &&
+  import.meta.url === pathToFileURL(resolve(process.argv[1])).href
+) {
   try {
     const args = process.argv.slice(2);
     const file = args.shift();
@@ -141,13 +186,20 @@ if (process.argv[1] && import.meta.url === pathToFileURL(resolve(process.argv[1]
     while (args.length) {
       const option = args.shift();
       if (option === "--find" && args.length) find = args.shift();
-      else if (option === "--limit" && args.length) limit = Number(args.shift());
+      else if (option === "--limit" && args.length)
+        limit = Number(args.shift());
       else if (option === "--json" && mode === "text") mode = "json";
       else if (option === "--dot" && mode === "text") mode = "dot";
       else throw new Error("Unsupported or conflicting option: " + option);
     }
     const result = readEvidence(file, { find, limit });
-    console.log(mode === "json" ? JSON.stringify(result, null, 2) : mode === "dot" ? asDot(result) : asText(result));
+    console.log(
+      mode === "json"
+        ? JSON.stringify(result, null, 2)
+        : mode === "dot"
+          ? asDot(result)
+          : asText(result),
+    );
   } catch (error) {
     console.error("REL Evidence Explorer: " + error.message);
     process.exitCode = 2;

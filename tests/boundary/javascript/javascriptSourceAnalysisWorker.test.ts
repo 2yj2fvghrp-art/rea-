@@ -5,7 +5,10 @@ import { join } from "node:path";
 import { promisify } from "node:util";
 import { expect, it } from "vitest";
 import { JavaScriptAnalysisWorker } from "../../../src/javascript/analysis/JavaScriptAnalysisWorker.js";
-import { cleanupOwnedProcessGroup, verifyNoTokenOwnedProcesses } from "../../../src/process/ProcessOwnership.js";
+import {
+  cleanupOwnedProcessGroup,
+  verifyNoTokenOwnedProcesses,
+} from "../../../src/process/ProcessOwnership.js";
 import type { OwnedProcessGroup } from "../../../src/process/ProcessOwnership.js";
 import { createTestTempDirectory } from "../../fixtures/temporaryDirectory.js";
 import { ProviderCleanupError } from "../../../src/domain/providerCleanupError.js";
@@ -183,9 +186,10 @@ it("ends worker stdin and unreferences process handles when cleanup reports insp
               cleaned: false,
               reason: "process table could not be inspected: spawn EPERM",
             };
-          const cleanup = launched.cleanup === undefined
-            ? await cleanupOwnedProcessGroup(launched.ownership)
-            : await launched.cleanup();
+          const cleanup =
+            launched.cleanup === undefined
+              ? await cleanupOwnedProcessGroup(launched.ownership)
+              : await launched.cleanup();
           if (
             cleanup.cleaned ||
             !cleanup.reason.startsWith("process ownership token mismatch")

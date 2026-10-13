@@ -5,7 +5,12 @@ import { join } from "node:path";
 import { fileURLToPath } from "node:url";
 import { spawnSync } from "node:child_process";
 import { after, test } from "node:test";
-import { asDot, asText, exploreEvidence, readEvidence } from "./evidence-explorer.mjs";
+import {
+  asDot,
+  asText,
+  exploreEvidence,
+  readEvidence,
+} from "./evidence-explorer.mjs";
 
 const directory = mkdtempSync(join(tmpdir(), "rel-explorer-"));
 after(() => rmSync(directory, { recursive: true, force: true }));
@@ -23,9 +28,12 @@ const saved = () => ({
       ],
       edges: [
         {
-          source: "cli", target: "search", relation: "imports",
+          source: "cli",
+          target: "search",
+          relation: "imports",
           location: { path: "cli.mjs", start_line: 2 },
-          state: "inferred", confidence: "high",
+          state: "inferred",
+          confidence: "high",
           authority: "static-relationship-inference",
         },
         { source: "cli", target: "unknown", relation: "contains" },
@@ -77,8 +85,13 @@ test("read-only CLI emits JSON and DOT from a saved local file", () => {
   const file = join(directory, "evidence.json");
   writeFileSync(file, JSON.stringify(saved()));
   assert.equal(readEvidence(file).edges.length, 2);
-  const executable = fileURLToPath(new URL("./evidence-explorer.mjs", import.meta.url));
-  const run = (...args) => spawnSync(process.execPath, [executable, file, ...args], { encoding: "utf8" });
+  const executable = fileURLToPath(
+    new URL("./evidence-explorer.mjs", import.meta.url),
+  );
+  const run = (...args) =>
+    spawnSync(process.execPath, [executable, file, ...args], {
+      encoding: "utf8",
+    });
   const json = run("--find", "search.mjs", "--json");
   assert.equal(json.status, 0, json.stderr);
   assert.equal(JSON.parse(json.stdout).matching, 1);
