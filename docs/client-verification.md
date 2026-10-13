@@ -464,10 +464,13 @@ the same source-owned desktop fixture and compare the same source-owned parser
 files through actual MCP tool results, then verify that fabricated answers fail.
 
 The managed rubric checks the exact public top-level type set and the CLI entry
-point's declaring type and method name. Both inspections must describe the freshly
-built DLL's SHA-256. Entry-point resolution additionally requires complete artifact
-and member metadata, matching non-null module MVIDs, and a unique method at the
-header's metadata token. These are static metadata claims, not runtime behavior;
+point's declaring type and method name. The exact type-set claim requires an
+unfiltered member inventory: `selection` must be null and the Evidence parameters
+must omit `type_names`. A selected inventory can still ground the entry-point
+claim. Both inspections must describe the freshly built DLL's SHA-256. Entry-point
+resolution additionally requires complete artifact and member metadata, matching
+non-null module MVIDs, and a unique method at the header's metadata token. These are
+static metadata claims, not runtime behavior;
 compiler-generated member counts, token values, and MVIDs are not golden answers.
 
 Per-scenario `factualCorrectness` is `passed`, `failed`, or `not_assessed` within
