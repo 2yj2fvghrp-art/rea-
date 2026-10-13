@@ -556,6 +556,7 @@ $runButton.add_Click({
 $clearButton.add_Click({
   if (-not $processState.IsRunning) {
     $resultsBox.Clear()
+    $errorsBox.Clear()
     $statusLabel.Text = "준비됨"
   }
 }.GetNewClosure())
