@@ -7,9 +7,13 @@ const header = (little: boolean, bits: 32 | 64 = 32, machine = 20): Buffer => {
   if (little) {
     bytes.writeUInt16LE(2, 16);
     bytes.writeUInt16LE(machine, 18);
+    bytes.writeUInt32LE(1, 20);
+    bytes.writeUInt16LE(bytes.length, bits === 32 ? 40 : 52);
   } else {
     bytes.writeUInt16BE(2, 16);
     bytes.writeUInt16BE(machine, 18);
+    bytes.writeUInt32BE(1, 20);
+    bytes.writeUInt16BE(bytes.length, bits === 32 ? 40 : 52);
   }
   return bytes;
 };

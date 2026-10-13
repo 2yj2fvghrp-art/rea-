@@ -1,5 +1,6 @@
 import { constants as fsConstants } from "node:fs";
 import {
+  chmod,
   copyFile,
   lstat,
   mkdir,
@@ -21,6 +22,7 @@ import { PRODUCT_IDENTITY } from "../../../src/identity.js";
 
 import { readClientRegistrationStatuses } from "../../../src/application/ClientRegistrationStatus.js";
 import { configureClientConfiguration } from "../../../src/application/SetupClientConfiguration.js";
+import { readConfigurationFile } from "../../../src/application/ClientConfigurationFiles.js";
 import {
   detectClients,
   systemSetupHost,
@@ -63,10 +65,14 @@ describe("client configuration filesystem lifecycle", () => {
       "commandcode",
       "qwen_code",
       "vscode",
+      "trae",
       "grok_build",
       "omp",
       "pi",
       "hermes",
+      "qoder",
+      "zcode",
+      "dsh",
       "grok_bot",
     ]);
     expect(
@@ -1341,6 +1347,146 @@ describe("Codex configuration comments", () => {
   });
 });
 
+describe("managed data purge root validation", () => {
+  it.each(["existing", "dangling"] as const)(
+    "retains cache and state when the managed-root symlink is %s",
+    async (targetState) => {
+      const root = await createTestTempDirectory("rea-uninstall-data-root-");
+      roots.push(root);
+      const home = join(root, "home");
+      const outside = join(root, "unrelated-application");
+      await mkdir(home);
+      if (targetState === "existing")
+        for (const name of ["cache", "state"]) {
+          await mkdir(join(outside, name), { recursive: true });
+          await writeFile(join(outside, name, "keep.txt"), "unrelated data");
+        }
+      const managedRoot = join(home, ".rea");
+      await symlink(
+        outside,
+        managedRoot,
+        process.platform === "win32" ? "junction" : "dir",
+      );
+
+      const result = await runUninstall(
+        true,
+        systemUninstallHost(home, undefined, {}),
+      );
+
+      expect(result.status).toBe("complete");
+      expect((await lstat(managedRoot)).isSymbolicLink()).toBe(true);
+      for (const name of ["cache", "state"])
+        expect(result.items).toContainEqual(
+          expect.objectContaining({ name, status: "retained" }),
+        );
+      if (targetState === "existing")
+        for (const name of ["cache", "state"])
+          expect(await readFile(join(outside, name, "keep.txt"), "utf8")).toBe(
+            "unrelated data",
+          );
+      else
+        await expect(lstat(outside)).rejects.toMatchObject({ code: "ENOENT" });
+    },
+  );
+
+  it("retains a managed data root that is not a directory", async () => {
+    const home = await createTestTempDirectory("rea-uninstall-data-file-");
+    roots.push(home);
+    const managedRoot = join(home, ".rea");
+    await writeFile(managedRoot, "unrelated file");
+
+    const result = await runUninstall(
+      true,
+      systemUninstallHost(home, undefined, {}),
+    );
+
+    expect(result.status).toBe("complete");
+    for (const name of ["cache", "state"])
+      expect(result.items).toContainEqual(
+        expect.objectContaining({ name, status: "retained" }),
+      );
+    expect(await readFile(managedRoot, "utf8")).toBe("unrelated file");
+  });
+
+  it("purges ordinary managed data through a legitimate home directory link", async () => {
+    const root = await createTestTempDirectory("rea-uninstall-home-link-");
+    roots.push(root);
+    const home = join(root, "actual-home");
+    const linkedHome = join(root, "linked-home");
+    const managedRoot = join(home, ".rea");
+    for (const name of ["cache", "state"]) {
+      await mkdir(join(managedRoot, name), { recursive: true });
+      await writeFile(join(managedRoot, name, "data.txt"), "managed data");
+    }
+    await writeFile(join(managedRoot, "keep.txt"), "other data");
+    await symlink(
+      home,
+      linkedHome,
+      process.platform === "win32" ? "junction" : "dir",
+    );
+
+    const result = await runUninstall(
+      true,
+      systemUninstallHost(linkedHome, undefined, {}),
+    );
+
+    expect(result.status).toBe("complete");
+    for (const name of ["cache", "state"]) {
+      expect(result.items).toContainEqual(
+        expect.objectContaining({ name, status: "removed" }),
+      );
+      await expect(lstat(join(managedRoot, name))).rejects.toMatchObject({
+        code: "ENOENT",
+      });
+    }
+    expect((await lstat(linkedHome)).isSymbolicLink()).toBe(true);
+    expect(await readFile(join(managedRoot, "keep.txt"), "utf8")).toBe(
+      "other data",
+    );
+  });
+
+  it("reports root inspection failure without removing managed data", async () => {
+    const home = await createTestTempDirectory("rea-uninstall-data-denied-");
+    roots.push(home);
+    const managedRoot = join(home, ".rea");
+    for (const name of ["cache", "state"]) {
+      await mkdir(join(managedRoot, name), { recursive: true });
+      await writeFile(join(managedRoot, name, "keep.txt"), "managed data");
+    }
+    const remove = vi.fn(testFileSystem.remove);
+    const result = await runUninstall(
+      true,
+      systemUninstallHost(
+        home,
+        {
+          ...testFileSystem,
+          stat: (path) =>
+            path === managedRoot
+              ? Promise.reject(
+                  Object.assign(new Error("root inspection denied"), {
+                    code: "EACCES",
+                  }),
+                )
+              : lstat(path),
+          remove,
+        },
+        {},
+      ),
+    );
+
+    expect(result.status).toBe("failed");
+    expect(remove).not.toHaveBeenCalled();
+    for (const name of ["cache", "state"]) {
+      expect(result.items).toContainEqual(
+        expect.objectContaining({ name, status: "failed" }),
+      );
+      expect(await readFile(join(managedRoot, name, "keep.txt"), "utf8")).toBe(
+        "managed data",
+      );
+    }
+  });
+});
+
 describe("client configuration filesystem removal", () => {
   it("uninstalls only owned entries and refuses purge symlinks", async () => {
     const home = await createTestTempDirectory("rea-uninstall-");
@@ -1384,6 +1530,68 @@ describe("client configuration filesystem removal", () => {
       "complete",
     );
   });
+
+  it("removes emptied skill directories and keeps ones with user files", async () => {
+    const home = await createTestTempDirectory("rea-uninstall-skill-dirs-");
+    roots.push(home);
+    const shared = join(home, ".agents/skills/reverse-engineer-anything");
+    const claude = join(home, ".claude/skills/reverse-engineer-anything");
+    for (const root of [shared, claude]) {
+      await mkdir(join(root, "references"), { recursive: true });
+      await writeFile(join(root, "SKILL.md"), ownedSkillManifest);
+      await writeFile(
+        join(root, "references/evidence-workflows.md"),
+        "managed",
+      );
+    }
+    await writeFile(join(claude, "notes.md"), "user");
+
+    const result = await runUninstall(
+      false,
+      systemUninstallHost(home, undefined, {
+        HOME: home,
+        CLAUDE_CONFIG_DIR: join(home, ".claude"),
+      }),
+    );
+
+    expect(result.status).toBe("complete");
+    await expect(lstat(shared)).rejects.toMatchObject({ code: "ENOENT" });
+    await expect(lstat(join(claude, "references"))).rejects.toMatchObject({
+      code: "ENOENT",
+    });
+    expect(await readFile(join(claude, "notes.md"), "utf8")).toBe("user");
+  });
+
+  it.skipIf(process.platform === "win32" || process.getuid?.() === 0)(
+    "reports an emptied skill directory that cannot be removed",
+    async () => {
+      const home = await createTestTempDirectory("rea-uninstall-skill-perm-");
+      roots.push(home);
+      const parent = join(home, ".agents/skills");
+      const root = join(parent, "reverse-engineer-anything");
+      await mkdir(join(root, "references"), { recursive: true });
+      await writeFile(join(root, "SKILL.md"), ownedSkillManifest);
+      await chmod(parent, 0o555);
+      try {
+        const result = await runUninstall(
+          false,
+          systemUninstallHost(home, undefined, { HOME: home }),
+        );
+        expect(result.status).toBe("failed");
+        expect(result.items).toContainEqual(
+          expect.objectContaining({
+            name: "skill",
+            status: "failed",
+            detail: expect.stringContaining(
+              `Managed skill directory could not be removed: ${root}.`,
+            ),
+          }),
+        );
+      } finally {
+        await chmod(parent, 0o755);
+      }
+    },
+  );
 
   it("removes an owned entry through a symlink without replacing it", async () => {
     const home = await createTestTempDirectory("rea-uninstall-symlink-");
@@ -1451,6 +1659,37 @@ describe("uninstall configuration preflight", () => {
     );
     expect(await readFile(config, "utf8")).toBe("not-json");
   });
+
+  it.each([
+    ['{"mcpServers":null,"keep":1}', '"mcpServers" must be an object'],
+    ["[]", "The configuration root must be an object"],
+    ['{"mcpServers":"x"}', '"mcpServers" must be an object'],
+  ])(
+    "names the structural problem in valid JSON %s",
+    async (content, problem) => {
+      const home = await createTestTempDirectory("rea-uninstall-shape-");
+      roots.push(home);
+      const config = join(home, ".cursor/mcp.json");
+      await mkdir(dirname(config), { recursive: true });
+      await writeFile(config, content);
+      expect(await readConfigurationFile(config, "json")).toMatchObject({
+        ok: false,
+        error: {
+          kind: "malformed",
+          detail: `Configuration ${config} is malformed: ${problem}`,
+        },
+      });
+      const result = await runUninstall(false, systemUninstallHost(home));
+      expect(result.status).toBe("failed");
+      expect(result.items).toContainEqual({
+        name: "cursor",
+        status: "failed",
+        detail: `Configuration was not changed: ${problem}. Repair it, then rerun uninstall.`,
+      });
+      expect(await readFile(config, "utf8")).toBe(content);
+      await expect(readFile(`${config}.rea.backup`, "utf8")).rejects.toThrow();
+    },
+  );
 
   it("stops before any removal when one client configuration is malformed", async () => {
     const home = await createTestTempDirectory("rea-uninstall-stop-");

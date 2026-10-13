@@ -12,7 +12,7 @@ import { HopperProvider } from "../hopper/HopperProvider.js";
 import { hopperLoaderArgsForTarget } from "../hopper/HopperAnalysisProfile.js";
 import { IdaProvider } from "../ida/IdaProvider.js";
 import {
-  ghidraProfileLaneLanguage,
+  ghidraPinnedLanguage,
   ghidraProfileLanguageOverride,
 } from "./GhidraAnalysisProfile.js";
 import { GhidraProvider } from "./GhidraProvider.js";
@@ -73,16 +73,15 @@ describe("bounded Ghidra PowerPC admission", () => {
       architecture: "powerpc",
       language_id: "PowerPC:BE:32:default",
       compiler_spec_id: "default",
-      language_selection: "admitted-lane-v1",
+      language_selection: "provider-pinned-v1",
       powerpc_elf: { elf_class: 32, byte_order: "big", type: 2, flags: 0 },
       powerpc_support_lane: "elf32-be-exec-generic-v1",
     });
-    expect(ghidraProfileLaneLanguage(parameters)).toEqual({
+    expect(ghidraPinnedLanguage(target())).toEqual({
       languageId: "PowerPC:BE:32:default",
       compilerSpecId: "default",
     });
-    // A lane-bound language is not a caller configuration to compare against.
-    expect(ghidraProfileLanguageOverride(parameters)).toBeUndefined();
+    expect(ghidraProfileLanguageOverride(parameters)).toEqual(ghidraPinnedLanguage(target()));
   });
 
   it("lets a configured language replace the lane default", async () => {
@@ -109,7 +108,7 @@ describe("bounded Ghidra PowerPC admission", () => {
       language_id: "PowerPC:BE:32:e500",
       language_selection: "configured-v1",
     });
-    expect(ghidraProfileLaneLanguage(parameters)).toBeUndefined();
+    expect(ghidraProfileLanguageOverride(parameters)).toEqual({ languageId: "PowerPC:BE:32:e500" });
   });
 
   it("commits header flags so a changed interpretation changes the profile", async () => {
