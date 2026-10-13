@@ -175,7 +175,10 @@ it("rejects invalid ordinal coverage in a borrowed parent", () => {
   expect(result.ok).toBe(false);
 });
 
-it("previews the mitmproxy request target and status code as headline fields", () => {
+const nativePreview = (
+  format: "mitmproxy" | "har",
+  request: Readonly<Record<string, unknown>>,
+) => {
   const artifact = {
     path: "/recordings/flows.mitm",
     sha256: "c".repeat(64),
@@ -185,7 +188,7 @@ it("previews the mitmproxy request target and status code as headline fields", (
   const report = webNetworkCaptureSchema.parse({
     artifact,
     decoder,
-    format: "mitmproxy",
+    format,
     runtime_attribution: "unknown",
     limitations: [],
     container: {
@@ -201,16 +204,7 @@ it("previews the mitmproxy request target and status code as headline fields", (
         location: { kind: "byte-range", offset: 0, bytes: 10 },
         reported: {
           type: "http",
-          request: {
-            host: "example.test",
-            port: 443,
-            method: "GET",
-            scheme: "https",
-            authority: "",
-            path: "/users/42",
-            http_version: "HTTP/1.1",
-            headers: [["Accept", "*/*"]],
-          },
+          request: { ...request, headers: [["Accept", "*/*"]] },
           response: {
             http_version: "HTTP/1.1",
             status_code: 404,
@@ -220,11 +214,6 @@ it("previews the mitmproxy request target and status code as headline fields", (
         },
         binary_fields: [],
         numeric_literals: [
-          {
-            pointer: "/request/port",
-            producer_type: "integer",
-            literal: "443",
-          },
           {
             pointer: "/response/status_code",
             producer_type: "integer",
@@ -253,7 +242,22 @@ it("previews the mitmproxy request target and status code as headline fields", (
     },
     { kind: "capture", detail: "preview", offset: 0, limit: 1 },
   );
-  expect(preview.ok && preview.value).toMatchObject({
+  if (!preview.ok || preview.value.kind !== "capture")
+    throw new Error("Expected a capture preview page.");
+  return preview.value;
+};
+
+it("previews the mitmproxy request target and status code as headline fields", () => {
+  const preview = nativePreview("mitmproxy", {
+    host: "example.test",
+    port: 443,
+    method: "GET",
+    scheme: "https",
+    authority: "",
+    path: "/users/42",
+    http_version: "HTTP/1.1",
+  });
+  expect(preview).toMatchObject({
     items: [
       {
         reported: {
@@ -273,10 +277,34 @@ it("previews the mitmproxy request target and status code as headline fields", (
             reason: "Not Found",
           },
         },
-        numeric_literals: report.records[0]?.numeric_literals,
+        numeric_literals: [
+          {
+            pointer: "/response/status_code",
+            producer_type: "integer",
+            literal: "404",
+          },
+        ],
       },
     ],
   });
   expect(JSON.stringify(preview)).not.toContain("Accept");
   expect(JSON.stringify(preview)).not.toContain("omitted body");
+});
+
+it.each([
+  [
+    "an ambiguous absolute path",
+    "mitmproxy",
+    "https:user:password@example.test/a",
+  ],
+  ["a network-path reference", "mitmproxy", "//user:password@example.test/a"],
+  ["a nested path value", "mitmproxy", { content: "password ".repeat(64) }],
+  ["a path in a non-mitmproxy record", "har", "/users/password"],
+] as const)("keeps %s out of the preview", (_label, format, path) => {
+  const preview = nativePreview(format, { method: "GET", path });
+  const [item] = preview.items;
+  expect(item?.reported).toMatchObject({ request: { method: "GET" } });
+  expect(JSON.stringify(item?.reported)).not.toContain("password");
+  if (format === "har")
+    expect(JSON.stringify(item?.reported)).not.toContain("status_code");
 });
