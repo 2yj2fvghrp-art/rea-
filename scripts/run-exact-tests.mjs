@@ -1,5 +1,5 @@
 import { lstat, realpath } from "node:fs/promises";
-import { resolve } from "node:path";
+import { dirname, resolve } from "node:path";
 
 import { createVitest, parseCLI } from "vitest/node";
 
@@ -50,6 +50,10 @@ try {
           missing.push(path);
           continue;
         }
+        if (await hasSymbolicLinkInPath(absolute)) {
+          missing.push(path);
+          continue;
+        }
         const canonical = await realpath(absolute);
         for (const [candidate, specifications] of discovered) {
           // Confirm filesystem identity: Windows directories may opt into case
@@ -64,6 +68,7 @@ try {
           }
           if (
             !candidateEntry.isSymbolicLink() &&
+            !(await hasSymbolicLinkInPath(candidate)) &&
             (await realpath(candidate)) === canonical
           )
             matches = [...matches, ...specifications];
@@ -84,3 +89,18 @@ try {
 }
 if (shutdownSignal !== undefined)
   process.exitCode = signalExitCodes[shutdownSignal];
+
+async function hasSymbolicLinkInPath(path) {
+  let current = resolve(path);
+  for (;;) {
+    try {
+      if ((await lstat(current)).isSymbolicLink()) return true;
+    } catch (cause) {
+      if (cause?.code === "ENOENT" || cause?.code === "ENOTDIR") return false;
+      throw cause;
+    }
+    const parent = dirname(current);
+    if (parent === current) return false;
+    current = parent;
+  }
+}
