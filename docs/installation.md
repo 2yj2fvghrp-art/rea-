@@ -144,8 +144,9 @@ Select the part you want to check:
 | Installed workflow instructions     | `rea doctor --skill --json`                                              |
 
 On Linux, static JavaScript/Electron analysis also requires a procps-compatible
-`ps` command on REA's `PATH` for process ownership inspection. Install the
-`procps` package if `ps` is missing; otherwise analysis fails with a
+`ps` command on REA's `PATH` for process ownership inspection. If `ps` is
+missing or cannot perform that ownership check, install `procps` or put another
+procps-compatible `ps` earlier on `PATH`; otherwise analysis fails with a
 `capability_unavailable` error before launching a child process.
 
 A scoped report has `scope.mode: "explicit"`. Its `scope_checks` determine
