@@ -558,6 +558,7 @@ WindowImage captureWindow(DWORD pid, ULONG_PTR handle, int maximumDimension,
     // Keep both the surface and a process handle alive until that process exits.
     retainedSurface = std::move(surface);
     retainedProcess = std::move(paintProcess);
+    checkCaptureCancellation(control);
     throw Failure("Selected window did not render within the capture deadline", L"",
                   deliveryError == ERROR_SUCCESS ? ERROR_TIMEOUT : deliveryError);
   }

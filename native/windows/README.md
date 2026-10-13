@@ -91,8 +91,10 @@ without this lane reports Windows native controls as unavailable.
   handles pin target/process-image identity and bytes before the paint request. It renders the client area through a
   five-second `WM_PRINT` request into an in-memory DIB and WIC PNG encoder.
   Rendering and encoding run as native async work. Cancellation cancels queued
-  work or waits for an in-flight paint request to reach its deadline before
-  settling and releasing its native resources. The Node event loop stays live. It
+  work or waits for an in-flight paint request to reach its deadline. If the
+  target handler outlives that deadline, the native surface stays owned until
+  the target process exits, and another capture is not admitted while that
+  owner remains. The Node event loop stays live. It
   never enumerates windows, captures a desktop or region, searches titles,
   writes a caller-selected path, sends input, changes permissions, or falls
   back to BitBlt. Protected, elevated, hung, minimized, GPU-composited, or
