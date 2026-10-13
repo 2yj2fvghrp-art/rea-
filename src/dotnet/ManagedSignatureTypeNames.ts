@@ -69,28 +69,103 @@ const readTypeReference = (
   );
 };
 
-/** Join a type's name after its enclosing types' names; null on a gap or cycle. */
-const nestedName = (
-  row: number,
+/**
+ * Deepest type nesting REA names, counting the outermost type as 1. Real
+ * assemblies nest a few levels; the cap bounds the walk a hostile chain of
+ * NestedClass rows or TypeRef ResolutionScopes can force per operand.
+ */
+export const MAX_TYPE_NESTING_DEPTH = 64;
+
+/** Digest prefixes that keep a top-level type apart from a nested one. */
+const TOP_LEVEL = Buffer.from([0]);
+const NESTED = Buffer.from([1]);
+
+interface NamedRow {
+  readonly digest: Buffer;
+  readonly depth: number;
+}
+
+/**
+ * Digest each row's type name after its enclosing types' names: a top-level
+ * type hashes its namespace-qualified name, and a nested type hashes its
+ * enclosing type's digest and its own name, as `Outer/Inner` would read. Each
+ * row is read and digested once, so naming a chain is linear in its length.
+ * A gap, a cycle, or nesting deeper than `MAX_TYPE_NESTING_DEPTH` has no
+ * digest. `retain` is charged once per remembered row.
+ */
+export const nestedTypeDigests = (
   link: (row: number) => TypeLink | null,
-): string | null => {
-  const names: string[] = [];
-  const seen = new Set<number>();
-  for (let current: number | null = row; current !== null;) {
-    const step = link(current);
-    if (step === null || seen.has(current)) return null;
-    seen.add(current);
-    names.unshift(step.name);
-    current = step.enclosingRow;
-  }
-  return names.join("/");
+  retain: () => void,
+): ((row: number) => Buffer | null) => {
+  const named = new Map<number, NamedRow | null>();
+  const remember = (row: number, value: NamedRow | null): void => {
+    retain();
+    named.set(row, value);
+  };
+  return (row) => {
+    // Walk out to a named row or the outermost type, at most past the cap.
+    const path: { readonly row: number; readonly name: string }[] = [];
+    const seen = new Set<number>();
+    let outer: NamedRow | null = null;
+    for (let current: number | null = row; current !== null;) {
+      const known = named.get(current);
+      if (known !== undefined) {
+        if (known === null) {
+          for (const step of path) remember(step.row, null);
+          return null;
+        }
+        outer = known;
+        break;
+      }
+      if (seen.has(current)) {
+        // Every row on a cycle, and every row nested in one, has no name.
+        for (const step of path) remember(step.row, null);
+        return null;
+      }
+      if (path.length === MAX_TYPE_NESTING_DEPTH) {
+        // The row the walk started from is nested past the cap.
+        remember(row, null);
+        return null;
+      }
+      const step = link(current);
+      if (step === null) {
+        remember(current, null);
+        for (const visited of path) remember(visited.row, null);
+        return null;
+      }
+      seen.add(current);
+      path.push({ row: current, name: step.name });
+      current = step.enclosingRow;
+    }
+    // Name inward from the outermost row; a row past the cap, and every row
+    // nested in it, has no name.
+    let inner: NamedRow | null = outer;
+    let exceeded = false;
+    for (const step of path.reverse()) {
+      const depth = (inner?.depth ?? 0) + 1;
+      exceeded ||= depth > MAX_TYPE_NESTING_DEPTH;
+      if (exceeded) {
+        remember(step.row, null);
+        continue;
+      }
+      const hash = createHash("sha256");
+      if (inner === null) hash.update(TOP_LEVEL);
+      else hash.update(NESTED).update(inner.digest);
+      inner = { digest: hash.update(step.name).digest(), depth };
+      remember(step.row, inner);
+    }
+    return exceeded ? null : (inner?.digest ?? null);
+  };
 };
 
 /**
  * Name signature type operands independently of their metadata rows: a TypeDef
  * or TypeRef by namespace and name, after its enclosing types for a nested
- * type, as in `Outer/Inner`. A TypeSpec, an unreadable row, or cyclic nesting
- * has no name, so its signature has no resolved digest. Each coded index is
+ * type, as in `Outer/Inner`. A TypeDef and a TypeRef with the same name are
+ * the same type, and a TypeRef's resolution scope assembly is not part of its
+ * name, so a type forwarded between assemblies keeps its name. A TypeSpec, an
+ * unreadable row, cyclic nesting, or nesting deeper than the cap has no name,
+ * so its signature has no resolved digest. Each coded index and each row is
  * named and digested once, so repeated operands cost a lookup.
  */
 export const signatureTypeNames = (
@@ -105,27 +180,21 @@ export const signatureTypeNames = (
     enclosingDefs ??= enclosingTypeDefs(bytes, layout);
     return { name, enclosingRow: enclosingDefs.get(row) ?? null };
   };
-  const name = (codedIndex: number): string | null => {
-    const row = codedIndex >>> 2;
-    switch (codedIndex & 3) {
-      case 0:
-        return nestedName(row, definition);
-      case 1:
-        return nestedName(row, (current) =>
-          readTypeReference(bytes, layout, current),
-        );
-      default:
-        return null;
-    }
-  };
+  const retain = () => managedDecodeBudget(layout).reserve(128, null);
+  const definitions = nestedTypeDigests(definition, retain);
+  const references = nestedTypeDigests(
+    (current) => readTypeReference(bytes, layout, current),
+    retain,
+  );
   const digests = new Map<number, Buffer | null>();
   return (codedIndex) => {
     let digest = digests.get(codedIndex);
     if (digest === undefined) {
       managedDecodeBudget(layout).reserve(256, null);
-      const named = name(codedIndex);
+      const row = codedIndex >>> 2;
+      const table = codedIndex & 3;
       digest =
-        named === null ? null : createHash("sha256").update(named).digest();
+        table === 0 ? definitions(row) : table === 1 ? references(row) : null;
       digests.set(codedIndex, digest);
     }
     return digest;

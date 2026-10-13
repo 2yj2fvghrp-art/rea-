@@ -16,8 +16,12 @@ import {
 import { readManagedPeLayout } from "./ManagedPeReader.js";
 import { signatureTypeNames } from "./ManagedSignatureTypeNames.js";
 
+// A top-level type's name digest, as ManagedSignatureTypeNames forms it.
 const nameDigest = (name: string): Buffer =>
-  createHash("sha256").update(name).digest();
+  createHash("sha256")
+    .update(Buffer.from([0]))
+    .update(name)
+    .digest();
 
 const named =
   (names: Readonly<Record<number, string>>) =>
@@ -58,10 +62,13 @@ describe("resolved member signature digests", () => {
     ).toBeNull();
   });
 
-  it("cannot reproduce another signature's raw bytes", () => {
-    // Without the 0xff marker, class "A" would hash as these raw bytes.
-    const raw = signature(
-      Buffer.concat([Buffer.from([0x06, 0x12]), nameDigest("A")]),
+  it("leaves a blob forged from a resolved preimage undecoded", () => {
+    // The resolved preimage of class "A": 0xff, then the name digest. 0xff
+    // never starts a compressed coded index, so the forged blob does not
+    // decode and has only a raw digest, equal to the resolved one; comparison
+    // tags the two kinds apart.
+    const forged = signature(
+      Buffer.concat([Buffer.from([0x06, 0x12, 0xff]), nameDigest("A")]),
     );
     const resolved = signature(
       Buffer.from([0x06, 0x12, 0x05]),
@@ -69,8 +76,9 @@ describe("resolved member signature digests", () => {
       named({ 0x05: "A" }),
     );
 
-    expect(raw.resolved_sha256).toBeNull();
-    expect(resolved.resolved_sha256).not.toBe(raw.raw_sha256);
+    expect(forged.parse_status).toBe("malformed");
+    expect(forged.resolved_sha256).toBeNull();
+    expect(forged.raw_sha256).toBe(resolved.resolved_sha256);
   });
 
   it.each([

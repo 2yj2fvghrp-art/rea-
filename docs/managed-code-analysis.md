@@ -227,7 +227,14 @@ full tuple; names alone never select a pair. Duplicate tuples remain ambiguous
 rather than being paired by token order. Every round compares signatures by
 `resolved_sha256`: the raw signature with each TypeDef or TypeRef operand
 replaced by that type's namespace-qualified name, after its enclosing types for
-a nested type (`Outer/Inner`). The defining assembly is not part of the name.
+a nested type (`Outer/Inner`). The defining assembly is not part of the name:
+a TypeDef and a TypeRef with the same namespace-qualified name compare as the
+same type, and a TypeRef's ResolutionScope assembly is ignored, so a type
+forwarded from one assembly to another still pairs. Two different types with
+the same full name in different assemblies therefore also compare equal.
+Nesting deeper than 64 levels is not named, and such a signature compares by
+its raw digest. Comparison keys keep resolved and raw digests apart, so a raw
+digest never pairs with an equal resolved one.
 Raw signature bytes name types by metadata row, and rows are build-local, so
 the same signature usually has different raw bytes in two builds. A signature
 that names no types resolves to its raw digest. When an operand cannot be

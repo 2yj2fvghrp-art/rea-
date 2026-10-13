@@ -849,9 +849,11 @@ export const signatureGenericArity = (
 export type SignatureTypeName = (codedIndex: number) => Buffer | null;
 
 /**
- * Each type operand is replaced by 0xff, which never starts a coded index,
- * then the 32-byte name digest, so a resolved digest cannot equal the raw
- * digest of another blob, and a blob without type operands keeps its own.
+ * Each type operand is replaced by 0xff, which never starts a compressed
+ * coded index, then the 32-byte name digest; a blob without type operands
+ * keeps its raw digest. So no decodable signature's resolved preimage is
+ * another's, but an undecodable blob can hold one, and its raw digest then
+ * equals that resolved digest. Comparison keys the two kinds apart.
  */
 const OPERAND_MARKER = Buffer.from([0xff]);
 

@@ -1698,6 +1698,47 @@ describe("managed member comparison of resolved signatures", () => {
     ]);
   });
 
+  it("does not pair a raw digest with an equal resolved digest", () => {
+    // class Fixture.Program on the left; on the right, the bytes of its
+    // resolved preimage, which do not decode and so compare by raw digest.
+    const programDigest = createHash("sha256")
+      .update(Buffer.from([0]))
+      .update("Fixture.Program")
+      .digest();
+    const left = inspect(
+      buildManagedPeFixture({
+        methodSignature: Buffer.from([0x00, 0x00, 0x12, leftTypes.program]),
+      }),
+      "/tmp/left-collision.dll",
+    );
+    const right = inspect(
+      buildManagedPeFixture({
+        methodSignature: Buffer.concat([
+          Buffer.from([0x00, 0x00, 0x12, 0xff]),
+          programDigest,
+        ]),
+      }),
+      "/tmp/right-collision.dll",
+    );
+    // The collision this guards against must exist: the right blob does not
+    // decode, and its raw digest is the left signature's resolved digest.
+    const [leftMethod] = left.result.methods;
+    const [rightMethod] = right.result.methods;
+    expect(rightMethod?.signature.resolved_sha256).toBeNull();
+    expect(rightMethod?.signature.raw_sha256).toBe(
+      leftMethod?.signature.resolved_sha256,
+    );
+
+    const result = compareManagedMembers(
+      { evidenceId: left.evidenceId, result: left.result },
+      { evidenceId: right.evidenceId, result: right.result },
+    );
+
+    expect(
+      result.methods.filter(({ match }) => match.status === "matched"),
+    ).toEqual([]);
+  });
+
   it("compares raw signatures against Evidence recorded before resolution", () => {
     // Both signatures name Program, TypeDef row 1, in the same build.
     const build = () =>
@@ -1841,6 +1882,21 @@ describe("managed member comparison of nested signature types", () => {
     );
 
     expect(statuses(result)).toEqual(["added", "removed"]);
+  });
+});
+
+describe("managed member comparison limitations for resolved signatures", () => {
+  it("does not report missing resolved digests for observations without signatures", () => {
+    const base = inspect(buildManagedPeFixture(), "/tmp/no-members.dll");
+    const empty = {
+      ...base,
+      result: { ...base.result, methods: [], fields: [] },
+    };
+    const result = compareManagedMembers(empty, empty);
+
+    expect(result.limitations).not.toContain(
+      "At least one managed member observation has no resolved signature digests, so signatures compare by raw bytes, which name types by build-local metadata row.",
+    );
   });
 });
 
