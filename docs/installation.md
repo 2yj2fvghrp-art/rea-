@@ -160,6 +160,7 @@ listed after the table because its connector is not one of these files:
 | GitHub Copilot CLI | `copilot_cli`    |
 | Command Code       | `commandcode`    |
 | Qwen Code          | `qwen_code`      |
+| Kimi Code          | `kimi`           |
 | VS Code            | `vscode`         |
 | Grok Build         | `grok_build`     |
 | OMP                | `omp`            |
@@ -167,8 +168,8 @@ listed after the table because its connector is not one of these files:
 | Hermes             | `hermes`         |
 | DeepSeek Harness   | `dsh`            |
 
-`dsh` is main-only until a release after 6.4.0. The registry check above does
-not cover it.
+`dsh` and `kimi` require a release containing them. The registry check above does
+not cover them.
 
 For GitHub Copilot CLI 1.0.95, `gpt-4.1` model metadata can block ordinary
 chat with REA's full input-schema profile before sending a model request
@@ -215,6 +216,18 @@ enabled state and exposure. Check that file if the user registration is aligned
 but unavailable in a project. An extension that registers `/mcp` can replace
 Pi's built-in MCP support and use its own configuration instead. Run `/reload`
 in an existing Pi session after changing servers outside the session.
+
+### Kimi Code
+
+Setup registers `rea` in `~/.kimi-code/mcp.json`, or
+`$KIMI_CODE_HOME/mcp.json` when set, while preserving unrelated settings and
+creating a `.rea.backup` before updating an existing file. Kimi Code infers
+stdio from the `command` entry, so setup does not add a `type` field. The
+registration includes `startupTimeoutMs = 30000` and `toolTimeoutMs = 120000`.
+Kimi Code also discovers personal skills in `~/.agents/skills` and project-local
+`.agents/skills`, so no separate skill root is required; setup still installs
+and verifies the matching skill files through the normal shared-skill flow.
+Start a new Kimi Code session to pick up MCP and skill changes.
 
 For Qwen Code, setup registers `rea` in the `mcpServers` table of the
 user-level `~/.qwen/settings.json`, or `$QWEN_HOME/settings.json` when configured.
@@ -362,7 +375,7 @@ The bundled skill is installed where each selected client discovers personal
 skills: Claude Code uses `~/.claude/skills` (or
 `$CLAUDE_CONFIG_DIR/skills` when configured). Gemini CLI uses `.agents/skills`
 under its selected home; Antigravity 2.0 uses `~/.gemini/config/skills`.
-Other integrations, including Qwen Code, use `~/.agents/skills`.
+Other integrations, including Qwen Code and Kimi Code, use `~/.agents/skills`.
 A mixed selection plans each distinct destination. Selecting the skill without a client uses the shared
 directory. Setup leaves existing skill copies in other locations untouched.
 
@@ -438,7 +451,8 @@ rea setup --yes --all-detected --install-hopper --json
 
 Setup pins package-runner MCP registrations to the exact installed REA version,
 installs the matching skill and on-demand references in the same plan, and adds
-`startup_timeout_sec = 30` for Codex and Grok Build. `rea update` installs the exact resolved
+`startup_timeout_sec = 30` for Codex and Grok Build, plus
+`startupTimeoutMs = 30000` and `toolTimeoutMs = 120000` for Kimi Code. `rea update` installs the exact resolved
 release into the npm prefix or Bun global directory that owns the running
 package, then checks the new executable's version before reporting success. It
 does not reopen onboarding. For npm installations, release lookup and

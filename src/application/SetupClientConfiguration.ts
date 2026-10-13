@@ -445,5 +445,11 @@ const clientConfigurationDesired = (
           startup_timeout_sec: MCP_STARTUP_POLICY.codexStartupTimeoutSeconds,
         }
       : {}),
+    ...(client.name === "kimi"
+      ? {
+          startupTimeoutMs: MCP_STARTUP_POLICY.kimiStartupTimeoutMs,
+          toolTimeoutMs: MCP_STARTUP_POLICY.kimiToolTimeoutMs,
+        }
+      : {}),
   };
 };

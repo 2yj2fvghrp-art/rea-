@@ -109,8 +109,12 @@ const parseDocument = (
     return objectSchema.parse(parseToml(text));
   // Pi loads `mcp.json` with a strict `JSON.parse` and no BOM tolerance, so
   // comments, trailing commas, a BOM, or an empty existing file must be
-  // rejected instead of registering into a document Pi cannot load.
-  if (format === "pi") return objectSchema.parse(JSON.parse(text));
+  // rejected instead of registering into a document the client cannot load.
+  // Kimi also reads mcp.json with JSON.parse and an empty-file fallback.
+  if (format === "pi" || format === "kimi") {
+    if (format === "kimi" && text.trim().length === 0) return {};
+    return objectSchema.parse(JSON.parse(text));
+  }
   // An empty file, which some clients create before any server is added,
   // holds no settings to preserve.
   if (isEmptyClientConfigurationText(text)) return {};
@@ -1381,6 +1385,13 @@ export const clientRegistrationEntry = (
         ...(Object.keys(environment).length === 0
           ? {}
           : { environment: { ...environment } }),
+      };
+    case "kimi":
+      // Kimi infers stdio from command; it uses `transport`, not `type`.
+      return {
+        command: executable,
+        args,
+        ...(Object.keys(environment).length === 0 ? {} : { env: environment }),
       };
     case "opencode_v2":
       // V2 connects servers unless `disabled` is true.
