@@ -21,7 +21,8 @@ const MAX_STDOUT_BYTES = 16 * 1024 * 1024;
 
 const REPO_ROOT = resolve(dirname(fileURLToPath(import.meta.url)), "../../..");
 const ENTRYPOINT = resolve(
-  process.env.REA_FIRMWARE_TEST_ENTRYPOINT ?? join(REPO_ROOT, "scripts/rea.mjs"),
+  process.env.REA_FIRMWARE_TEST_ENTRYPOINT ??
+    join(REPO_ROOT, "scripts/rea.mjs"),
 );
 const FIXTURE_ROOT = resolve(
   process.env.REA_FIRMWARE_FIXTURE_ROOT ??
@@ -179,7 +180,10 @@ const toContentIdentity = (parsed) =>
 // ---------------------------------------------------------------------------
 
 async function stageCli() {
-  const regionsEvidence = await runCli(["inspect-firmware-regions", firmwarePath]);
+  const regionsEvidence = await runCli([
+    "inspect-firmware-regions",
+    firmwarePath,
+  ]);
   const regions = verifyRegions(regionsEvidence);
 
   const extractEvidence = await runCli([
@@ -340,7 +344,8 @@ try {
   const mcpFiles = await stageMcp(cli);
 
   if (process.env.REA_FIRMWARE_VERIFY_EXT4 === "1") await stageExt4();
-  if (process.env.REA_FIRMWARE_VERIFY_GHIDRA === "1") await stageGhidra(mcpFiles);
+  if (process.env.REA_FIRMWARE_VERIFY_GHIDRA === "1")
+    await stageGhidra(mcpFiles);
 
   assert.equal(
     await hashFirmwareFile(firmwarePath),
