@@ -51,6 +51,7 @@ it
   .runIf(host)
   .each([
     "success",
+    "success-aarch64",
     "wrong-register",
     "wrong-register-source",
     "missing-thread",
@@ -80,9 +81,13 @@ it
   ] as const)(
   "validates recorded source bytes and cleanup: %s",
   async (scenario) => {
+    const architecture = scenario.endsWith("aarch64")
+      ? "aarch64-little-endian"
+      : "x86_64-little-endian";
     const { path, value, bytes } = await fixture(
       true,
       scenario === "wrong-owner-display",
+      architecture,
     );
     if (scenario.startsWith("wrong-ei-version-"))
       bytes[6] = Number(scenario.at(-1));
@@ -126,8 +131,9 @@ it
       path,
       include_debugger_context: false,
     });
-    if (scenario === "success") {
+    if (scenario === "success" || scenario === "success-aarch64") {
       if (!result.ok) throw result.error;
+      expect(result.value.architecture).toBe(architecture);
       expect(result.value.threads).toEqual(value.threads);
       expect(result.value.diagnostics.stdout).toBe("recorded warning");
     } else
@@ -138,60 +144,6 @@ it
           capturedOutput: { stdout: "recorded warning" },
         },
       });
-    expect(await readFile(path)).toEqual(bytes);
-    await expect(access(owned)).rejects.toMatchObject({ code: "ENOENT" });
-  },
-);
-
-it.runIf(host)(
-  "admits a recorded AArch64 core through the full provider pipeline",
-  async () => {
-    const { path, value, bytes } = await fixture(
-      false,
-      false,
-      "aarch64-little-endian",
-    );
-    let owned = "";
-    const provider = new PwntoolsRecordedCrashProvider(
-      { REA_PWNTOOLS_PYTHON: process.execPath },
-      async (spawn) => {
-        owned = spawn.cwd ?? "";
-        const request = requestSchema.parse(
-          JSON.parse(await readFile(spawn.arguments.at(-1) ?? "", "utf8")),
-        );
-        expect(await readFile(request.snapshot_path)).toEqual(bytes);
-        const {
-          artifact: _artifact,
-          diagnostics: _diagnostics,
-          debugger: _debugger,
-          decoder_diagnostics: _decoderDiagnostics,
-          ...raw
-        } = structuredClone(value);
-        await writeFile(
-          request.reply_path,
-          JSON.stringify({
-            ok: true,
-            profile: PWNTOOLS_PROVIDER_IDENTITY.version,
-            value: raw,
-          }),
-        );
-        return spawnOwnedProviderProcess({
-          ...spawn,
-          command: process.execPath,
-          arguments: ["-e", "process.stdout.write('aarch64 core')"],
-        });
-      },
-    );
-    const result = await provider.inspect({
-      path,
-      include_debugger_context: false,
-    });
-    if (!result.ok) throw result.error;
-    expect(result.value.architecture).toBe("aarch64-little-endian");
-    const names = result.value.threads[0]?.registers.map((r) => r.name) ?? [];
-    expect(names).toHaveLength(34);
-    expect(names[0]).toBe("x0");
-    expect(names.slice(-3)).toEqual(["sp", "pc", "pstate"]);
     expect(await readFile(path)).toEqual(bytes);
     await expect(access(owned)).rejects.toMatchObject({ code: "ENOENT" });
   },
