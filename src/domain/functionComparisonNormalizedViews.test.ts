@@ -138,6 +138,24 @@ describe("wallace relocation-only function pair", () => {
     }
   });
 
+  it("rejects duplicate normalized view dimensions", () => {
+    const result = compareFunctions(left, right, {
+      includeNormalizedViews: true,
+    });
+    const views = result.normalized_views?.views;
+    expect(views).toHaveLength(2);
+    const duplicate = {
+      ...result,
+      normalized_views: {
+        ...result.normalized_views!,
+        views: [views![0]!, { ...views![1]!, dimension: views![0]!.dimension }],
+      },
+    };
+    expect(functionComparisonResultSchema.safeParse(duplicate).success).toBe(
+      false,
+    );
+  });
+
   it("masks the relocated call target and label, never the string literals or constants", () => {
     const result = compareFunctions(left, right, {
       includeNormalizedViews: true,
@@ -202,16 +220,40 @@ const syntheticDossier = (input: {
   readonly pseudocode: string;
   readonly assembly: readonly string[];
   readonly body?: boolean;
+  readonly procedureThunkTarget?: string;
   readonly callees?: readonly {
     readonly address: string;
     readonly name: string;
     readonly thunk_target?: string;
   }[];
+  readonly callers?: readonly {
+    readonly address: string;
+    readonly name: string;
+  }[];
+  readonly outgoingReferences?: readonly {
+    readonly source: string;
+    readonly target: string;
+    readonly operandIndex: number;
+  }[];
+  readonly referencedNames?: readonly {
+    readonly address: string;
+    readonly source_address: string;
+    readonly value: string;
+  }[];
+  readonly basicBlockSuccessors?: readonly string[];
 }) => ({
   procedure: {
     address: input.base,
     name: input.name,
-    classification: null,
+    classification:
+      input.procedureThunkTarget === undefined
+        ? null
+        : {
+            external: false,
+            thunk: true,
+            thunk_target: input.procedureThunkTarget,
+            provenance: "fixture",
+          },
     body:
       input.body === false
         ? { available: false as const, reason: "extent not observed" }
@@ -235,7 +277,12 @@ const syntheticDossier = (input: {
   pseudocode: input.pseudocode,
   assembly: [...input.assembly],
   comments: [],
-  callers: [],
+  callers: (input.callers ?? []).map(({ address, name }) => ({
+    address,
+    name,
+    classification: null,
+    body: { available: false as const, reason: "extent not observed" },
+  })),
   callees: (input.callees ?? []).map(({ address, name, thunk_target }) => ({
     address,
     name,
@@ -251,14 +298,39 @@ const syntheticDossier = (input: {
     body: { available: false as const, reason: "extent not observed" },
   })),
   incoming_references: [],
-  outgoing_references: [],
+  outgoing_references: (input.outgoingReferences ?? []).map(
+    ({ source, target, operandIndex }) => ({
+      source_address: source,
+      target_address: target,
+      source_procedure: null,
+      target_procedure: null,
+      kind: {
+        available: true as const,
+        provenance: "fixture",
+        type: "DATA",
+        flow: false,
+        call: false,
+        jump: false,
+        data: true,
+        read: true,
+        write: false,
+        indirect: false,
+        computed: false,
+        conditional: false,
+        terminal: false,
+        primary: true,
+        operand_index: operandIndex,
+        external: true,
+      },
+    }),
+  ),
   referenced_strings: [],
-  referenced_names: [],
+  referenced_names: [...(input.referencedNames ?? [])],
   basic_blocks: [
     {
       start: input.base,
       end: `0x${(BigInt(input.base) + 0x20n).toString(16)}`,
-      successors: [],
+      successors: [...(input.basicBlockSuccessors ?? [])],
     },
   ],
   native_api: null,
@@ -299,6 +371,23 @@ const relocatedText = (
 
 const relocatedPseudocode = (address: string, body: string) =>
   `void FUN_${BigInt(address).toString(16).padStart(8, "0")}(void) { ${body}; }`;
+
+const unresolvedCallPair = () => {
+  const make = (base: string, target: string) =>
+    syntheticDossier({
+      base,
+      name: `FUN_${BigInt(base).toString(16)}`,
+      pseudocode: `void f(void) { FUN_${BigInt(target).toString(16)}(); }`,
+      assembly: [`${base}: CALL ${target}`],
+      callees: [
+        { address: target, name: `FUN_${BigInt(target).toString(16)}` },
+      ],
+    });
+  return syntheticPair(
+    make("0x411700", "0x411860"),
+    make("0x511700", "0x5118a0"),
+  );
+};
 
 describe("normalized view edge cases", () => {
   it("reports a relocated pair as unchanged without touching exact statuses", () => {
@@ -352,6 +441,117 @@ describe("normalized view edge cases", () => {
   });
 });
 
+describe("normalized view address projection", () => {
+  it("keeps distinct in-body branch offsets distinct", () => {
+    const [left, right] = syntheticPair(
+      syntheticDossier({
+        base: "0x411700",
+        name: "FUN_00411700",
+        pseudocode: "void f(void) {}",
+        assembly: ["0x411700: JMP 0x411710"],
+      }),
+      syntheticDossier({
+        base: "0x511700",
+        name: "FUN_00511700",
+        pseudocode: "void f(void) {}",
+        assembly: ["0x511700: JMP 0x511720"],
+      }),
+    );
+    const result = compareFunctions(left, right, {
+      includeNormalizedViews: true,
+    });
+    expect(view(result, "assembly_normalized")).toMatchObject({
+      status: "changed",
+    });
+  });
+
+  it("does not mask a numeric constant just because the same value is a referenced name address", () => {
+    const [left, right] = syntheticPair(
+      syntheticDossier({
+        base: "0x411700",
+        name: "FUN_00411700",
+        pseudocode: "void f(void) { if (size == 0x1000) return; }",
+        assembly: [],
+        referencedNames: [
+          { address: "0x1000", source_address: "0x411710", value: "name" },
+        ],
+      }),
+      syntheticDossier({
+        base: "0x511700",
+        name: "FUN_00511700",
+        pseudocode: "void f(void) { if (size == 0x2000) return; }",
+        assembly: [],
+        referencedNames: [
+          { address: "0x2000", source_address: "0x511710", value: "name" },
+        ],
+      }),
+    );
+    const result = compareFunctions(left, right, {
+      includeNormalizedViews: true,
+    });
+    expect(view(result, "pseudocode_normalized")).toMatchObject({
+      status: "changed",
+    });
+  });
+
+  it("masks a numeric address only at its observed instruction and operand", () => {
+    const make = (base: string, target: string, operandIndex: number) =>
+      syntheticDossier({
+        base,
+        name: `FUN_${BigInt(base).toString(16)}`,
+        pseudocode: "void f(void) {}",
+        assembly: [`${base}: MOV EAX, [${target}]`],
+        outgoingReferences: [{ source: base, target, operandIndex }],
+      });
+    const [left, right] = syntheticPair(
+      make("0x411700", "0x1000", 1),
+      make("0x511700", "0x2000", 1),
+    );
+    const result = compareFunctions(left, right, {
+      includeNormalizedViews: true,
+    });
+    expect(view(result, "assembly_normalized")).toMatchObject({
+      status: "unchanged",
+    });
+
+    const [wrongOperandLeft, wrongOperandRight] = syntheticPair(
+      make("0x411700", "0x1000", 0),
+      make("0x511700", "0x2000", 0),
+    );
+    const wrongOperand = compareFunctions(wrongOperandLeft, wrongOperandRight, {
+      includeNormalizedViews: true,
+    });
+    expect(view(wrongOperand, "assembly_normalized")).toMatchObject({
+      status: "changed",
+    });
+  });
+
+  it("preserves each provider label when multiple forms share one address", () => {
+    const [left, right] = syntheticPair(
+      syntheticDossier({
+        base: "0x411700",
+        name: "FUN_00411700",
+        pseudocode: "void f(void) { FUN_00411860(); DAT_00411860; }",
+        assembly: [],
+        callees: [{ address: "0x411860", name: "FUN_00411860" }],
+      }),
+      syntheticDossier({
+        base: "0x511700",
+        name: "FUN_00511700",
+        pseudocode: "void f(void) { FUN_00511860(); LAB_00511860; }",
+        assembly: [],
+        callees: [{ address: "0x511860", name: "FUN_00511860" }],
+      }),
+    );
+    const result = compareFunctions(left, right, {
+      includeNormalizedViews: true,
+    });
+    expect(view(result, "pseudocode_normalized")).toMatchObject({
+      status: "changed",
+    });
+  });
+});
+
 describe("normalized view lexical safety and callee identity", () => {
   it.each([
     ["quoted hexadecimal address", 'puts("0x411700")', 'puts("0x4116f0")'],
@@ -384,6 +584,27 @@ describe("normalized view lexical safety and callee identity", () => {
     });
   });
 
+  it("preserves address-looking assembly comments", () => {
+    const [left, right] = syntheticPair(
+      {
+        ...relocatedText("0x411700"),
+        assembly: ["0x411700: NOP ; 0x411700"],
+      },
+      {
+        ...relocatedText("0x4116f0"),
+        assembly: ["0x4116f0: NOP ; 0x4116f0"],
+      },
+    );
+    const result = compareFunctions(left, right, {
+      includeNormalizedViews: true,
+    });
+    expect(view(result, "assembly_normalized")).toMatchObject({
+      status: "changed",
+    });
+  });
+});
+
+describe("normalized view callee identity", () => {
   it("reports equal ordinalized text as unknown when exact calls cannot establish callee identity", () => {
     const left = syntheticDossier({
       base: "0x411700",
@@ -438,9 +659,51 @@ describe("normalized view lexical safety and callee identity", () => {
     });
   });
 
-  it("fails closed when provider text has an unterminated literal", () => {
+  it("treats the procedure's own thunk target as a masked callee", () => {
+    const make = (base: string, target: string, otherCallee: string) =>
+      syntheticDossier({
+        base,
+        name: `FUN_${BigInt(base).toString(16)}`,
+        procedureThunkTarget: target,
+        pseudocode: "void thunk(void) {}",
+        assembly: [`${base}: JMP ${target}`],
+        callers: [
+          {
+            address: otherCallee,
+            name: `FUN_${BigInt(otherCallee).toString(16)}`,
+          },
+        ],
+      });
     const [left, right] = syntheticPair(
-      { ...relocatedText("0x411700"), pseudocode: 'puts("0x411700)' },
+      make("0x411700", "0x411860", "0x4118a0"),
+      make("0x511700", "0x511860", "0x5118a0"),
+    );
+    const result = compareFunctions(left, right, {
+      includeNormalizedViews: true,
+    });
+    expect(dimension(result, "calls")).toMatchObject({ status: "unknown" });
+    expect(view(result, "assembly_normalized")).toMatchObject({
+      status: "unknown",
+      limitations: expect.arrayContaining([
+        expect.stringContaining(
+          "cannot establish callee identity or call order",
+        ),
+      ]),
+    });
+  });
+});
+
+describe("normalized view fail-closed parsing", () => {
+  it.each([
+    ["unterminated literal", 'puts("0x411700)'],
+    ["unterminated block comment", "return 0; /* 0x411700"],
+    ["unsupported raw string literal", 'puts(R"tag(0x411700)tag")'],
+  ])("fails closed on %s", (_name, pseudocode) => {
+    const [left, right] = syntheticPair(
+      {
+        ...relocatedText("0x411700"),
+        pseudocode: `void f(void) { ${pseudocode}; }`,
+      },
       relocatedText("0x4116f0"),
     );
     const result = compareFunctions(left, right, {
@@ -585,6 +848,19 @@ describe("normalized view consumers", () => {
     ).toThrow(/normalized view was not requested/u);
   });
 
+  it("preserves selected normalized-view limitations in reconstruction claims", () => {
+    const [before, after] = unresolvedCallPair();
+    const evidence = comparisonEvidence(before, after, true);
+    const bundle = createEvidenceBundle([before, after, evidence]);
+    const result = verifyReconstruction(
+      claim("pseudocode_normalized", evidence),
+      bundle,
+    );
+    expect(result.claims.items[0]?.limitations).toContain(
+      "Masked text references a dossier-listed callee or thunk target while the exact calls dimension is unknown; normalized equality cannot establish callee identity or call order.",
+    );
+  });
+
   it("keeps relocation-only comparisons free of normalized findings", () => {
     const findings = findChangedBehavior([
       comparisonEvidence(relocatedLeft, relocatedRight, true),
@@ -608,6 +884,10 @@ describe("normalized view consumers", () => {
       ]),
     );
   });
+});
+
+describe("normalized view static/runtime consumer", () => {
+  const [editedLeft, editedRight] = initializePeoplePair();
 
   it("selects a normalized view for a static/runtime hypothesis", () => {
     const staticEvidence = comparisonEvidence(editedLeft, editedRight, true);
@@ -648,14 +928,17 @@ describe("normalized view consumers", () => {
         evidenceLinks: [capture("1").evidence_id, capture("2").evidence_id],
       },
     );
-    const correlate = (dimension: string) =>
+    const correlate = (
+      dimension: string,
+      comparison: Evidence = staticEvidence,
+    ) =>
       correlateStaticAndRuntime({
-        static_comparisons: [staticEvidence],
+        static_comparisons: [comparison],
         runtime_comparisons: [runtime],
         mappings: [
           {
             static: {
-              comparison_evidence_id: staticEvidence.evidence_id,
+              comparison_evidence_id: comparison.evidence_id,
               selector: { kind: "function", dimension },
             },
             runtime: {
@@ -675,5 +958,50 @@ describe("normalized view consumers", () => {
       [{ observed_pattern: "cochanged", classification: "hypothesis" }],
     );
     expect(correlate("pseudocode")).toMatchObject({ status: "correlated" });
+
+    const [uncertainLeft, uncertainRight] = unresolvedCallPair();
+    const uncertainComparison = comparisonEvidence(
+      uncertainLeft,
+      uncertainRight,
+      true,
+    );
+    expect(
+      correlate("pseudocode_normalized", uncertainComparison).correlations
+        .items[0]?.limitations,
+    ).toContain(
+      "Masked text references a dossier-listed callee or thunk target while the exact calls dimension is unknown; normalized equality cannot establish callee identity or call order.",
+    );
+
+    const outsideClosure = capture("9").evidence_id;
+    const result = functionComparisonResultSchema.parse(
+      staticEvidence.normalized_result,
+    );
+    const views = result.normalized_views!.views.map((item, index) =>
+      index === 0
+        ? {
+            ...item,
+            evidence_links: [outsideClosure, item.evidence_links[1]!],
+          }
+        : item,
+    );
+    const unclosedComparison = createEvidence(
+      undefined,
+      staticEvidence.provider,
+      {
+        predicateType: "rea.function-comparison",
+        operation: "compare_functions",
+        parameters: staticEvidence.parameters,
+        result: jsonValueSchema.parse({
+          ...result,
+          normalized_views: { ...result.normalized_views!, views },
+        }),
+        confidence: "derived",
+        authority: "analyst-inference",
+        evidenceLinks: staticEvidence.evidence_links,
+      },
+    );
+    expect(() =>
+      correlate("pseudocode_normalized", unclosedComparison),
+    ).toThrow(/outside its top-level closure/u);
   });
 });
