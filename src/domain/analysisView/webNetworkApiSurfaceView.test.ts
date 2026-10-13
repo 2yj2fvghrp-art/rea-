@@ -38,7 +38,7 @@ it("opts into distinct decoded query names with exact source ordinals and no val
   capture.total_records = 2;
   const urls = [
     "https://api.test/items/1?alpha=VALUE_ONLY&repeat=a&repeat=b&=empty&space+name=x&plus%2Bname=y&%61lpha=z&percent%2520=x&encoded%E9%9B%AA=y#fragment_only=1",
-    "https://api.test/items/2?beta=VALUE_ONLY&repeat=c&space%20name=z&plus%2bname=w",
+    "https://api.test/items/2?beta=VALUE_ONLY&repeat=c&space%20name=z&plus%2bname=w&?prefix=VALUE_ONLY",
   ];
   for (const [index, url] of urls.entries())
     capture.records[index]!.reported = {
@@ -59,6 +59,7 @@ it("opts into distinct decoded query names with exact source ordinals and no val
     throw new Error("Expected query names");
   expect(selected.value.groups[0]!.query_parameter_names).toEqual([
     { name: "", record_ordinals: [0] },
+    { name: "?prefix", record_ordinals: [1] },
     { name: "alpha", record_ordinals: [0] },
     { name: "beta", record_ordinals: [1] },
     { name: "encoded雪", record_ordinals: [0] },

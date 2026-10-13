@@ -364,7 +364,9 @@ export class WebNetworkApiSurfaceAccumulator {
         if (!this.#temporary(ENTRY_BYTES * 3 + textBytes(nameEnd - start)))
           return this.#overBudget();
         const encodedName = url.slice(start, nameEnd);
-        const name = new URLSearchParams(`${encodedName}=`)
+        // A leading delimiter avoids URLSearchParams treating a name's initial
+        // question mark as the optional prefix of a whole query string.
+        const name = new URLSearchParams(`&${encodedName}=`)
           .keys()
           .next().value!;
         if (!seen.has(name)) {

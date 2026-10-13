@@ -35,7 +35,7 @@ cliTest(
     const origin = `http://127.0.0.1:${address.port}`;
     for (const target of [
       "/items/1?category=QUERY_VALUE_ONLY&repeat=1&repeat=2&plus%2Bname=3&space+name=4",
-      "/items/2?category=QUERY_VALUE_ONLY&page=1&repeat=3&space%20name=5",
+      "/items/2?category=QUERY_VALUE_ONLY&page=1&repeat=3&space%20name=5&?prefix=6",
     ]) {
       const response = await fetch(origin + target);
       await response.text();
@@ -90,6 +90,7 @@ cliTest(
     expect(mcpView.isError).not.toBe(true);
     const mcpEvidence = parseEvidence(mcpView.structuredContent);
     const expected = [
+      { name: "?prefix", record_ordinals: [1] },
       { name: "category", record_ordinals: [0, 1] },
       { name: "page", record_ordinals: [1] },
       { name: "plus+name", record_ordinals: [0] },
