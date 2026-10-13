@@ -3,6 +3,8 @@ import type { Dir, Stats } from "node:fs";
 import { opendir, stat } from "node:fs/promises";
 import { isAbsolute, join } from "node:path";
 import type { FileHandle } from "node:fs/promises";
+import { OwnedDirectoryHandle } from "../filesystem/OwnedDirectoryHandle.js";
+import { ArtifactReaderFailure } from "../artifacts/ArtifactReader.js";
 
 import { err, ok, type Result } from "../domain/result.js";
 import {
@@ -70,6 +72,13 @@ const MEMBER_COUNT_LIMIT = 16;
 const MEMBER_SIZE_LIMIT_BYTES = 1024 * 1024 * 1024;
 
 const DSYM_DWARF_DIRECTORY = join("Contents", "Resources", "DWARF");
+
+const isExpectedAdmissionPathFailure = (cause: unknown): boolean =>
+  cause instanceof Error &&
+  "code" in cause &&
+  ["ENOENT", "ENOTDIR", "EACCES", "EPERM", "ELOOP"].includes(
+    String(cause.code),
+  );
 
 /**
  * Mach-O cputypes for the provider-neutral CPU families REA admits, including
@@ -338,8 +347,10 @@ export const admitDebugCompanion = async (input: {
   let bundle: Stats;
   try {
     bundle = await stat(dsymPath);
-  } catch {
-    return err({ reason: `dsym_path is not readable: ${dsymPath}` });
+  } catch (cause: unknown) {
+    if (isExpectedAdmissionPathFailure(cause))
+      return err({ reason: `dsym_path is not readable: ${dsymPath}` });
+    throw cause;
   }
   if (!bundle.isDirectory())
     return err({
@@ -351,25 +362,69 @@ export const admitDebugCompanion = async (input: {
     directory = await opendir(dwarfDirectory, {
       bufferSize: MEMBER_COUNT_LIMIT + 1,
     });
-  } catch {
-    return err({
-      reason: `dsym_path has no Contents/Resources/DWARF member directory: ${dsymPath}`,
-    });
+  } catch (cause: unknown) {
+    if (isExpectedAdmissionPathFailure(cause))
+      return err({
+        reason: `dsym_path has no Contents/Resources/DWARF member directory: ${dsymPath}`,
+      });
+    throw cause;
   }
+  const directoryOwner = new OwnedDirectoryHandle(directory);
   const memberPaths: string[] = [];
   let examinedEntries = 0;
-  for await (const entry of directory) {
-    throwIfCancelled(signal);
-    examinedEntries += 1;
-    if (examinedEntries > MEMBER_COUNT_LIMIT)
-      return err({
-        reason: `dsym_path contains more than ${String(MEMBER_COUNT_LIMIT)} DWARF directory entries`,
-      });
-    const memberPath = join(dwarfDirectory, entry.name);
-    const memberStat = await stat(memberPath).catch(() => undefined);
-    if (memberStat?.isFile() !== true) continue;
-    memberPaths.push(memberPath);
+  let enumerationReason: string | undefined;
+  let enumerationFailure: unknown;
+  try {
+    for (;;) {
+      throwIfCancelled(signal);
+      const entry = await directory.read();
+      if (entry === null) break;
+      examinedEntries += 1;
+      if (examinedEntries > MEMBER_COUNT_LIMIT) {
+        enumerationReason = `dsym_path contains more than ${String(MEMBER_COUNT_LIMIT)} DWARF directory entries`;
+        break;
+      }
+      const memberPath = join(dwarfDirectory, entry.name);
+      let memberStat: Stats;
+      try {
+        memberStat = await stat(memberPath);
+      } catch (cause: unknown) {
+        if (isExpectedAdmissionPathFailure(cause)) continue;
+        throw cause;
+      }
+      if (!memberStat.isFile()) continue;
+      memberPaths.push(memberPath);
+    }
+  } catch (cause: unknown) {
+    enumerationFailure = cause;
   }
+  let cleanupFailure: unknown;
+  if (input.resources === undefined) {
+    try {
+      await directoryOwner.close();
+    } catch (cause: unknown) {
+      cleanupFailure = cause;
+    }
+  } else {
+    const cleanup = await input.resources.release({
+      kind: "directory-handle",
+      handle: directoryOwner,
+      resource: dwarfDirectory,
+    });
+    if (cleanup.kind === "failed") cleanupFailure = cleanup.cause;
+  }
+  if (cleanupFailure !== undefined) {
+    const primary =
+      enumerationFailure ??
+      new Error(enumerationReason ?? "DWARF directory enumeration completed");
+    throw ArtifactReaderFailure.withCleanup(
+      primary,
+      ArtifactReaderFailure.cleanupObservation(cleanupFailure, dwarfDirectory),
+    );
+  }
+  if (enumerationFailure !== undefined) throw enumerationFailure;
+  if (enumerationReason !== undefined)
+    return err({ reason: enumerationReason });
   if (memberPaths.length === 0)
     return err({
       reason: `dsym_path contains no DWARF member file: ${dsymPath}`,
