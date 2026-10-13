@@ -906,7 +906,12 @@ it("detaches a live inferior before the shared stop helper signals GDB", async (
       fake.children[0]?.stdout.write(`${token}^done\n`);
     }
   });
-  const manager = managerWithFakeSpawner(fake.spawnProcess);
+  const manager = managerWithFakeSpawner(fake.spawnProcess, {
+    verifyInferiorOutputSink: async (pid, selectedTty) => {
+      expect(pid).toBe("123");
+      expect(selectedTty).toBe(tty);
+    },
+  });
   const started = await manager.start(undefined, { inferiorTty: tty });
   expect(started.ok).toBe(true);
   if (!started.ok) return;
@@ -927,6 +932,38 @@ it("detaches a live inferior before the shared stop helper signals GDB", async (
     commands.indexOf("-target-detach"),
   );
   expect(fake.children[0]?.killSignals).toEqual(["SIGTERM"]);
+});
+
+it("retains a live inferior when its output descriptors cannot be verified", async () => {
+  const tty = "/dev/pts/42";
+  const commands: string[] = [];
+  const fake = createFakeSpawner((_child, token, command) => {
+    commands.push(command);
+    if (command.includes("inferior-tty-show"))
+      fake.children[0]?.stdout.write(
+        `${token}^done,inferior_tty_terminal=${JSON.stringify(tty)}\n`,
+      );
+    else if (command.includes("list-thread-groups"))
+      fake.children[0]?.stdout.write(
+        `${token}^done,groups=[{id="i1",pid="123"}]\n`,
+      );
+    else fake.children[0]?.stdout.write(`${token}^done\n`);
+  });
+  const manager = managerWithFakeSpawner(fake.spawnProcess, {
+    verifyInferiorOutputSink: async () => {
+      throw new Error("inferior stdout is not the selected TTY");
+    },
+  });
+  const started = await manager.start(undefined, { inferiorTty: tty });
+  expect(started.ok).toBe(true);
+  if (!started.ok) return;
+
+  const closed = await manager.close(started.value.session_id);
+
+  expect(closed.ok).toBe(false);
+  expect(commands).not.toContain("-target-detach");
+  expect(fake.children[0]?.killSignals).toEqual([]);
+  expect(manager.status(started.value.session_id)).toBeDefined();
 });
 
 it("revokes the verified sink after an abbreviated with inferior-tty run command", async () => {

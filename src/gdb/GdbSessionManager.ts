@@ -1,4 +1,6 @@
 import { randomUUID } from "node:crypto";
+import { constants as fsConstants } from "node:fs";
+import { readFile, readlink, realpath, stat } from "node:fs/promises";
 
 import {
   AnalysisCapabilityUnavailableError,
@@ -21,6 +23,7 @@ import {
   stopOwnedDebuggerProcess,
   type OwnedDebuggerDetachResult,
 } from "../process/ownedDebuggerSession.js";
+import { parseLinuxProcessStartTime } from "../process/ProcessOwnershipObservation.js";
 
 const STARTUP_TIMEOUT_MS = 10_000;
 const COMMAND_TIMEOUT_MS = 120_000;
@@ -106,7 +109,10 @@ const truncateUtf8RecordPrefix = (line: string): string => {
   return `${prefix}${RECENT_RECORD_TRUNCATION_MARKER}`;
 };
 
-const gdbThreadGroupCount = (mi: string): number | undefined => {
+/** @internal Pure parser for live PIDs in recursive GDB MI thread groups. */
+export const gdbThreadGroupPids = (
+  mi: string,
+): readonly string[] | undefined => {
   const marker = mi.indexOf("groups=[");
   if (marker < 0) return undefined;
   const start = marker + "groups=[".length;
@@ -114,10 +120,11 @@ const gdbThreadGroupCount = (mi: string): number | undefined => {
   let objectDepth = 0;
   let quoted = false;
   let escaped = false;
-  let count = 0;
+  const pids: string[] = [];
   let fieldStart = start;
   let pidStart: number | undefined;
   let hasLivePid = false;
+  let currentPid: string | undefined;
   for (let index = start; index < mi.length; index += 1) {
     const character = mi[index];
     if (quoted) {
@@ -126,8 +133,10 @@ const gdbThreadGroupCount = (mi: string): number | undefined => {
       else if (character === '"') {
         quoted = false;
         if (pidStart !== undefined) {
-          if (!/^[1-9]\d*$/u.test(mi.slice(pidStart, index))) return undefined;
+          const pid = mi.slice(pidStart, index);
+          if (!/^[1-9]\d*$/u.test(pid)) return undefined;
           hasLivePid = true;
+          currentPid = pid;
           pidStart = undefined;
         }
       }
@@ -152,11 +161,12 @@ const gdbThreadGroupCount = (mi: string): number | undefined => {
         if (objectDepth !== 0) return undefined;
         const body = mi.slice(start, index);
         if (body.includes("groups=[")) return undefined;
-        return count;
+        return pids;
       }
     } else if (character === "{") {
       if (squareDepth === 1 && objectDepth === 0) {
         hasLivePid = false;
+        currentPid = undefined;
         fieldStart = index + 1;
       }
       objectDepth += 1;
@@ -168,7 +178,10 @@ const gdbThreadGroupCount = (mi: string): number | undefined => {
       }
       objectDepth -= 1;
       if (objectDepth < 0) return undefined;
-      if (squareDepth === 1 && objectDepth === 0 && hasLivePid) count += 1;
+      if (squareDepth === 1 && objectDepth === 0 && hasLivePid) {
+        if (currentPid === undefined) return undefined;
+        pids.push(currentPid);
+      }
     } else if (character === "," && squareDepth === 1 && objectDepth === 1) {
       const field = mi.slice(fieldStart, index);
       if (field.startsWith("pid=") && !/^pid="[1-9]\d*"$/u.test(field))
@@ -177,6 +190,44 @@ const gdbThreadGroupCount = (mi: string): number | undefined => {
     }
   }
   return undefined;
+};
+
+const gdbThreadGroupCount = (mi: string): number | undefined =>
+  gdbThreadGroupPids(mi)?.length;
+
+const verifyGdbInferiorOutputSink = async (
+  pid: string,
+  selectedTty: string,
+): Promise<void> => {
+  if (process.platform !== "linux")
+    throw new Error(
+      "GDB cannot confirm live inferior output descriptors outside Linux /proc.",
+    );
+  const statPath = `/proc/${pid}/stat`;
+  const before = parseLinuxProcessStartTime(await readFile(statPath, "utf8"));
+  if (before === undefined)
+    throw new Error("GDB could not establish the live inferior identity.");
+  const ttyPath = await realpath(selectedTty);
+  const tty = await stat(ttyPath);
+  if ((tty.mode & fsConstants.S_IFMT) !== fsConstants.S_IFCHR)
+    throw new Error("The selected GDB output sink is not a character device.");
+  for (const descriptor of ["1", "2"]) {
+    const descriptorPath = `/proc/${pid}/fd/${descriptor}`;
+    const destination = await readlink(descriptorPath);
+    const observed = await stat(descriptorPath);
+    if (
+      observed.dev !== tty.dev ||
+      observed.ino !== tty.ino ||
+      (observed.mode & fsConstants.S_IFMT) !== fsConstants.S_IFCHR ||
+      (await realpath(destination)) !== ttyPath
+    )
+      throw new Error(
+        `GDB inferior descriptor ${descriptor} no longer points to the selected TTY.`,
+      );
+  }
+  const after = parseLinuxProcessStartTime(await readFile(statPath, "utf8"));
+  if (after !== before)
+    throw new Error("The GDB inferior identity changed during descriptor readback.");
 };
 
 class GdbCommandProcessExitError extends Error {
@@ -257,6 +308,7 @@ export class GdbSessionManager {
   readonly #platform: NodeJS.Platform;
   readonly #stopProcess: typeof stopOwnedDebuggerProcess;
   readonly #spawnProcess: typeof spawnOwnedProviderProcess;
+  readonly #verifyInferiorOutputSink: typeof verifyGdbInferiorOutputSink;
   readonly #maxSessions: number;
   #sessionReservations = 0;
   #closing = false;
@@ -270,6 +322,7 @@ export class GdbSessionManager {
       readonly platform?: NodeJS.Platform;
       readonly stopProcess?: typeof stopOwnedDebuggerProcess;
       readonly spawnProcess?: typeof spawnOwnedProviderProcess;
+      readonly verifyInferiorOutputSink?: typeof verifyGdbInferiorOutputSink;
       readonly maxSessions?: number;
     } = {},
   ) {
@@ -280,6 +333,8 @@ export class GdbSessionManager {
     this.#platform = options.platform ?? process.platform;
     this.#stopProcess = options.stopProcess ?? stopOwnedDebuggerProcess;
     this.#spawnProcess = options.spawnProcess ?? spawnOwnedProviderProcess;
+    this.#verifyInferiorOutputSink =
+      options.verifyInferiorOutputSink ?? verifyGdbInferiorOutputSink;
     this.#maxSessions = options.maxSessions ?? DEFAULT_MAX_SESSIONS;
   }
 
@@ -1405,15 +1460,15 @@ export class GdbSessionManager {
       !/^\d+\^done(?:,|$)/u.test(groups.mi)
     )
       throw new Error("GDB could not confirm its inferior state.");
-    const groupCount = gdbThreadGroupCount(groups.mi);
-    if (groupCount === 0) {
+    const inferiorPids = gdbThreadGroupPids(groups.mi);
+    if (inferiorPids?.length === 0) {
       session.noInferiorVerified = true;
       return { status: "no-inferior" };
     }
     session.noInferiorVerified = false;
-    if (groupCount !== 1)
+    if (inferiorPids?.length !== 1)
       throw new Error(
-        groupCount === undefined
+        inferiorPids === undefined
           ? "GDB returned an unknown recursive inferior list."
           : "GDB reports multiple inferiors; automatic detach cannot be confirmed safely.",
       );
@@ -1432,6 +1487,10 @@ export class GdbSessionManager {
       throw new Error(
         "GDB no longer reports the caller-selected inferior TTY; detachment cannot be confirmed safely.",
       );
+    await this.#verifyInferiorOutputSink(
+      inferiorPids[0]!,
+      session.inferiorTty!,
+    );
     const detached = await this.#request(session, "-target-detach");
     if (
       detached.completion_status !== "complete" ||
