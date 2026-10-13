@@ -452,6 +452,9 @@ const lifecycleTargetFields = {
 };
 const detectedLifecycleTargetSchema = z.object({
   ...lifecycleTargetFields,
+  executable_role: z
+    .enum(["application", "shared-library", "non-executable"])
+    .exactOptional(),
   format: targetFormatSchema.exclude(["raw-binary"]),
 });
 const rawLifecycleTargetSchema = z.object({

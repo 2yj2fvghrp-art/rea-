@@ -14,11 +14,13 @@ import {
 import { analysisInputErrorFromIssues } from "../domain/inputIssueProjection.js";
 import type { BinaryTarget } from "../domain/binaryTargetTypes.js";
 import {
+  AnalysisAccessDeniedError,
   AnalysisArtifactChangedError,
   AnalysisCancelledError,
   AnalysisCapabilityUnavailableError,
   AnalysisOutputError,
   AnalysisResourceConstraintError,
+  AnalysisTimeoutError,
 } from "../domain/analysisErrorCore.js";
 import { AnalysisError } from "../domain/analysisErrorBase.js";
 import {
@@ -60,7 +62,7 @@ const rawCaptureSchema = z.strictObject({
 });
 
 interface ExecutableIdentity {
-  readonly canonicalPath: string;
+  readonly fileIdentity: string;
   readonly sha256: string;
 }
 
@@ -74,12 +76,24 @@ export interface WindowsWindowCaptureHost {
 }
 
 const systemCaptureHost = (): WindowsWindowCaptureHost => ({
-  capture: (pid, windowHandle, maximumDimension) =>
-    requireWindowsNativeAuthority().call("capture_window_png", [
+  capture: (pid, windowHandle, maximumDimension) => {
+    let authority: ReturnType<typeof requireWindowsNativeAuthority>;
+    try {
+      authority = requireWindowsNativeAuthority();
+    } catch (cause) {
+      throw new AnalysisCapabilityUnavailableError(
+        IDENTITY.id,
+        OPERATION,
+        nativeFailureReason(cause),
+        { cause },
+      );
+    }
+    return authority.call("capture_window_png", [
       pid,
       windowHandle,
       maximumDimension,
-    ]),
+    ]);
+  },
   identifyExecutable: hashExecutable,
 });
 
@@ -192,14 +206,7 @@ export const captureWindowsWindowScreenshot = async (
       input.data.max_dimension,
     );
   } catch (cause) {
-    return err(
-      new AnalysisCapabilityUnavailableError(
-        IDENTITY.id,
-        OPERATION,
-        nativeFailureReason(cause),
-        { cause },
-      ),
-    );
+    return err(captureFailure(target.path, input.data.window_handle, cause));
   }
   const parsed = rawCaptureSchema.safeParse(reply);
   if (!parsed.success)
@@ -249,7 +256,7 @@ export const captureWindowsWindowScreenshot = async (
   }
   if (
     afterTarget.sha256 !== target.sha256 ||
-    afterTarget.canonicalPath !== before.canonicalPath
+    afterTarget.fileIdentity !== before.fileIdentity
   )
     return err(
       new AnalysisArtifactChangedError(
@@ -260,7 +267,7 @@ export const captureWindowsWindowScreenshot = async (
     );
   if (
     processImage.sha256 !== target.sha256 ||
-    processImage.canonicalPath !== before.canonicalPath
+    processImage.fileIdentity !== before.fileIdentity
   )
     return err(
       new AnalysisCapabilityUnavailableError(
@@ -314,11 +321,15 @@ const hashExecutable = async (
   signal?: AbortSignal,
 ): Promise<ExecutableIdentity> => {
   const resolvedPath = await realpath(path);
-  const canonicalPath = canonicalWindowsPath(resolvedPath);
   const handle = await open(resolvedPath, "r");
   try {
-    const metadata = await handle.stat();
-    if (metadata.size > MAX_EXECUTABLE_BYTES)
+    const metadata = await handle.stat({ bigint: true });
+    if (metadata.ino === 0n)
+      throw new AnalysisOutputError(
+        OPERATION,
+        "The host did not report stable executable file identity.",
+      );
+    if (metadata.size > BigInt(MAX_EXECUTABLE_BYTES))
       throw new AnalysisResourceConstraintError(
         OPERATION,
         "file-size",
@@ -328,7 +339,8 @@ const hashExecutable = async (
     const digest = createHash("sha256");
     const buffer = Buffer.allocUnsafe(64 * 1024);
     let position = 0;
-    while (position < metadata.size) {
+    const size = Number(metadata.size);
+    while (position < size) {
       if (signal?.aborted) throw new AnalysisCancelledError(OPERATION);
       const { bytesRead } = await handle.read(
         buffer,
@@ -340,33 +352,75 @@ const hashExecutable = async (
       digest.update(buffer.subarray(0, bytesRead));
       position += bytesRead;
     }
-    if (position !== metadata.size)
+    if (position !== size)
       throw new Error(
         "Selected executable changed while its identity was read",
       );
-    return { canonicalPath, sha256: digest.digest("hex") };
+    return {
+      fileIdentity: `${String(metadata.dev)}:${String(metadata.ino)}`,
+      sha256: digest.digest("hex"),
+    };
   } finally {
     await handle.close();
   }
 };
 
-const canonicalWindowsPath = (path: string): string =>
-  path
-    .replaceAll("/", "\\")
-    .replace(/^\\\\\?\\/u, "")
-    .toLowerCase();
-
-const identityError = (path: string, cause: unknown): AnalysisError =>
-  cause instanceof AnalysisError
-    ? cause
-    : new AnalysisCapabilityUnavailableError(
-        IDENTITY.id,
-        OPERATION,
-        `Cannot establish selected executable identity: ${cause instanceof Error ? cause.message : String(cause)}`,
-        { cause },
+const identityError = (path: string, cause: unknown): AnalysisError => {
+  if (cause instanceof AnalysisError) return cause;
+  const filesystem = z.object({ code: z.string() }).safeParse(cause);
+  if (filesystem.success) {
+    if (filesystem.data.code === "EACCES" || filesystem.data.code === "EPERM")
+      return new AnalysisAccessDeniedError(
+        OPERATION, path, filesystem.data.code, { cause },
       );
+    if (filesystem.data.code === "ENOENT")
+      return new AnalysisArtifactChangedError(
+        OPERATION, path, "Selected executable is no longer available.", { cause },
+      );
+  }
+  return new AnalysisOutputError(
+    OPERATION,
+    `Cannot establish selected executable identity: ${cause instanceof Error ? cause.message : String(cause)}`,
+    { cause },
+  );
+};
 
 const nativeFailureReason = (cause: unknown): string =>
   cause instanceof Error && cause.message.length > 0
     ? cause.message
     : "Selected window capture is unavailable on this host.";
+
+/** Only the addon-loading owner produces capability errors; native failures stay request-scoped. */
+const captureFailure = (
+  path: string,
+  windowHandle: string,
+  cause: unknown,
+): AnalysisError => {
+  if (cause instanceof AnalysisError) return cause;
+  const native = z
+    .object({ win32Code: z.number().int().nonnegative() })
+    .safeParse(cause);
+  if (!native.success)
+    return new AnalysisOutputError(OPERATION, nativeFailureReason(cause), { cause });
+  const code = native.data.win32Code;
+  if (code === 5)
+    return new AnalysisAccessDeniedError(OPERATION, path, "EACCES", { cause });
+  if (code === 1460 || code === 258)
+    return new AnalysisTimeoutError(OPERATION, 5000, { cause });
+  if (code === 8 || code === 14 || code === 1455)
+    return new AnalysisResourceConstraintError(
+      OPERATION,
+      "memory",
+      nativeFailureReason(cause),
+      null,
+      { cause },
+    );
+  if (code === 1400 || code === 6 || code === 87)
+    return analysisInputErrorFromIssues(
+      OPERATION,
+      [{ path: ["window_handle"], code: "custom", message: nativeFailureReason(cause) }],
+      { window_handle: windowHandle },
+      { cause },
+    );
+  return new AnalysisOutputError(OPERATION, nativeFailureReason(cause), { cause });
+};

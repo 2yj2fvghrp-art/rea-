@@ -143,6 +143,7 @@ run(compiler, [
   "-lole32",
   "-luser32",
   "-lwindowscodecs",
+  "-luuid",
   "-o",
   join(output, artifact),
 ]);

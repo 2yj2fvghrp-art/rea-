@@ -40,7 +40,7 @@ const host = (
     png: PNG,
   }),
   identifyExecutable: async () => ({
-    canonicalPath: "c:\\apps\\fixture.exe",
+    fileIdentity: "c:\\apps\\fixture.exe",
     sha256: SHA256,
   }),
   ...overrides,
@@ -84,7 +84,7 @@ it("fails closed when the selected PID maps to different executable bytes", asyn
         png: PNG,
       }),
       identifyExecutable: async (path) => ({
-        canonicalPath: path.toLowerCase(),
+        fileIdentity: path.toLowerCase(),
         sha256: path === TARGET.path ? SHA256 : "b".repeat(64),
       }),
     }),
