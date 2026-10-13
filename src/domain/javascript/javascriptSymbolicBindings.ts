@@ -46,7 +46,6 @@ import {
   type JavaScriptSemanticAnalysisState,
 } from "./javascriptSemanticState.js";
 import {
-  symbolicAwaited,
   symbolicCondition,
   symbolicUnion,
   symbolicUnknown,
@@ -91,6 +90,20 @@ const ARRAY_MUTATORS: ReadonlySet<string> = new Set([
   "splice",
   "unshift",
 ]);
+/**
+ * `Promise.resolve(value)`. A non-object value cannot be a thenable, so the
+ * promise is fulfilled with it; a promise argument is returned unchanged.
+ */
+const promiseResolved = (
+  node: t.Node,
+  settled: SymbolicValue = { kind: "literal", value: undefined },
+): SymbolicValue =>
+  settled.kind === "literal"
+    ? { kind: "promise", node, fulfilled: true, fulfillment: settled }
+    : settled.kind === "promise"
+      ? settled
+      : symbolicUnknown("unresolved call");
+
 /** Demand-driven substitutions for local bindings, closures and literal module tables. */
 export class JavaScriptSymbolicBindings {
   readonly #writes = new Map<string, PropertyWrite[]>();
@@ -895,7 +908,7 @@ export class JavaScriptSymbolicBindings {
         ? this.evaluate(node.right, env)
         : symbolicUnknown("compound assignment depends on its prior value");
     if (t.isAwaitExpression(node))
-      return symbolicAwaited(this.evaluate(node.argument, env));
+      return this.#awaited(this.evaluate(node.argument, env));
     // Negation reads truthiness, which objects and functions also have.
     if (t.isUnaryExpression(node, { operator: "!" })) {
       const truth = symbolicTruth(this.evaluate(node.argument, env));
@@ -1440,6 +1453,35 @@ export class JavaScriptSymbolicBindings {
   }
 
   /**
+   * The value `await` reads. A promise yields its known fulfillment, flattened
+   * through nested promises, with the promise's predicates; an unknown
+   * fulfillment or a possible thenable stays unknown.
+   */
+  #awaited(value: SymbolicValue): SymbolicValue {
+    return symbolicUnion(
+      symbolicVariants(value).map((variant) => {
+        if (variant.kind !== "promise")
+          return (variant.kind === "object" ||
+            variant.kind === "record" ||
+            variant.kind === "namespace") &&
+            (this.members(variant).includes("then") ||
+              this.unknownMembers(variant) > 0)
+            ? symbolicUnknown("possible thenable")
+            : variant;
+        let awaited =
+          variant.fulfillment === undefined
+            ? symbolicUnknown("unknown promise fulfillment")
+            : this.#awaited(variant.fulfillment);
+        for (const condition of variant.conditions ?? [])
+          awaited = symbolicCondition(awaited, condition);
+        return variant.conditionUnresolved
+          ? symbolicConditionsUnresolved(awaited)
+          : awaited;
+      }),
+    );
+  }
+
+  /**
    * A proven ESM namespace conversion copies the module's own members;
    * `default` is the module itself in node mode and otherwise unresolved.
    */
@@ -1564,12 +1606,7 @@ export class JavaScriptSymbolicBindings {
           value.kind === "external" &&
           value.path.join(".") === "Promise.resolve"
         ) {
-          const [settled] = callArguments();
-          // A non-object value cannot be a thenable, so the promise is fulfilled.
-          result =
-            settled === undefined || settled.kind === "literal"
-              ? { kind: "promise", node, fulfilled: true }
-              : symbolicUnknown("unresolved call");
+          result = promiseResolved(node, callArguments()[0]);
         } else if (value.kind === "function")
           result = this.#invoke(value, callArguments(), node);
         else result = symbolicUnknown("unresolved call");

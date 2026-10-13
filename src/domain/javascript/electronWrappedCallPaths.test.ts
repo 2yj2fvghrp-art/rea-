@@ -916,6 +916,31 @@ describe("substituted wrapper values", () => {
     ]);
     expect(channels("{open:()=>1}")).toEqual([]);
   });
+  it("reads awaited promise values only when their fulfillment is known", () => {
+    const result = analyzeJavaScriptStaticSource(`
+      const e=require("electron");
+      const inner=async()=>Promise.resolve(false);
+      async function send(test,name){if(await test())e.ipcRenderer.invoke("app:"+name)}
+      e.contextBridge.exposeInMainWorld("desktop",{
+        never:()=>send(()=>Promise.resolve(false),"never"),
+        nested:()=>send(inner,"nested"),
+        always:()=>send(()=>Promise.resolve("yes"),"always"),
+        pending:()=>send(()=>new Promise(done=>wait(done)),"pending"),
+        thenable:()=>send(()=>({then(done){done(false)}}),"thenable"),
+      });
+    `);
+    expect(
+      result.electron.call_paths?.map(({ entry, channel, conditions }) => [
+        entry,
+        channel,
+        conditions.length,
+      ]),
+    ).toEqual([
+      ["desktop.always", "app:always", 0],
+      ["desktop.pending", "app:pending", 1],
+      ["desktop.thenable", "app:thenable", 1],
+    ]);
+  });
   it("traces a handler registered through an inferred wrapper parameter", () => {
     const result = analyzeJavaScriptStaticSource(`
       const electron=require("electron");
