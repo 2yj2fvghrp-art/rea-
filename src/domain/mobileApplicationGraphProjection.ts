@@ -56,7 +56,8 @@ export const projectionCoverage = (
   inventory_complete: boolean;
 } => ({
   status:
-    hasCompleteInventoryCoverage(inventory, "container-entries") && budgetComplete
+    hasCompleteInventoryCoverage(inventory, "container-entries") &&
+    budgetComplete
       ? ("complete-within-inventory" as const)
       : ("partial" as const),
   inventory_complete: inventory.complete,
