@@ -133,12 +133,23 @@ describe("browser process startup", () => {
     ];
     for (const caller of callers) {
       const source = await readFile(new URL(caller, import.meta.url), "utf8");
-      expect(source).toContain("BROWSER_DEVTOOLS_STARTUP_TIMEOUT_MS");
-      expect(/timeoutMs:\s*[\d_]+\b/u.test(source)).toBe(false);
+      expect(devtoolsPortDeadlines(source)).toEqual([
+        ["BROWSER_DEVTOOLS_STARTUP_TIMEOUT_MS"],
+      ]);
     }
   });
 });
 
 const temporaryRoot = async (): Promise<string> => {
   return createTestTempDirectory("rea-browser-startup-");
+};
+
+const devtoolsPortDeadlines = (source: string): string[][] => {
+  const calls = /waitForBrowserDevtoolsPort\(\{(?<body>[\s\S]*?)\}\)/gu;
+  const deadlines = /\btimeoutMs:\s*(?<value>[^\n,]+)/gu;
+  return [...source.matchAll(calls)].map((call) =>
+    [...String(call.groups?.body).matchAll(deadlines)].map((deadline) =>
+      String(deadline.groups?.value).trim(),
+    ),
+  );
 };
