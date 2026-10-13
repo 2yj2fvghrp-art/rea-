@@ -1,5 +1,5 @@
 import { parseConfig } from "../../../src/config/parseConfig.js";
-import { writeFile } from "node:fs/promises";
+import { symlink, writeFile } from "node:fs/promises";
 import { basename, dirname, join } from "node:path";
 
 import { describe, expect, it, vi } from "vitest";
@@ -14,7 +14,7 @@ import type {
 import type { DirectAnalysisDependencies } from "../../../src/application/DirectAnalysisDependencies.js";
 import { createAnalysisProfile } from "../../../src/domain/analysisProfile.js";
 import { createAnalysisExecution } from "../../../src/application/AnalysisProvider.js";
-import { ok } from "../../../src/domain/result.js";
+import { err, ok } from "../../../src/domain/result.js";
 import {
   readAnalysisSnapshot,
   writeAnalysisSnapshot,
@@ -40,6 +40,7 @@ import {
 } from "../../fixtures/binarySession.js";
 import { BinarySession } from "../../../src/application/binary/BinarySession.js";
 import { OwnedStagedOutput } from "../../../src/filesystem/OwnedStagedOutput.js";
+import { ProviderAdapterError } from "../../../src/domain/providerAdapterError.js";
 import { createTestTempDirectory } from "../../fixtures/temporaryDirectory.js";
 import {
   CAPABILITIES as GHIDRA_CAPABILITIES,
@@ -396,7 +397,70 @@ describe("snapshot output cleanup lifecycle", () => {
   });
 });
 
+const verifyWindowsJunctionSnapshotAdmission = async (): Promise<void> => {
+  const fixture = await createSnapshotReplayFixture(
+    "rea-direct-snapshot-junction-",
+  );
+  const rawPath = join(dirname(fixture.path), "image.bin");
+  await writeFile(rawPath, Buffer.from("a92a60", "hex"));
+  const linked = join(dirname(fixture.path), "linked");
+  const linkedPath = join(linked, basename(rawPath));
+  const baseProvider = fixture.createProvider({
+    supportedOperations: ["search_strings"],
+  });
+  const provider: AnalysisProvider = {
+    ...baseProvider,
+    createClient: (target, profile, context) => {
+      const client = baseProvider.createClient(target, profile, context);
+      return {
+        ...client,
+        execute: (operation, parameters, options) =>
+          target.sourcePath === linkedPath
+            ? Promise.resolve(
+                err(new ProviderAdapterError("snapshot-fixture", operation)),
+              )
+            : client.execute(operation, parameters, options),
+      };
+    },
+  };
+  const dependencies = fixture.dependencies(provider);
+  const arguments_ = { pattern: "fixture", document: "fixture" };
+  const options = {
+    snapshotPath: fixture.snapshotPath,
+    formatHint: "raw-binary" as const,
+    architecture: "6502" as const,
+    entryPoint: "0x8001",
+  };
+  const first = await runDirectAnalysis(
+    dependencies,
+    rawPath,
+    "search_strings",
+    arguments_,
+    options,
+  );
+  expect(first).toMatchObject({ operation: "search_strings" });
+  expect(fixture.starts).toHaveLength(1);
+  await symlink(dirname(fixture.path), linked, "junction");
+  const second = await runDirectAnalysis(
+    dependencies,
+    linkedPath,
+    "search_strings",
+    arguments_,
+    options,
+  );
+  expect(second).toMatchObject({ error: "Analysis failed" });
+  expect(fixture.starts).toHaveLength(2);
+  expect(
+    fixture.calls.filter((call) => call === "search_strings"),
+  ).toHaveLength(1);
+};
+
 describe("direct analysis composed snapshot replay", () => {
+  it.skipIf(process.platform !== "win32")(
+    "does not replay a CLI snapshot through a Windows junction",
+    verifyWindowsJunctionSnapshotAdmission,
+  );
+
   it.each([
     {
       tool: "search_strings",

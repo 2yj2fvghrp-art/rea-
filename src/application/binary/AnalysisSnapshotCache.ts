@@ -84,6 +84,11 @@ export const isSnapshotCacheable = (
     descriptor.effects.mayWriteFilesystem === false) &&
   descriptor.effects.changesPermissions === false;
 
+/** Require provider admission before replaying a noncanonical Windows path. */
+export const snapshotReplayAllowedForPath = (target: BinaryTarget): boolean =>
+  process.platform !== "win32" ||
+  (target.sourcePath ?? target.path) === target.path;
+
 /** Bounded in-memory cache for one immutable binary identity. */
 export class AnalysisSnapshotCache {
   readonly #entries = new Map<string, AnalysisSnapshotEntry>();

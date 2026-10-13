@@ -13,7 +13,10 @@ import type {
   AnalysisOperation,
   CapabilityDescriptor,
 } from "../AnalysisProvider.js";
-import { isSnapshotCacheable } from "./AnalysisSnapshotCache.js";
+import {
+  isSnapshotCacheable,
+  snapshotReplayAllowedForPath,
+} from "./AnalysisSnapshotCache.js";
 import type { SessionProviderRoute } from "./SessionProviderRouter.js";
 
 interface ActiveExecutionBinding {
@@ -79,13 +82,8 @@ export const prepareSessionExecution = (
   const cacheable =
     profile !== undefined &&
     isSnapshotCacheable(operation, capability, parameters);
-  // A Windows reparse component can resolve to the same bytes while its
-  // caller-selected path has not passed the provider's native admission.
-  const canonicalPathForReplay =
-    process.platform !== "win32" ||
-    (active.target.sourcePath ?? active.target.path) === active.target.path;
   const cached =
-    cacheable && canonicalPathForReplay
+    cacheable && snapshotReplayAllowedForPath(active.target)
       ? lookupSnapshot(active.target, profile, operation, parameters)
       : undefined;
   return ok({ active, capability, profile, cacheable, cached });

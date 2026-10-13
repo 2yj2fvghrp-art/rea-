@@ -23,6 +23,7 @@ import { projectAnalysisError } from "../domain/analysisErrorProjection.js";
 import type { AnalysisError } from "../domain/analysisErrorBase.js";
 import { access } from "node:fs/promises";
 import { readAnalysisSnapshot } from "./binary/AnalysisSnapshotFiles.js";
+import { snapshotReplayAllowedForPath } from "./binary/AnalysisSnapshotCache.js";
 import { parseBinaryTarget } from "./BinaryTargetResolver.js";
 import type { BinaryTarget } from "../domain/binaryTargetTypes.js";
 import {
@@ -257,6 +258,7 @@ const runAnalysis = async (
         if (
           bindingProfile !== undefined &&
           evidenceProfile !== undefined &&
+          snapshotReplayAllowedForPath(preview.value.target) &&
           allowsSnapshotReplay(route, tool)
         ) {
           const cached = snapshotEvidenceForQuery(snapshot, {
