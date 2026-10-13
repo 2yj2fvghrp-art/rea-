@@ -27,7 +27,11 @@ export const resolveWindowsProviderExecutable = async (
 
   const pathValue = environment.PATH ?? environment.Path ?? environment.path;
   if (pathValue === undefined) return executable;
-  const pathEntries = pathValue.split(";");
+  const pathEntries = pathValue.split(";").map((entry) =>
+    entry.length >= 2 && entry.startsWith('"') && entry.endsWith('"')
+      ? entry.slice(1, -1)
+      : entry,
+  );
   const explicitExtension = win32.extname(executable).toLowerCase();
   if (explicitExtension !== "" && ![".com", ".exe"].includes(explicitExtension))
     return executable;

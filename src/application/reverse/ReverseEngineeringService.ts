@@ -188,9 +188,13 @@ export class ReverseEngineeringService {
         err(new AnalysisInputError("inspect_with_objdump")),
       );
     const input = parsed.data;
-    const command = (signal?: AbortSignal) =>
+    const command = (
+      signal?: AbortSignal,
+      artifactPath?: string,
+    ) =>
       this.#commands.objdump(input, {
         ...(signal === undefined ? {} : { signal }),
+        ...(artifactPath === undefined ? {} : { artifactPath }),
         timeoutMs: DEFAULT_TIMEOUT_MS,
       });
     return this.#observe(
@@ -215,9 +219,13 @@ export class ReverseEngineeringService {
         err(new AnalysisInputError("execute_rizin_command")),
       );
     const input = parsed.data;
-    const command = (signal?: AbortSignal) =>
+    const command = (
+      signal?: AbortSignal,
+      artifactPath?: string,
+    ) =>
       this.#commands.rizin(input, {
         ...(signal === undefined ? {} : { signal }),
+        ...(artifactPath === undefined ? {} : { artifactPath }),
         timeoutMs: DEFAULT_TIMEOUT_MS,
       });
     return this.#observe(
@@ -234,6 +242,7 @@ export class ReverseEngineeringService {
     operation: ReverseEngineeringOperation,
     resolveProfile: (
       signal?: AbortSignal,
+      artifactPath?: string,
     ) =>
       | ReverseEngineeringProviderCommand
       | Promise<ReverseEngineeringProviderCommand>,
@@ -294,6 +303,7 @@ export class ReverseEngineeringService {
     operation: ReverseEngineeringOperation,
     resolveProfile: (
       signal?: AbortSignal,
+      artifactPath?: string,
     ) =>
       | ReverseEngineeringProviderCommand
       | Promise<ReverseEngineeringProviderCommand>,
@@ -327,7 +337,7 @@ export class ReverseEngineeringService {
     }
     let profile: ReverseEngineeringProviderCommand;
     try {
-      profile = await resolveProfile(signal);
+      profile = await resolveProfile(signal, absolutePath);
     } catch (cause) {
       return err(
         cause instanceof AnalysisError

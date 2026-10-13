@@ -16,13 +16,21 @@ export interface ReverseEngineeringProviderCommand {
 export interface ReverseEngineeringCommandPort {
   objdump(
     input: ObjdumpInput,
-    options?: { readonly signal?: AbortSignal; readonly timeoutMs?: number },
+    options?: {
+      readonly signal?: AbortSignal;
+      readonly timeoutMs?: number;
+      readonly artifactPath?: string;
+    },
   ):
     | ReverseEngineeringProviderCommand
     | Promise<ReverseEngineeringProviderCommand>;
   rizin(
     input: RizinInput,
-    options?: { readonly signal?: AbortSignal; readonly timeoutMs?: number },
+    options?: {
+      readonly signal?: AbortSignal;
+      readonly timeoutMs?: number;
+      readonly artifactPath?: string;
+    },
   ):
     | ReverseEngineeringProviderCommand
     | Promise<ReverseEngineeringProviderCommand>;

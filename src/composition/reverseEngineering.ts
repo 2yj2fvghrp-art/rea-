@@ -22,7 +22,10 @@ export const createReverseEngineeringCommandPort = (
       platform,
       options,
     ),
-    arguments: objdumpCommand(input),
+    arguments: objdumpCommand({
+      ...input,
+      path: options?.artifactPath ?? input.path,
+    }),
     identity: OBJDUMP_PROVIDER_IDENTITY,
     environmentOverrides: { DEBUGINFOD_URLS: "" },
   }),
@@ -33,7 +36,10 @@ export const createReverseEngineeringCommandPort = (
       platform,
       options,
     ),
-    arguments: rizinCommand(input),
+    arguments: rizinCommand({
+      ...input,
+      path: options?.artifactPath ?? input.path,
+    }),
     identity: RIZIN_PROVIDER_IDENTITY,
   }),
 });
