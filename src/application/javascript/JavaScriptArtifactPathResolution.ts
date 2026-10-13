@@ -312,8 +312,11 @@ const contextualCandidate = (
   const { context } = input;
   // URL suffixes are evidence, not pathname bytes. Admit only the path while
   // retaining the complete declaration on the resolution result.
+  // HTML declarations can carry query or fragment syntax that belongs to the
+  // resource reference, not the path admission check. Normalize it early so
+  // it cannot be treated as path bytes.
   let declared =
-    context === "url-reference"
+    context === "url-reference" || context === "html-reference"
       ? stripQueryAndFragment(input.declaredPath)
       : input.declaredPath;
   if (context === "module-specifier" && /^file:/iu.test(declared)) {
@@ -332,9 +335,9 @@ const contextualCandidate = (
       "File URL authorities or invalid file URL forms cannot be mapped to artifact-local paths.",
     ]);
   }
+  if (context === "html-reference") return htmlCandidate(input);
   const rejected = rejectDeclaration(declared);
   if (rejected !== null) return rejected;
-  if (context === "html-reference") return htmlCandidate(input);
   if (context === "module-specifier") {
     if (hasScheme(declared))
       return unresolvedCandidate("external", [
