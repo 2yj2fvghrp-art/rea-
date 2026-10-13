@@ -1,5 +1,12 @@
 import { createHash } from "node:crypto";
-import { chmod, mkdir, readFile, writeFile, symlink } from "node:fs/promises";
+import {
+  chmod,
+  mkdir,
+  readFile,
+  truncate,
+  writeFile,
+  symlink,
+} from "node:fs/promises";
 import { join } from "node:path";
 const args = process.argv.slice(2);
 const mode = process.env.REA_FIRMWARE_FIXTURE_MODE;
@@ -97,6 +104,51 @@ if (args.includes("--version")) {
           reports: [
             stat(child, content.length),
             hash(childHash),
+            {
+              __typename__: "UnknownChunkReport",
+              id: "unknown-id",
+              start_offset: 0,
+              end_offset: content.length,
+              size: content.length,
+            },
+          ],
+          subtasks: [],
+        },
+        {
+          task: task(input, 0, ""),
+          reports: [
+            stat(input, bytes.length),
+            hash(sha256),
+            {
+              __typename__: "ChunkReport",
+              id: "gzip-id",
+              start_offset: 0,
+              end_offset: bytes.length,
+              size: bytes.length,
+              handler_name: "gzip",
+              is_encrypted: false,
+              extraction_reports: [],
+            },
+          ],
+          subtasks: [childTask],
+        },
+      ];
+      await writeFile(reportPath, JSON.stringify(nestedUnknownRecords));
+    }
+    if (mode === "nested-unknown-oversized") {
+      // The child exceeds the firmware input limit, so a fresh run cannot
+      // accept it even though the unknown chunk's range is small.
+      const oversized = 128 * 1024 * 1024 + 1;
+      await truncate(child, oversized);
+      const oversizedHash = createHash("sha256")
+        .update(await readFile(child))
+        .digest("hex");
+      const nestedUnknownRecords = [
+        {
+          task: childTask,
+          reports: [
+            stat(child, oversized),
+            hash(oversizedHash),
             {
               __typename__: "UnknownChunkReport",
               id: "unknown-id",
@@ -232,20 +284,37 @@ if (args.includes("--version")) {
         reports: [
           stat(input, bytes.length),
           hash(sha256),
-          ...(mode === "multi-file-failure"
+          ...(mode === "multi-file-failure" || mode === "multi-file-dependency"
             ? [
                 {
                   __typename__: "MultiFileReport",
-                  id: "mf-id",
-                  handler_name: "tar",
-                  name: "rootfs.tar",
-                  paths: [join(output, "rootfs.tar")],
+                  id: mode === "multi-file-dependency" ? "sq-id" : "mf-id",
+                  handler_name:
+                    mode === "multi-file-dependency" ? "squashfs" : "tar",
+                  name:
+                    mode === "multi-file-dependency"
+                      ? "rootfs.squashfs"
+                      : "rootfs.tar",
+                  paths: [
+                    join(
+                      output,
+                      mode === "multi-file-dependency"
+                        ? "rootfs.squashfs"
+                        : "rootfs.tar",
+                    ),
+                  ],
                   extraction_reports: [
-                    {
-                      __typename__: "ExtractorExecutionErrorReport",
-                      severity: "ERROR",
-                      handler: "tar",
-                    },
+                    mode === "multi-file-dependency"
+                      ? {
+                          __typename__: "ExtractorDependencyNotFoundReport",
+                          severity: "ERROR",
+                          dependencies: ["sasquatch"],
+                        }
+                      : {
+                          __typename__: "ExtractorExecutionErrorReport",
+                          severity: "ERROR",
+                          handler: "tar",
+                        },
                   ],
                 },
               ]
@@ -276,7 +345,8 @@ if (args.includes("--version")) {
     if (
       mode !== "depth-reentry" &&
       mode !== "depth-orphan" &&
-      mode !== "nested-unknown"
+      mode !== "nested-unknown" &&
+      mode !== "nested-unknown-oversized"
     )
       await writeFile(
         reportPath,
@@ -284,7 +354,8 @@ if (args.includes("--version")) {
           ? "["
           : JSON.stringify(records),
       );
-    if (mode === "dependency") process.exitCode = 1;
+    if (mode === "dependency" || mode === "multi-file-dependency")
+      process.exitCode = 1;
     if (
       mode === "workspace-cleanup-failure" ||
       mode === "workspace-cleanup-failure-malformed"

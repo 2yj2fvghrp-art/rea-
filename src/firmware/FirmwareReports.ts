@@ -482,7 +482,10 @@ export const normalizeUnblobReport = (
         `${left.input_path}\u0000${left.provider_id}` <
         `${right.input_path}\u0000${right.provider_id}`
           ? -1
-          : 0,
+          : `${left.input_path}\u0000${left.provider_id}` >
+              `${right.input_path}\u0000${right.provider_id}`
+            ? 1
+            : 0,
       ),
     coverage:
       depths.length > 0 ||

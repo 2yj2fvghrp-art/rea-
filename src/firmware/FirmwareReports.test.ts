@@ -132,7 +132,56 @@ describe("firmware producer boundaries", () => {
     expect(normalized.missing_dependencies).toEqual([
       { input_path: "$output/rootfs", dependencies: ["sasquatch"] },
     ]);
+    expect(normalized.failed_extraction_stages).toEqual([
+      { input_path: "$output/rootfs", handler: "squashfs" },
+    ]);
     expect(normalized.chunk_missing_dependencies).toEqual([]);
+  });
+  it("orders chunk dependencies totally across provider ids", () => {
+    const record = root();
+    const chunkWithDependency = (id: string, offset: number) => ({
+      __typename__: "ChunkReport",
+      id,
+      start_offset: offset,
+      end_offset: offset + 10,
+      size: 10,
+      handler_name: `handler-${id}`,
+      is_encrypted: false,
+      extraction_reports: [
+        {
+          __typename__: "ExtractorDependencyNotFoundReport",
+          severity: "ERROR",
+          dependencies: [`${id}-tool`],
+        },
+      ],
+    });
+    const normalized = normalizeUnblobReport(
+      [
+        {
+          ...record,
+          reports: [
+            ...record.reports.filter(
+              (item) => item.__typename__ !== "UnknownChunkReport",
+            ),
+            chunkWithDependency("b-id", 0),
+            chunkWithDependency("a-id", 10),
+          ],
+        },
+      ],
+      context,
+    );
+    expect(normalized.chunk_missing_dependencies).toEqual([
+      {
+        input_path: "$input",
+        provider_id: "a-id",
+        dependencies: ["a-id-tool"],
+      },
+      {
+        input_path: "$input",
+        provider_id: "b-id",
+        dependencies: ["b-id-tool"],
+      },
+    ]);
   });
   it("keeps chunk-nested dependency reports bound to their owning chunk", () => {
     const record = root();

@@ -294,6 +294,33 @@ it("routes a nested unknown chunk through its published child", async () => {
   );
 });
 
+it("withholds the nested rerun advice when the published child exceeds the input limit", async () => {
+  const fixture = await firmwareFixture("nested-unknown-oversized");
+  const result = await fixture.service.execute("extract_firmware", {
+    path: fixture.path,
+    output_directory: fixture.output,
+  });
+  if (!result.ok) throw result.error;
+  const normalized = firmwareResultSchemas.extract_firmware.parse(
+    result.value.normalized_result,
+  );
+  expect(normalized.extraction_gaps).toEqual([
+    {
+      kind: "unknown-chunk-handler",
+      input_path: "$output/rootfs/config",
+      relative_path: null,
+      handler: null,
+      provider_id: "unknown-id",
+      range: { offset: 0, length: 14 },
+      root_file_range: null,
+      dependencies: [],
+      continuation: expect.stringContaining(
+        "cannot accept it as a fresh input",
+      ),
+    },
+  ]);
+});
+
 it.each([
   ["depth", 10, "rerun extract_firmware"],
   ["depth-orphan", 10, "cannot be restarted"],
@@ -347,6 +374,34 @@ it("reports a failed multi-file stage as an extractor-failure gap", async () => 
       }),
     ]),
   );
+});
+
+it("carries the owning multi-file stage on a task-level dependency gap", async () => {
+  const fixture = await firmwareFixture("multi-file-dependency");
+  const result = await fixture.service.execute("extract_firmware", {
+    path: fixture.path,
+    output_directory: fixture.output,
+  });
+  if (!result.ok) throw result.error;
+  const normalized = firmwareResultSchemas.extract_firmware.parse(
+    result.value.normalized_result,
+  );
+  expect(normalized.extraction_gaps).toEqual([
+    {
+      kind: "missing-extractor-dependency",
+      input_path: "$input",
+      relative_path: null,
+      handler: "squashfs",
+      provider_id: null,
+      range: null,
+      root_file_range: null,
+      dependencies: ["sasquatch"],
+      continuation: expect.stringContaining("installs nothing"),
+    },
+  ]);
+  expect(normalized.diagnostics).toEqual([
+    expect.objectContaining({ stage: "squashfs" }),
+  ]);
 });
 
 const injectPublishedDirectoryCloseFailure = (persistent: boolean) => {

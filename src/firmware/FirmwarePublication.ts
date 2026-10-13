@@ -44,6 +44,18 @@ const depthContinuation = (
       ? "This extraction already ran at the lane's maximum depth. To continue below this path, rerun extract_firmware with path set to the published child extracted here (its files[].path entry under this task); a fresh run on that child restarts the depth budget."
       : `This extraction already ran at the lane's maximum depth, and no published child under this path is both nonempty and within the ${FIRMWARE_LIMITS.inputBytes}-byte firmware input limit, so the depth budget cannot be restarted from this output. Treat the region below this path as unexamined.`;
 
+// A nested unknown chunk reruns only through its published child, and a
+// fresh firmware input must actually accept that child.
+const nestedUnknownContinuation = (
+  inputPath: string,
+  size: number | undefined,
+): string => {
+  const base = `This unknown chunk was carved from a nested extraction, so its range is relative to the published child at ${inputPath.slice("$output/".length)} under the output directory, not to the original input.`;
+  return size !== undefined && size > 0 && size <= FIRMWARE_LIMITS.inputBytes
+    ? `${base} Rerun extract_firmware with that published file as the input to evaluate the region.`
+    : `${base} That published child is not a nonempty file within the ${FIRMWARE_LIMITS.inputBytes}-byte firmware input limit, so extract_firmware cannot accept it as a fresh input; treat the region as unexamined.`;
+};
+
 const emptyGap = {
   relative_path: null,
   handler: null,
@@ -208,6 +220,15 @@ const dependencyExtractionGaps = (
       chunk,
     ]),
   );
+  // The owning multi-file stage names the extractor behind a task-wide
+  // dependency; chunk identity and ranges stay unset because the producer
+  // names no chunk.
+  const stageHandlers = new Map(
+    normalized.failed_extraction_stages.map(({ input_path, handler }) => [
+      input_path,
+      handler,
+    ]),
+  );
   return [
     ...normalized.chunk_missing_dependencies.flatMap(
       ({ input_path, provider_id, dependencies }): ExtractionGap[] => {
@@ -234,12 +255,14 @@ const dependencyExtractionGaps = (
       },
     ),
     // A task-wide report ties the failure to the task, not to a region, so
-    // chunk identity and ranges stay unset; the producer names no chunk.
+    // chunk identity and ranges stay unset; the producer names no chunk. The
+    // owning multi-file stage still names the extractor on the gap itself.
     ...normalized.missing_dependencies.map(
       ({ input_path, dependencies }): ExtractionGap => ({
         kind: "missing-extractor-dependency",
         input_path,
         ...emptyGap,
+        handler: stageHandlers.get(input_path) ?? null,
         dependencies,
         continuation: GAP_CONTINUATIONS["missing-extractor-dependency"],
       }),
@@ -271,7 +294,10 @@ const extractionGaps = (
       continuation:
         kind === "unknown-chunk-handler" &&
         chunk.input_path.startsWith("$output/")
-          ? `This unknown chunk was carved from a nested extraction, so its range is relative to the published child at ${chunk.input_path.slice("$output/".length)} under the output directory, not to the original input. Rerun extract_firmware with that published file as the input to evaluate the region.`
+          ? nestedUnknownContinuation(
+              chunk.input_path,
+              normalized.sizes.get(chunk.input_path),
+            )
           : GAP_CONTINUATIONS[kind],
     }));
   // Chunks whose failure a dependency row already covers stay out of the
