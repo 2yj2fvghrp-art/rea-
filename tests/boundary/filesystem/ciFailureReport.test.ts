@@ -149,6 +149,7 @@ it("writes informational JSON and Markdown from the supplied manifest using only
           id: 10,
           runAttempt: 1,
           workflow: "CI",
+          event: "pull_request",
           conclusion: "failure",
           status: "collected",
         },
@@ -156,6 +157,7 @@ it("writes informational JSON and Markdown from the supplied manifest using only
           id: 11,
           runAttempt: 1,
           workflow: "CI",
+          event: "pull_request",
           conclusion: "success",
           status: "collected",
         },
@@ -216,7 +218,7 @@ it.each([
   [22, false],
   [6, true],
 ] as const)(
-  "finds verified main evidence after %s newer PR runs (incorrect main hints: %s)",
+  "finds verified main evidence after %s newer PR runs (extra incorrect main hint: %s)",
   async (prCount, incorrectMainHints) => {
     const directory = await mkdtemp(join(tmpdir(), "rea-ci-main-proof-"));
     try {
@@ -280,12 +282,25 @@ it.each([
         batchManifest: {
           repository: "owner/rea",
           runs: [
+            ...(incorrectMainHints
+              ? [
+                  {
+                    id: 30,
+                    runAttempt: 1,
+                    workflow: "CI",
+                    event: "push",
+                    headBranch: "main",
+                    conclusion: "failure",
+                    status: "collected",
+                  },
+                ]
+              : []),
             ...Array.from({ length: prCount }, (_, index) => ({
               id: 100 + index,
               runAttempt: 1,
               workflow: "CI",
-              event: incorrectMainHints ? "push" : "pull_request",
-              headBranch: incorrectMainHints ? "main" : "feature",
+              event: "pull_request",
+              headBranch: "feature",
               conclusion: "failure",
               status: "collected",
             })),
@@ -309,11 +324,13 @@ it.each([
         reason:
           "supported_diagnostics_match_failed_task_and_source_on_verified_main_ancestor",
       });
-      expect(lookups).toHaveLength(Math.min(prCount, 20) + 1);
-      expect(lookups[0]).toBe(incorrectMainHints ? 100 : 20);
+      expect(lookups).toHaveLength(
+        Math.min(prCount, 20) + 1 + Number(incorrectMainHints),
+      );
+      expect(lookups[0]).toBe(incorrectMainHints ? 30 : 20);
       expect(new Set(lookups).size).toBe(lookups.length);
       expect(result.boundedInput.mainCandidateRuns).toBe(1);
-      expect(result.failures).toHaveLength(Math.min(prCount + 1, 20));
+      expect(result.failures).toHaveLength(Math.min(prCount, 20));
     } finally {
       await rm(directory, { recursive: true, force: true });
     }

@@ -53,7 +53,8 @@ export async function reportCiFailures({
       entry.status === "collected" &&
       isFailedConclusion(entry.conclusion),
   );
-  const candidates = failedRuns.slice(0, MAX_FAILED_RUNS);
+  const prRuns = failedRuns.filter((entry) => entry.event === "pull_request");
+  const candidates = prRuns.slice(0, MAX_FAILED_RUNS);
   const mainEntries = failedRuns.filter(
     (entry) =>
       entry.headBranch === defaultBranch &&
@@ -65,7 +66,10 @@ export async function reportCiFailures({
     try {
       const run = await lookupRun(entry);
       if (isEligibleMainRun(run, defaultBranch, repository))
-        mainCandidates.push({ entry, run });
+        mainCandidates.push({
+          run,
+          getEvidence: mainEvidenceLookup(repository, api, entry, run),
+        });
       if (mainCandidates.length === MAX_MAIN_CANDIDATES) break;
     } catch {
       // Unverified metadata cannot consume the eligible-main candidate budget.
@@ -107,7 +111,7 @@ export async function reportCiFailures({
       mainCandidateRuns: mainCandidates.length,
       mainRunLookupLimit: MAX_MAIN_RUN_LOOKUPS,
       manifestTruncated:
-        failedRuns.length > MAX_FAILED_RUNS ||
+        prRuns.length > MAX_FAILED_RUNS ||
         batchManifest.truncation?.length > 0 ||
         batchManifest.selection?.exhaustive === false ||
         batchManifest.coverage?.exhaustive === false,
@@ -212,29 +216,13 @@ async function compareCandidate({
   candidate,
   api,
 }) {
-  const { entry, run: mainRun } = candidate;
-  const jobs = await api.getJobs(repository, entry.id, entry.runAttempt);
-  if (jobs.some((item) => !hasJobIdentity(item, entry))) return null;
-  const mainJob = jobs.find(
-    (item) =>
-      item.name === job.name &&
-      item.status === "completed" &&
-      isFailedConclusion(item.conclusion),
-  );
-  if (!mainJob) return null;
-  const mainEvidence = await api.getStaticEvidence(
-    repository,
-    mainRun,
-    mainJob,
-  );
-  if (!mainEvidence) return null;
+  const mainRun = candidate.run;
+  const main = await candidate.getEvidence(job.name);
+  if (!main?.evidence) return null;
+  const { job: mainJob, evidence: mainEvidence } = main;
   const ancestry = await api.getAncestry(repository, mainRun.head_sha, baseSha);
   const paths = [
-    ...new Set(
-      [...evidence.diagnostics, ...mainEvidence.diagnostics].flatMap(
-        diagnosticPaths,
-      ),
-    ),
+    ...new Set(evidence.diagnostics.flatMap(diagnosticPaths)),
   ].slice(0, MAX_PATHS_PER_COMPARISON);
   const blobs = await api.getBlobIdentity(
     repository,
@@ -264,6 +252,38 @@ async function compareCandidate({
     ancestry,
     blobs,
   });
+}
+
+// Each verified main run/attempt owns its lazy jobs and parsed evidence for this
+// report only. Cache nulls and rejected reads too; retries cannot spend the budget
+// repeatedly on an immutable observation that was unavailable or invalid.
+function mainEvidenceLookup(repository, api, entry, run) {
+  let jobs;
+  const evidence = new Map();
+  return (name) => {
+    jobs ??= Promise.resolve().then(async () => {
+      const items = await api.getJobs(repository, entry.id, entry.runAttempt);
+      return items.some((item) => !hasJobIdentity(item, entry)) ? [] : items;
+    });
+    if (!evidence.has(name))
+      evidence.set(
+        name,
+        jobs.then(async (items) => {
+          const job = items.find(
+            (item) =>
+              item.name === name &&
+              item.status === "completed" &&
+              isFailedConclusion(item.conclusion),
+          );
+          if (!job) return null;
+          return {
+            job,
+            evidence: await api.getStaticEvidence(repository, run, job),
+          };
+        }),
+      );
+    return evidence.get(name);
+  };
 }
 
 // Selection and attribution share one immutable API observation per run/attempt.

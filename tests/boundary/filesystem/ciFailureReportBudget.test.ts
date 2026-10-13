@@ -1,0 +1,238 @@
+import { mkdtemp, rm } from "node:fs/promises";
+import { tmpdir } from "node:os";
+import { join } from "node:path";
+
+import { expect, it } from "vitest";
+import {
+  reportCiFailures,
+  type CiRun,
+  type FailureReportApi,
+  type StaticDiagnostic,
+  type StaticEvidence,
+} from "../../../scripts/ci/failure-report.mjs";
+
+const repository = "owner/rea";
+const mainSha = "c".repeat(40);
+const prSha = "a".repeat(40);
+const diagnostic: StaticDiagnostic = {
+  kind: "lint",
+  path: "src/example.ts",
+  code: "no-debugger",
+  message: "Unexpected debugger statement.",
+  severity: "error",
+};
+const evidence = (
+  run: CiRun,
+  diagnostics: readonly StaticDiagnostic[],
+): StaticEvidence => ({
+  context: {
+    version: 1,
+    sourceSha: run.head_sha!,
+    sourceClean: true,
+    nodeVersion: "v24.18.0",
+    npmVersion: "11.16.0",
+    turboVersion: "2.11.7",
+    platform: "linux",
+    architecture: "x64",
+    taskHashes: { "lint:built": "a".repeat(16) },
+  },
+  diagnostics,
+});
+const entry = (id: number, event = "pull_request", runAttempt = 1) => ({
+  id,
+  runAttempt,
+  workflow: "CI",
+  event,
+  headBranch: event === "pull_request" ? "feature" : "main",
+  status: "collected",
+  conclusion: "failure",
+});
+
+function fixture(mainIds: readonly number[], prCount: number) {
+  const jobs: number[] = [];
+  const artifacts: number[] = [];
+  const paths: (readonly string[])[] = [];
+  const runs: Array<
+    Omit<ReturnType<typeof entry>, "event"> & { event?: string }
+  > = [
+    ...mainIds.map((id) => entry(id, "schedule")),
+    ...Array.from({ length: prCount }, (_, index) => entry(100 + index)),
+  ];
+  const api: FailureReportApi = {
+    async getRun(_repository, id) {
+      const selected = runs.find((run) => run.id === Number(id))!;
+      return {
+        id,
+        run_attempt: selected.runAttempt,
+        status: "completed",
+        conclusion: "failure",
+        ...(selected.event ? { event: selected.event } : {}),
+        head_branch: selected.headBranch,
+        path: ".github/workflows/ci.yml@main",
+        head_sha: mainIds.includes(Number(id)) ? mainSha : prSha,
+        repository: { full_name: repository },
+        pull_requests: [
+          { base: { sha: mainSha, repo: { full_name: repository } } },
+        ],
+      };
+    },
+    async getJobs(_repository, id, attempt) {
+      jobs.push(Number(id));
+      return [
+        {
+          name: "Static checks",
+          status: "completed",
+          conclusion: "failure",
+          run_id: Number(id),
+          run_attempt: attempt,
+        },
+      ];
+    },
+    async getStaticEvidence(_repository, run) {
+      artifacts.push(Number(run.id));
+      return evidence(run, [diagnostic]);
+    },
+    async getAncestry() {
+      return { status: "identical", mergeBaseSha: mainSha };
+    },
+    async getBlobIdentity(_repository, _ancestor, _descendant, requested) {
+      paths.push(requested);
+      return Object.fromEntries(requested.map((path) => [path, true]));
+    },
+    async verifyExecutionSource() {
+      return true;
+    },
+  };
+  return { api, runs, jobs, artifacts, paths };
+}
+
+async function report(input: ReturnType<typeof fixture>) {
+  const directory = await mkdtemp(join(tmpdir(), "rea-ci-budget-"));
+  try {
+    return await reportCiFailures({
+      repository,
+      defaultBranch: "main",
+      batchManifest: { repository, runs: input.runs },
+      api: input.api,
+      outputDirectory: directory,
+    });
+  } finally {
+    await rm(directory, { recursive: true, force: true });
+  }
+}
+
+it("selects PR failures before the cap even after a day of scheduled main failures", async () => {
+  const input = fixture(
+    Array.from({ length: 24 }, (_, index) => 20 + index),
+    1,
+  );
+  input.runs.push({
+    id: 200,
+    runAttempt: 1,
+    workflow: "CI",
+    headBranch: "feature",
+    status: "collected",
+    conclusion: "failure",
+  });
+  const result = await report(input);
+  expect(result.failures).toMatchObject([
+    { runId: 100, classification: "matching-main-diagnostics" },
+  ]);
+  expect(result.boundedInput).toMatchObject({
+    candidateRuns: 1,
+    mainCandidateRuns: 5,
+    manifestTruncated: false,
+  });
+  expect(input.jobs).toEqual([100, 20]);
+});
+
+it("reuses five main job/artifact observations across twenty completed PR comparisons", async () => {
+  const input = fixture([20, 21, 22, 23, 24], 20);
+  const load = input.api.getStaticEvidence;
+  input.api.getStaticEvidence = async (...args) => {
+    const result = await load(...args);
+    return Number(args[1].id) < 24
+      ? evidence(args[1], [{ ...diagnostic, message: "different" }])
+      : result;
+  };
+  const result = await report(input);
+  expect(result.counts).toEqual({
+    "matching-main-diagnostics": 20,
+    unknown: 0,
+  });
+  expect(input.paths).toHaveLength(100);
+  expect(input.jobs).toHaveLength(25);
+  expect(input.artifacts).toHaveLength(25);
+  for (const id of [20, 21, 22, 23, 24]) {
+    expect(input.jobs.filter((item) => item === id)).toHaveLength(1);
+    expect(input.artifacts.filter((item) => item === id)).toHaveLength(1);
+  }
+});
+
+it.each(["missing", "artifact error", "job error", "wrong job attempt"])(
+  "reuses unavailable main evidence without retries: %s",
+  async (failure) => {
+    const input = fixture([20], 3);
+    const load = input.api.getStaticEvidence;
+    const jobs = input.api.getJobs;
+    input.api.getJobs = async (...args) => {
+      const result = await jobs(...args);
+      if (Number(args[1]) !== 20) return result;
+      if (failure === "job error") throw new Error("job_snapshot_unavailable");
+      return failure === "wrong job attempt"
+        ? result.map((job) => ({ ...job, run_attempt: 2 }))
+        : result;
+    };
+    input.api.getStaticEvidence = async (...args) => {
+      const result = await load(...args);
+      if (Number(args[1].id) !== 20) return result;
+      if (failure === "artifact error") throw new Error("artifact_unavailable");
+      return null;
+    };
+    const result = await report(input);
+    expect(result.counts.unknown).toBe(3);
+    expect(input.jobs.filter((id) => id === 20)).toHaveLength(1);
+    expect(input.artifacts.filter((id) => id === 20)).toHaveLength(
+      failure === "job error" || failure === "wrong job attempt" ? 0 : 1,
+    );
+  },
+);
+
+it("refreshes main observations for the next report and attempt", async () => {
+  const input = fixture([20], 1);
+  expect((await report(input)).counts["matching-main-diagnostics"]).toBe(1);
+  input.runs[0]!.runAttempt = 2;
+  expect((await report(input)).counts["matching-main-diagnostics"]).toBe(1);
+  expect(input.jobs.filter((id) => id === 20)).toHaveLength(2);
+  expect(input.artifacts.filter((id) => id === 20)).toHaveLength(2);
+});
+
+it.each([1, 51])(
+  "fetches only PR paths with %s PR diagnostics and noisy main evidence",
+  async (count) => {
+    const input = fixture([20], 1);
+    const load = input.api.getStaticEvidence;
+    const diagnostics = Array.from({ length: count }, (_, index) => ({
+      ...diagnostic,
+      path: `src/pr-${index}.ts`,
+    }));
+    input.api.getStaticEvidence = async (...args) => {
+      await load(...args);
+      const noise =
+        Number(args[1].id) === 20
+          ? Array.from({ length: 60 }, (_, index) => ({
+              ...diagnostic,
+              path: `src/main-${index}.ts`,
+            }))
+          : [];
+      return evidence(args[1], [...noise, ...diagnostics]);
+    };
+    const result = await report(input);
+    expect(input.paths).toEqual([
+      diagnostics.slice(0, 50).map((item) => item.path),
+    ]);
+    expect(result.failures[0]!.classification).toBe(
+      count === 1 ? "matching-main-diagnostics" : "unknown",
+    );
+  },
+);
