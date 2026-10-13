@@ -2,6 +2,7 @@ import { expect, it } from "vitest";
 
 import { CdpBrowserProvider } from "../../../src/browser/CdpBrowserProvider.js";
 import { inspectWebPageInputSchema } from "../../../src/domain/browserObservation.js";
+import type { WebPageInspection } from "../../../src/domain/browserObservationSchemas.js";
 import { compareWebCaptures } from "../../../src/domain/webCaptureDiff.js";
 import { compareWebCapturesInputSchema } from "../../../src/domain/webCaptureDiffSchemas.js";
 import {
@@ -10,7 +11,7 @@ import {
 } from "../../fixtures/fakeCdpBrowser.js";
 import { trackBrowser } from "./cdpBrowserProvider.support.js";
 
-const inspect = async (options: FakeOptions) => {
+const inspect = async (options: FakeOptions, includeFingerprints = true) => {
   const browser = await startFakeCdpBrowser(options);
   trackBrowser(browser);
   const input = inspectWebPageInputSchema.parse({
@@ -19,7 +20,7 @@ const inspect = async (options: FakeOptions) => {
     target_id: "allowed-page",
     observation_ms: 0,
     include_storage_keys: true,
-    include_storage_fingerprints: true,
+    include_storage_fingerprints: includeFingerprints,
   });
   const capture = async () => {
     const result = await new CdpBrowserProvider().inspectPage(input);
@@ -28,6 +29,14 @@ const inspect = async (options: FakeOptions) => {
   };
   return { capture };
 };
+
+const compareStorage = (before: WebPageInspection, after: WebPageInspection) =>
+  compareWebCaptures(
+    compareWebCapturesInputSchema.parse({
+      before: { inspection: before },
+      after: { inspection: after },
+    }),
+  ).dimensions.storage;
 
 it.each([
   ["CacheStorage.requestCacheNames", {}],
@@ -58,13 +67,7 @@ it.each([
       reason: "invalid_protocol_value",
       count: null,
     });
-    const diff = compareWebCaptures(
-      compareWebCapturesInputSchema.parse({
-        before: { inspection: before },
-        after: { inspection: after },
-      }),
-    );
-    expect(diff.dimensions.storage).toMatchObject({
+    expect(compareStorage(before, after)).toMatchObject({
       status: "unknown",
       total_changes: 0,
     });
@@ -72,26 +75,17 @@ it.each([
 );
 
 it("preserves unavailable storage-key coverage without requesting fingerprints", async () => {
-  const browser = await startFakeCdpBrowser({
-    unsupportedMethods: ["CacheStorage.requestCacheNames"],
-  });
-  trackBrowser(browser);
-  const result = await new CdpBrowserProvider().inspectPage(
-    inspectWebPageInputSchema.parse({
-      cdp_endpoint: browser.endpoint,
-      allowed_origins: [browser.allowedOrigin],
-      target_id: "allowed-page",
-      observation_ms: 0,
-      include_storage_keys: true,
-    }),
+  const { capture } = await inspect(
+    { unsupportedMethods: ["CacheStorage.requestCacheNames"] },
+    false,
   );
-  if (!result.ok) throw result.error;
-  expect(result.value.completeness.excluded).toContainEqual({
+  const captured = await capture();
+  expect(captured.completeness.excluded).toContainEqual({
     section: "storage_keys",
     reason: "provider_unavailable",
     count: null,
   });
-  expect(result.value.storage.local_storage_keys).toEqual(["public-key"]);
+  expect(captured.storage.local_storage_keys).toEqual(["public-key"]);
 });
 
 const validKey = { type: "string", value: "row-1" };
@@ -113,16 +107,9 @@ it.each(["unavailable", "malformed"] as const)(
       },
     });
     const before = await capture();
-    const compare = (left: typeof before, right: typeof before) =>
-      compareWebCaptures(
-        compareWebCapturesInputSchema.parse({
-          before: { inspection: left },
-          after: { inspection: right },
-        }),
-      ).dimensions.storage;
     expect(before.completeness.unavailable_sections).toContain("storage_keys");
     expect(before.storage.fingerprints_complete).toBe(false);
-    expect(compare(before, await capture())).toMatchObject({
+    expect(compareStorage(before, await capture())).toMatchObject({
       status: "unknown",
       total_changes: 0,
     });
@@ -135,7 +122,7 @@ it.each(["unavailable", "malformed"] as const)(
       [before, changed],
       [changed, before],
     ] as const)
-      expect(compare(left, right)).toMatchObject({
+      expect(compareStorage(left, right)).toMatchObject({
         status: "changed",
         total_changes: 2,
         changes: [
@@ -148,7 +135,7 @@ it.each(["unavailable", "malformed"] as const)(
     for (const fingerprint of incompleteValues.storage.content_fingerprints)
       if (["local_storage", "session_storage"].includes(fingerprint.scope))
         fingerprint.complete = false;
-    expect(compare(before, incompleteValues)).toMatchObject({
+    expect(compareStorage(before, incompleteValues)).toMatchObject({
       status: "unknown",
       total_changes: 0,
     });
@@ -161,7 +148,7 @@ it.each(["unavailable", "malformed"] as const)(
         [before, incomplete],
         [incomplete, before],
       ] as const)
-        expect(compare(left, right)).toMatchObject({
+        expect(compareStorage(left, right)).toMatchObject({
           status: "unknown",
           total_changes: 0,
           changes: [],
@@ -230,19 +217,13 @@ it("does not fingerprint a filtered partial object-store schema as complete", as
       ({ scope }) => scope === "indexed_db_schema",
     )?.complete,
   ).toBe(false);
-  const diff = compareWebCaptures(
-    compareWebCapturesInputSchema.parse({
-      before: { inspection: before },
-      after: { inspection: after },
-    }),
-  );
-  expect(diff.dimensions.storage).toMatchObject({
+  expect(compareStorage(before, after)).toMatchObject({
     status: "unknown",
     total_changes: 0,
   });
 });
 
-it.each([
+const incompleteRemoteObjects = [
   undefined,
   null,
   "raw",
@@ -257,9 +238,26 @@ it.each([
   { type: "symbol", description: "Symbol(x)" },
   { type: "object", subtype: "null" },
   { type: "bigint", unserializableValue: "broken" },
+] as const;
+
+const completeRemoteObjects = [
+  { type: "string", value: "" },
+  { type: "boolean", value: false },
+  { type: "number", value: 0 },
+  { type: "undefined" },
+  { type: "number", unserializableValue: "NaN" },
+  { type: "number", unserializableValue: "-0" },
+  { type: "bigint", unserializableValue: "-42n" },
+  { type: "object", subtype: "null", value: null },
+  { type: "object", value: { nested: [false, null, 0] } },
+] as const;
+
+it.each([
+  ...incompleteRemoteObjects.map((value) => [value, false] as const),
+  ...completeRemoteObjects.map((value) => [value, true] as const),
 ])(
-  "marks incomplete IndexedDB RemoteObject values unknown: %j",
-  async (value) => {
+  "validates IndexedDB RemoteObject completeness: %j => %s",
+  async (value, complete) => {
     const { capture } = await inspect({
       commandResult: (command) =>
         command.method === "IndexedDB.requestData"
@@ -277,46 +275,14 @@ it.each([
       ({ scope }) => scope === "indexed_db_record",
     );
     expect(records).toHaveLength(1);
-    expect(records[0]?.complete).toBe(false);
-    expect(before.storage.fingerprints_complete).toBe(false);
-    const diff = compareWebCaptures(
-      compareWebCapturesInputSchema.parse({
-        before: { inspection: before },
-        after: { inspection: after },
-      }),
-    );
-    expect(diff.dimensions.storage).toMatchObject({
-      status: "unknown",
+    expect(records[0]?.complete).toBe(complete);
+    expect(before.storage.fingerprints_complete).toBe(complete);
+    expect(compareStorage(before, after)).toMatchObject({
+      status: complete ? "unchanged" : "unknown",
       total_changes: 0,
     });
   },
 );
-
-it.each([
-  { type: "string", value: "" },
-  { type: "boolean", value: false },
-  { type: "number", value: 0 },
-  { type: "undefined" },
-  { type: "number", unserializableValue: "NaN" },
-  { type: "number", unserializableValue: "-0" },
-  { type: "bigint", unserializableValue: "-42n" },
-  { type: "object", subtype: "null", value: null },
-  { type: "object", value: { nested: [false, null, 0] } },
-])("retains complete by-value IndexedDB data: %j", async (value) => {
-  const { capture } = await inspect({
-    commandResult: (command) =>
-      command.method === "IndexedDB.requestData"
-        ? {
-            objectStoreDataEntries: [
-              { key: validKey, primaryKey: validKey, value },
-            ],
-            hasMore: false,
-          }
-        : undefined,
-  });
-  const captured = await capture();
-  expect(captured.storage.fingerprints_complete).toBe(true);
-});
 
 it.each([
   [undefined, false],
@@ -385,11 +351,5 @@ it("accepts genuinely empty inventories as complete", async () => {
   const before = await capture();
   const after = await capture();
   expect(before.storage.fingerprints_complete).toBe(true);
-  const diff = compareWebCaptures(
-    compareWebCapturesInputSchema.parse({
-      before: { inspection: before },
-      after: { inspection: after },
-    }),
-  );
-  expect(diff.dimensions.storage.status).toBe("unchanged");
+  expect(compareStorage(before, after).status).toBe("unchanged");
 });
