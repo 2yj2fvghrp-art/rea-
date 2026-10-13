@@ -122,7 +122,7 @@ const launch = (
     },
   );
 
-describe("Windows Job Object memory limits", () => {
+describe("Windows Job Object lifecycle and poll ownership", () => {
   it("keeps polling a job after a transient observation failure", async () => {
     vi.useFakeTimers();
     const { native, calls } = authority({
@@ -210,7 +210,9 @@ describe("Windows Job Object memory limits", () => {
     ).toHaveLength(2);
     expect(calls.at(-1)?.operation).toBe("process_close");
   });
+});
 
+describe("Windows Job Object memory limits", () => {
   it("refuses a requested limit before launch when the artifact lacks the control", () => {
     const { native, calls } = authority();
     expect(() => launch(native, LIMIT)).toThrow(
