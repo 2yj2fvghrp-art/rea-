@@ -28,21 +28,26 @@ import {
   evmInterfaceExecution,
 } from "../../fixtures/evm/interface.js";
 
-it("advertises exact valid schemas and records inline EVM interface evidence without a binary target", async () => {
+const decodedMetadataFixture = () => {
+  const bytes = Buffer.from("00a1011bffffffffffffffff000b", "hex");
   const value = evmInterfaceFixture();
   value.bytecode = {
     ...value.bytecode,
-    hex: "00a1011bffffffffffffffff000b",
-    bytes: 14,
-    sha256: createHash("sha256")
-      .update(Buffer.from("00a1011bffffffffffffffff000b", "hex"))
-      .digest("hex"),
-    metadata: inspectSolidityMetadata(
-      Buffer.from("00a1011bffffffffffffffff000b", "hex"),
-    ),
+    hex: bytes.toString("hex"),
+    bytes: bytes.length,
+    sha256: createHash("sha256").update(bytes).digest("hex"),
+    metadata: inspectSolidityMetadata(bytes),
   };
+  return value;
+};
+
+it("advertises exact valid schemas and records inline EVM interface evidence without a binary target", async () => {
+  const value = decodedMetadataFixture();
+  const inspect = vi.fn(() =>
+    Promise.resolve(ok(evmInterfaceExecution(value))),
+  );
   const service = new EvmInterfaceService({
-    inspect: () => Promise.resolve(ok(evmInterfaceExecution(value))),
+    inspect,
   });
   const session = createTestBinarySession(() => {
     throw new Error("deep provider must not start");
@@ -84,6 +89,7 @@ it("advertises exact valid schemas and records inline EVM interface evidence wit
   expect(() => registerEvmTools(server, service, silentLogger)).toThrow(
     /inspect_evm_interface.*already registered/,
   );
+  expect(inspect).not.toHaveBeenCalled();
   expect(
     (await client.listTools()).tools.filter(
       (tool) => tool.name === "inspect_evm_interface",
@@ -114,6 +120,30 @@ it("advertises exact valid schemas and records inline EVM interface evidence wit
       })
     ).isError,
   ).toBe(true);
+});
+
+it("rejects an EVM provider response with a non-file subject before recording Evidence", async () => {
+  const value = evmInterfaceFixture();
+  const execution = evmInterfaceExecution(value);
+  const malformed = {
+    ...execution,
+    subject: { ...execution.subject, format: "elf" },
+  } as unknown as typeof execution;
+  const harness = await createApplicationMcpHarness({
+    serverOptions: {
+      evmInterface: new EvmInterfaceService({
+        inspect: () => Promise.resolve(ok(malformed)),
+      }),
+    },
+  });
+  onTestFinished(harness.close);
+  const before = harness.session.exportEvidenceBundle().records.length;
+  const response = await harness.client.callTool({
+    name: "inspect_evm_interface",
+    arguments: { path: value.artifact.path, encoding: "hex" },
+  });
+  expect(parseMcpToolError(response).error.code).toBe("unreadable_output");
+  expect(harness.session.exportEvidenceBundle().records).toHaveLength(before);
 });
 
 it.each(["unavailable", "incompatible-output"])(
@@ -265,10 +295,8 @@ it("settles the admitted EVM operation after SDK cancellation and accepts a subs
 });
 
 it("returns the exact inferred interface summary while preserving complete defaults and retained source", async () => {
-  const value = evmInterfaceFixture();
-  value.bytecode.metadata = inspectSolidityMetadata(
-    Buffer.from(value.bytecode.hex, "hex"),
-  );
+  const value = decodedMetadataFixture();
+  expect(value.bytecode.metadata?.status).toBe("decoded");
   value.functions = [
     {
       selector: "0x11223344",
@@ -407,6 +435,7 @@ it.each(["valid", "wrong-subject", "no-subject"])(
   "preserves historical portable EVM Evidence and rejects incompatible identity: %s",
   async (scenario) => {
     const value = evmInterfaceFixture();
+    const { metadata: _metadata, ...historicalBytecode } = value.bytecode;
     const source = createEvidence(
       scenario === "no-subject"
         ? undefined
@@ -422,7 +451,7 @@ it.each(["valid", "wrong-subject", "no-subject"])(
       {
         operation: "inspect_evm_interface",
         parameters: { path: value.artifact.path, encoding: "hex" },
-        result: value,
+        result: { ...value, bytecode: historicalBytecode },
         confidence: "inferred",
         rawResult: { original: true },
       },
@@ -451,6 +480,7 @@ it.each(["valid", "wrong-subject", "no-subject"])(
       expect(view.parent_evidence_id).toBe(source.evidence_id);
       expect(view.summary.functions).toEqual([]);
       expect(view.summary.discovery_completeness).toBe("unknown");
+      expect(view.summary.bytecode.metadata).toBeNull();
       expect(view.coverage).toMatchObject({
         total: 0,
         examined: 0,

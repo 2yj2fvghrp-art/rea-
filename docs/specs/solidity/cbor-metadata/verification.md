@@ -19,8 +19,11 @@ compiler-key identity.
 The owned fixture was compiled with caller-selected solc 0.8.30, using unoptimized,
 optimized via-IR, content-hash-free and CBOR-free settings. All four metadata
 checks passed again after integration. No contract was executed. Local first decode
-took approximately 0.81 ms or less; 100 warm parses took approximately 2.92 ms or
-less. These figures describe these fixtures and this host, not a general workload.
+took approximately 0.81 ms or less. The originally reported approximately 2.92 ms
+for 100 warm iterations included equality assertions and is not a decode-only
+measurement. The verifier now measures parsing separately from those assertions;
+updated warm timings have not been collected. These historical figures describe
+these fixtures and this host, not a general workload.
 Peak process RSS
 included the compiler (299536 KiB); complete process-family CPU/memory and agent
 token costs were not measured.
@@ -34,3 +37,7 @@ The Linux CLI/MCP verifier asserts exact compiler bytes, declared version and
 candidate ranges for its existing owned raw/hex artifacts. Its CI lane additionally
 runs the new compiler-setting matrix. A regression using the actual CI planner
 checks that edits to the new verifier select the EVM lane.
+
+The later merge/review correction adds decoded-summary and omitted historical
+metadata coverage. Tests and provider reruns for that correction were skipped at
+the maintainer's request; the earlier runs above do not validate the changed head.

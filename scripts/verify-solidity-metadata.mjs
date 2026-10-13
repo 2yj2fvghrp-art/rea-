@@ -77,16 +77,19 @@ for (const fixture of cases) {
         [{ kind: "text", value: "solc" }],
       );
   }
+  const warmResults = new Array(100);
   const warmStart = performance.now();
-  for (let index = 0; index < 100; index++)
-    assert.deepEqual(inspectSolidityMetadata(bytes), parsed);
+  for (let index = 0; index < warmResults.length; index++)
+    warmResults[index] = inspectSolidityMetadata(bytes);
+  const warmMs = performance.now() - warmStart;
+  for (const result of warmResults) assert.deepEqual(result, parsed);
   reports.push({
     fixture: fixture.name,
     bytes: bytes.length,
     status: parsed.status,
     first_decode_ms: firstMs,
     first_decode_cpu_us: firstCpu,
-    warm_100_decode_ms: performance.now() - warmStart,
+    warm_100_decode_ms: warmMs,
   });
 }
 console.log(
