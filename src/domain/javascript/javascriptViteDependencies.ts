@@ -131,7 +131,8 @@ const viteHelperCandidate = (
   const { name, helper } = declaration;
   const defaults =
     helper.params.length === 3
-      ? parameterDefaults(helper, name.name)
+      ? (parameterDefaults(helper, name.name) ??
+        assignmentGuardedDefaults(helper, name.name, state))
       : loweredDefaults(helper, name.name, state);
   if (defaults === undefined) return undefined;
   const parameterNames = new Set([
@@ -209,6 +210,88 @@ const parameterDefaults = (
     returned,
     uncertain: false,
   };
+};
+
+/** Read TypeScript's assignment-guarded defaults before rejecting plain parameters. */
+const assignmentGuardedDefaults = (
+  helper: ViteHelper,
+  name: string,
+  state: JavaScriptSemanticAnalysisState,
+): ViteHelperDefaults | undefined => {
+  if (
+    t.isArrowFunctionExpression(helper) ||
+    helper.params.length !== 3 ||
+    !t.isIdentifier(helper.params[0]) ||
+    !t.isIdentifier(helper.params[1]) ||
+    !t.isIdentifier(helper.params[2]) ||
+    !t.isBlockStatement(helper.body) ||
+    helper.body.body.length !== 3
+  )
+    return undefined;
+  const [indexes, map, dependencies] = helper.params;
+  const [mapGuard, dependenciesGuard, returnedStatement] = helper.body.body;
+  if (
+    indexes === undefined ||
+    map === undefined ||
+    dependencies === undefined ||
+    returnedStatement === undefined ||
+    !t.isReturnStatement(returnedStatement) ||
+    returnedStatement.argument == null
+  )
+    return undefined;
+  const mapDefault = assignmentGuardedParameterDefault(
+    mapGuard,
+    map.name,
+    state,
+  );
+  const dependenciesDefault = assignmentGuardedParameterDefault(
+    dependenciesGuard,
+    dependencies.name,
+    state,
+  );
+  if (
+    mapDefault === undefined ||
+    !t.isIdentifier(mapDefault.fallback, { name }) ||
+    dependenciesDefault === undefined
+  )
+    return undefined;
+  return {
+    indexes: indexes.name,
+    map: map.name,
+    dependencies: dependencies.name,
+    cache: dependenciesDefault.fallback,
+    returned: returnedStatement.argument,
+    uncertain: mapDefault.uncertain || dependenciesDefault.uncertain,
+  };
+};
+
+const assignmentGuardedParameterDefault = (
+  statement: t.Node | undefined,
+  name: string,
+  state: JavaScriptSemanticAnalysisState,
+): LoweredParameterDefault | undefined => {
+  if (!t.isIfStatement(statement) || statement.alternate !== null)
+    return undefined;
+  const { test } = statement;
+  if (
+    !t.isBinaryExpression(test, { operator: "===" }) ||
+    !t.isIdentifier(test.left, { name })
+  )
+    return undefined;
+  const exactUndefined = defaultUndefined(test.right, state);
+  if (!exactUndefined && !t.isIdentifier(test.right, { name: "undefined" }))
+    return undefined;
+  const assignment = t.isExpressionStatement(statement.consequent)
+    ? statement.consequent.expression
+    : t.isBlockStatement(statement.consequent) &&
+        statement.consequent.body.length === 1 &&
+        t.isExpressionStatement(statement.consequent.body[0])
+      ? statement.consequent.body[0].expression
+      : undefined;
+  return t.isAssignmentExpression(assignment, { operator: "=" }) &&
+    t.isIdentifier(assignment.left, { name })
+    ? { fallback: assignment.right, uncertain: !exactUndefined }
+    : undefined;
 };
 
 const loweredDefaults = (

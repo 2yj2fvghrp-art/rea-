@@ -178,6 +178,7 @@ function* indexViteAliasesSteps(
   const aliases = new Map<AliasVertex, CacheAlias[]>();
   const producers: t.Node[] = [];
   const spreadFacts = new WeakMap<t.Node, SpreadCacheFact>();
+  const freshFacts = new WeakMap<t.Node, boolean>();
   const enqueued = new WeakSet<t.Node>();
   const normalize = (node: t.Node): void => {
     if (enqueued.has(node)) return;
@@ -239,7 +240,12 @@ function* indexViteAliasesSteps(
     if (cursor % 1024 === 0) yield;
     const node = producers[cursor];
     if (node === undefined) break;
-    for (const input of aliasProducerInputs(node, state, spreadFacts)) {
+    for (const input of aliasProducerInputs(
+      node,
+      state,
+      spreadFacts,
+      freshFacts,
+    )) {
       if (typeof input.source !== "string") normalize(input.source);
       connect(input.source, {
         target: node,
@@ -257,6 +263,7 @@ const aliasProducerInputs = (
   node: t.Node,
   state: JavaScriptSemanticAnalysisState,
   spreadFacts: WeakMap<t.Node, SpreadCacheFact>,
+  freshFacts: WeakMap<t.Node, boolean>,
 ): readonly {
   source: AliasVertex;
   first: CacheKey;
@@ -284,14 +291,17 @@ const aliasProducerInputs = (
           first,
           copyKeepsCache: !overwritten,
         });
-        if (spreadCacheFact(property.argument, spreadFacts) === "fresh")
+        if (
+          spreadCacheFact(property.argument, spreadFacts, freshFacts) ===
+          "fresh"
+        )
           overwritten = true;
       } else {
         const key = semanticStaticPropertyKey(property.key, property.computed);
         if (
           key === "f" &&
           t.isObjectProperty(property) &&
-          freshCacheReplacement(property.value)
+          freshCacheReplacement(property.value, freshFacts)
         )
           overwritten = true;
       }
@@ -318,19 +328,75 @@ const aliasProducerInputs = (
 
 type SpreadCacheFact = "fresh" | "possible" | "absent";
 
-const freshCacheReplacement = (node: t.Node): boolean =>
-  t.isArrayExpression(node) ||
-  t.isObjectExpression(node) ||
-  t.isFunction(node) ||
-  t.isStringLiteral(node) ||
-  t.isNumericLiteral(node) ||
-  t.isBooleanLiteral(node) ||
-  t.isNullLiteral(node);
+const freshCacheReplacement = (
+  node: t.Node,
+  facts: WeakMap<t.Node, boolean>,
+): boolean => {
+  const pending: { readonly node: t.Node; readonly finish: boolean }[] = [
+    { node, finish: false },
+  ];
+  while (pending.length > 0) {
+    const current = pending.pop();
+    if (current === undefined || facts.has(current.node)) continue;
+    const expression = unwrapJavaScriptExpression(current.node).node;
+    if (expression !== current.node && facts.has(expression)) {
+      facts.set(current.node, facts.get(expression) ?? false);
+      continue;
+    }
+    if (
+      t.isFunction(expression) ||
+      t.isStringLiteral(expression) ||
+      t.isNumericLiteral(expression) ||
+      t.isBooleanLiteral(expression) ||
+      t.isNullLiteral(expression) ||
+      t.isRegExpLiteral(expression)
+    ) {
+      facts.set(current.node, true);
+      facts.set(expression, true);
+      continue;
+    }
+    if (!t.isArrayExpression(expression) && !t.isObjectExpression(expression)) {
+      facts.set(current.node, false);
+      facts.set(expression, false);
+      continue;
+    }
+    if (!current.finish) {
+      pending.push({ node: current.node, finish: true });
+      for (const child of freshContainerValues(expression))
+        if (!facts.has(child)) pending.push({ node: child, finish: false });
+      continue;
+    }
+    const fresh = freshContainerValues(expression).every(
+      (child) => facts.get(child) === true,
+    );
+    facts.set(current.node, fresh);
+    facts.set(expression, fresh);
+  }
+  return facts.get(node) === true;
+};
+
+const freshContainerValues = (
+  node: t.ArrayExpression | t.ObjectExpression,
+): readonly t.Node[] =>
+  t.isArrayExpression(node)
+    ? node.elements.flatMap((element) =>
+        element === null
+          ? []
+          : [t.isSpreadElement(element) ? element.argument : element],
+      )
+    : node.properties.flatMap((property) =>
+        t.isSpreadElement(property)
+          ? [property.argument]
+          : t.isObjectProperty(property)
+            ? [property.value]
+            : [],
+      );
 
 /** Read later literal spread keys once; unknown keys never prove lost ownership. */
 const spreadCacheFact = (
   node: t.Node,
   facts: WeakMap<t.Node, SpreadCacheFact>,
+  freshFacts: WeakMap<t.Node, boolean>,
 ): SpreadCacheFact => {
   const pending = [{ node, finish: false }];
   while (pending.length > 0) {
@@ -339,7 +405,7 @@ const spreadCacheFact = (
     if (!t.isObjectExpression(current.node)) {
       facts.set(
         current.node,
-        freshCacheReplacement(current.node) ? "absent" : "possible",
+        freshCacheReplacement(current.node, freshFacts) ? "absent" : "possible",
       );
       continue;
     }
@@ -366,7 +432,7 @@ const spreadCacheFact = (
         if (key === "f") {
           result =
             t.isObjectProperty(property) &&
-            freshCacheReplacement(property.value)
+            freshCacheReplacement(property.value, freshFacts)
               ? "fresh"
               : "possible";
           break;

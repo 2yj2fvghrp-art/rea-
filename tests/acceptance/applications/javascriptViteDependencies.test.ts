@@ -36,6 +36,15 @@ const babelEs5 = String.raw`var __vite__mapDeps = function (i) {
 };
 __vite__mapDeps([0, 1, 2]);`;
 
+const typescriptEs5 = String.raw`var __vite__mapDeps = function (i, m, d) {
+  if (m === void 0) m = __vite__mapDeps;
+  if (d === void 0) d = m.f || (m.f = ["./caf\u00e9.js", './nested\/dep.js', "./bracket].js"]);
+  return i.map(function (i) {
+    return d[i];
+  });
+};
+__vite__mapDeps([0, 1, 2]);`;
+
 const scenarios = [
   {
     file: "escaped.js",
@@ -43,6 +52,12 @@ const scenarios = [
       String.raw`["./caf\u00e9.js", './nested\/dep.js', "./bracket].js"]`,
       "[0, 1, 2]",
     ),
+    resolved: ["café.js", "nested/dep.js", "bracket].js"],
+    unknown: false,
+  },
+  {
+    file: "typescript-es5.js",
+    source: typescriptEs5,
     resolved: ["café.js", "nested/dep.js", "bracket].js"],
     unknown: false,
   },
@@ -352,6 +367,23 @@ const scenarios = [
       file: "spread-overridden-child.js",
       mutation:
         '__vite__mapDeps([0]); const copy = {...__vite__mapDeps, f: []}; copy.f[0] = "./last.js";',
+      kept: true,
+    },
+    {
+      file: "nested-cache-array-write.js",
+      mutation:
+        '__vite__mapDeps([0]); const copy = {...__vite__mapDeps, ...{f: [__vite__mapDeps.f]}}; copy.f[0][0] = "./last.js";',
+    },
+    {
+      file: "regexp-override.js",
+      mutation:
+        "__vite__mapDeps([0]); const copy = {...__vite__mapDeps, f: /x/g}; copy.f.lastIndex = 1;",
+      kept: true,
+    },
+    {
+      file: "nested-fresh-array-write.js",
+      mutation:
+        '__vite__mapDeps([0]); const copy = {...__vite__mapDeps, ...{f: [["./other.js"]]}}; copy.f[0][0] = "./last.js";',
       kept: true,
     },
     {
