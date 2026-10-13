@@ -121,12 +121,50 @@ describe("Windows Job Object memory limits", () => {
     });
 
     try {
-      await vi.advanceTimersByTimeAsync(50);
+      await vi.advanceTimersByTimeAsync(300);
       expect(closed).toBe(true);
       expect(
         calls.filter(({ operation }) => operation === "process_poll"),
       ).toHaveLength(2);
       expect(calls.at(-1)?.operation).toBe("process_close");
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
+  it("bounds repeated poll failures while retaining the job for explicit cleanup retry", async () => {
+    vi.useFakeTimers();
+    const original = authority({
+      polls: [
+        new Error("persistent"),
+        new Error("persistent"),
+        new Error("persistent"),
+        settledPoll,
+      ],
+    });
+    const native: WindowsNativeAuthority = {
+      ...original.native,
+      call: (operation, arguments_) =>
+        operation === "process_terminate"
+          ? true
+          : original.native.call(operation, arguments_),
+    };
+    const child = launch(native);
+    try {
+      await vi.advanceTimersByTimeAsync(2_000);
+      expect(
+        original.calls.filter(({ operation }) => operation === "process_poll"),
+      ).toHaveLength(3);
+      expect(
+        original.calls.some(({ operation }) => operation === "process_close"),
+      ).toBe(false);
+      expect(vi.getTimerCount()).toBe(0);
+      const closing = child.cleanup();
+      await vi.advanceTimersByTimeAsync(25);
+      expect(await closing).toEqual({ cleaned: true, signaled: true });
+      expect(
+        original.calls.filter(({ operation }) => operation === "process_close"),
+      ).toHaveLength(1);
     } finally {
       vi.useRealTimers();
     }

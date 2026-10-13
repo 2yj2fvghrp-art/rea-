@@ -19,7 +19,7 @@ const triggerDescendantOutput = (port: number): void => {
 const startDebuggerWithInferior = (inferiorSource: string) => {
   const debuggerSource = [
     'const { spawn } = require("node:child_process");',
-    `spawn(process.execPath, ["-e", ${JSON.stringify(inferiorSource)}], { stdio: "inherit" });`,
+    `spawn(process.execPath, ["-e", ${JSON.stringify("setTimeout(() => process.exit(124), 10000);\n" + inferiorSource)}], { stdio: "inherit" });`,
     "process.exit(0);",
   ].join("\n");
   const child = spawn(process.execPath, ["-e", debuggerSource], {
@@ -30,13 +30,29 @@ const startDebuggerWithInferior = (inferiorSource: string) => {
     ownsProcessLifetime: true,
   });
   let readyOutput = "";
-  const inferiorPort = new Promise<number>((resolvePort) => {
+  const inferiorPort = new Promise<number>((resolvePort, rejectPort) => {
+    const timeout = setTimeout(
+      () => rejectPort(new Error("inferior did not report readiness")),
+      2_000,
+    );
+    const rejectReadiness = (cause: Error) => {
+      clearTimeout(timeout);
+      rejectPort(cause);
+    };
+    child.once("error", rejectReadiness);
+    child.stdout?.once("close", () =>
+      rejectReadiness(new Error("inferior output closed before readiness")),
+    );
     child.stdout?.on("data", (chunk: Buffer | string) => {
       readyOutput += chunk.toString();
       const match = /^ready:(\d+)$/mu.exec(readyOutput);
-      if (match !== null) resolvePort(Number(match[1]));
+      if (match !== null) {
+        clearTimeout(timeout);
+        resolvePort(Number(match[1]));
+      }
     });
   });
+  void inferiorPort.catch(() => undefined);
   return { child, supervisor, inferiorPort };
 };
 
@@ -724,6 +740,7 @@ it.skipIf(process.platform === "win32")(
       );
     } finally {
       if (port !== undefined) triggerDescendantOutput(port);
+      expect(await supervisor.waitForOutputClose(11_000)).toBe(true);
       supervisor.dispose();
     }
   },
@@ -799,6 +816,7 @@ it.skipIf(process.platform === "win32")(
       }
       if (child.exitCode === null && child.signalCode === null)
         child.kill("SIGKILL");
+      expect(await supervisor.waitForOutputClose(11_000)).toBe(true);
       supervisor.dispose();
     }
   },
@@ -946,11 +964,13 @@ it.skipIf(process.platform === "win32")(
     );
     let probeOutput = "";
     let debuggerPid: number | undefined;
+    let probeStderr = "";
     probe.stdout.on("data", (chunk) => {
       probeOutput += chunk.toString();
     });
     probe.stderr.on("data", (chunk: Buffer) => {
-      const match = /^debugger-pid=(\d+)$/mu.exec(chunk.toString());
+      probeStderr += chunk.toString();
+      const match = /^debugger-pid=(\d+)$/mu.exec(probeStderr);
       if (match?.[1] !== undefined) debuggerPid = Number(match[1]);
     });
     let inferiorPid: number | undefined;
@@ -961,9 +981,8 @@ it.skipIf(process.platform === "win32")(
           () => reject(new Error("probe did not report debugger stop")),
           10_000,
         );
-        const onData = (chunk: Buffer | string): void => {
-          const text = chunk.toString();
-          const line = text.match(
+        const onData = (): void => {
+          const line = probeOutput.match(
             /\{"pid":\d+,"result":\{"status":"stopped"\}\}/u,
           );
           if (line !== null) {

@@ -66,6 +66,7 @@ export class WindowsOwnedProcess extends EventEmitter {
   #settle: (() => void) | undefined;
   #closed = false;
   #failure: string | undefined;
+  #consecutivePollFailures = 0;
   #timer: NodeJS.Timeout | undefined;
   #cleanup: Promise<ProcessCleanupResult> | undefined;
   readonly #memoryLimitBytes: number | undefined;
@@ -227,6 +228,7 @@ export class WindowsOwnedProcess extends EventEmitter {
     let timer: NodeJS.Timeout | undefined;
     try {
       const signaled = this.kill();
+      this.#consecutivePollFailures = 0;
       this.#schedule();
       const settled = await Promise.race([
         this.#settled.then(() => true),
@@ -252,9 +254,10 @@ export class WindowsOwnedProcess extends EventEmitter {
     }
   }
 
-  #schedule(): void {
+  #schedule(delayMs = 25): void {
     if (this.#closed || this.#timer !== undefined) return;
-    this.#timer = setTimeout(() => this.#poll(), 25);
+    this.#timer = setTimeout(() => this.#poll(), delayMs);
+    if (this.#consecutivePollFailures > 0) this.#timer.unref();
   }
 
   #poll(): void {
@@ -275,6 +278,7 @@ export class WindowsOwnedProcess extends EventEmitter {
         state = limited;
       }
       this.#failure = undefined;
+      this.#consecutivePollFailures = 0;
       if (state.stdout.length > 0) this.stdout.write(state.stdout);
       if (state.stderr.length > 0) this.stderr.write(state.stderr);
       if (state.exitCode !== null && this.exitCode === null) {
@@ -295,9 +299,10 @@ export class WindowsOwnedProcess extends EventEmitter {
       // Native lifecycle failures belong to the error/cleanup channels, never
       // the captured stderr observation produced by the child itself.
       if (this.listenerCount("error") > 0) this.emit("error", failure);
-      // Keep the retained job observable so a transient poll failure cannot
-      // let owner shutdown close a live inferior's kill-on-close Job Object.
-      this.#schedule();
+      // Retain the Job Object through bounded recovery; an explicit cleanup
+      // retry restarts observation after persistent native failures.
+      if (++this.#consecutivePollFailures < 3)
+        this.#schedule(250 * 2 ** (this.#consecutivePollFailures - 1));
     }
   }
 
