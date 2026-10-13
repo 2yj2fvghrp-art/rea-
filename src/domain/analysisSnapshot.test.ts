@@ -52,7 +52,7 @@ const snapshotWithHistoricalEvidence = () => {
   };
   return {
     current,
-    snapshot: {
+    snapshot: analysisSnapshotSchema.parse({
       target,
       binding,
       entries: [entry],
@@ -66,7 +66,7 @@ const snapshotWithHistoricalEvidence = () => {
           result: { summary: "unprofiled" },
         }),
       ]),
-    } satisfies AnalysisSnapshot,
+    }),
   };
 };
 
@@ -138,6 +138,48 @@ describe("analysis snapshot target identity", () => {
     expect(snapshotTarget(ANALYSIS_SNAPSHOT_TARGET)).not.toHaveProperty(
       "entry_point",
     );
+  });
+});
+
+describe("analysis snapshot nested subject contract", () => {
+  it("rejects raw-only 6502 in nested detected execution subjects", () => {
+    const { snapshot } = snapshotWithHistoricalEvidence();
+    const entry = snapshot.entries[0];
+    if (entry === undefined) throw new Error("Fixture has no snapshot entry");
+    const malformedSubject = {
+      ...entry.execution.subject,
+      format: "pe",
+      architecture: "6502",
+    };
+    expect(
+      analysisSnapshotSchema.safeParse({
+        ...snapshot,
+        entries: [
+          {
+            ...entry,
+            execution: {
+              ...entry.execution,
+              subject: malformedSubject,
+            },
+          },
+        ],
+      }).success,
+    ).toBe(false);
+    expect(
+      analysisSnapshotSchema.safeParse({
+        ...snapshot,
+        workflow_entries: [
+          {
+            ...entry,
+            execution: {
+              ...entry.execution,
+              analysis_profile: snapshot.binding.analysis_profile,
+              subject: malformedSubject,
+            },
+          },
+        ],
+      }).success,
+    ).toBe(false);
   });
 });
 

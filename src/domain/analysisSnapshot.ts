@@ -76,20 +76,30 @@ const formatSchema = z.enum([
   "source-map",
 ]);
 const kindSchema = z.enum(["executable", "database", "archive", "artifact"]);
-const subjectSchema = z.object({
+const subjectBaseSchema = z.object({
   path: localPathStringSchema,
   sha256: digestSchema,
-  format: z.enum([
-    ...formatSchema.options,
-    "hopper",
-    "directory",
-    "file",
-    "unknown",
-    "javascript-bundle",
-    "entitlements",
-  ]),
-  architecture: architectureSchema.nullable(),
 });
+const subjectFormatSchema = z.enum([
+  ...formatSchema.options,
+  "hopper",
+  "directory",
+  "file",
+  "unknown",
+  "javascript-bundle",
+  "entitlements",
+]);
+// Snapshot entries retain the same raw-only architecture boundary as targets.
+const subjectSchema = z.discriminatedUnion("format", [
+  subjectBaseSchema.extend({
+    format: subjectFormatSchema.exclude(["raw-binary"]),
+    architecture: architectureSchema.exclude(["6502"]).nullable(),
+  }),
+  subjectBaseSchema.extend({
+    format: z.literal("raw-binary"),
+    architecture: architectureSchema.nullable(),
+  }),
+]);
 const targetIdentitySchema = z.object({
   sha256: digestSchema,
   kind: kindSchema,
@@ -484,10 +494,10 @@ export const createAnalysisSnapshotWorkflowEntry = (input: {
       subject:
         execution.subject === null
           ? null
-          : {
+          : subjectSchema.parse({
               ...execution.subject,
               architecture: execution.subject.architecture ?? null,
-            },
+            }),
     },
   };
 };
@@ -547,10 +557,10 @@ export const createAnalysisSnapshotEntry = (input: {
       subject:
         execution.subject === null
           ? null
-          : {
+          : subjectSchema.parse({
               ...execution.subject,
               architecture: execution.subject.architecture ?? null,
-            },
+            }),
     },
   };
 };
