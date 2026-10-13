@@ -2,6 +2,8 @@ import { z } from "zod";
 import { digestSchema } from "../digests.js";
 import { localPathStringSchema } from "../localPath.js";
 
+export const RUST_AUDITABLE_FORMAT_VERSION = 1;
+
 const index = z.number().int().nonnegative();
 const rustcHash = z.string().regex(/^[0-9a-f]{40}$/u);
 
@@ -27,7 +29,7 @@ export const rustAuditableMetadataSchema = z.strictObject({
   section_bytes: z.number().int().positive(),
   compressed_bytes: z.number().int().positive(),
   uncompressed_bytes: z.number().int().positive(),
-  format_version: index.nullable(),
+  format_version: z.literal(RUST_AUDITABLE_FORMAT_VERSION).nullable(),
   packages: z.array(rustPackageSchema),
   root_package_index: index.nullable(),
   dependency_edges: z.array(dependencyEdgeSchema),
@@ -122,7 +124,18 @@ const checkPackages = (
     number,
     z.infer<typeof dependencyEdgeSchema>[]
   >();
-  for (const edge of metadata.dependency_edges) {
+  for (const [position, edge] of metadata.dependency_edges.entries()) {
+    if (
+      edge.from_index >= metadata.packages.length ||
+      edge.to_index >= metadata.packages.length
+    ) {
+      issue(
+        context,
+        ["auditable_metadata", "dependency_edges", position],
+        "Dependency edge index is outside the package list.",
+      );
+      continue;
+    }
     const grouped = edgesByPackage.get(edge.from_index);
     if (grouped === undefined) edgesByPackage.set(edge.from_index, [edge]);
     else grouped.push(edge);

@@ -93,3 +93,23 @@ it("records the selected artifact and the dependency section range", async () =>
   expect(invalid.ok).toBe(false);
   if (!invalid.ok) expect(invalid.error).toBeInstanceOf(AnalysisOutputError);
 });
+
+it.each([
+  { from_index: 1, to_index: 0 },
+  { from_index: 0, to_index: 1 },
+])("rejects provider edges referencing missing packages: %j", async (edge) => {
+  if (report.auditable_metadata === null) throw new Error("expected metadata");
+  const invalidReport: RustBinary = {
+    ...report,
+    auditable_metadata: {
+      ...report.auditable_metadata,
+      dependency_edges: [edge],
+    },
+  };
+  const result = await new RustBinaryService({
+    identity,
+    inspect: () => Promise.resolve(ok(invalidReport)),
+  }).inspect({ path: report.artifact.path });
+  expect(result.ok).toBe(false);
+  if (!result.ok) expect(result.error).toBeInstanceOf(AnalysisOutputError);
+});

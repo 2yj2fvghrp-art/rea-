@@ -152,3 +152,16 @@ it("stops an inflate that exceeds the section ratio", () => {
     readAuditableSection(".dep-v0", 0, Buffer.alloc(RUST_SECTION_BYTES + 1)),
   ).toThrow(/1 MiB/);
 });
+
+it.each([[], [{ future_package_field: true }]])(
+  "rejects an unknown format before interpreting its packages: %j",
+  (packages) => {
+    expect(() => section({ format: 99, packages })).toThrow(
+      expect.objectContaining({
+        name: "RustAuditableFormatFailure",
+        kind: "unsupported",
+        message: "Unsupported cargo-auditable format version 99",
+      }),
+    );
+  },
+);

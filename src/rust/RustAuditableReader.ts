@@ -1,8 +1,9 @@
 import { deflateSync, inflateSync } from "node:zlib";
 import { z } from "zod";
-import type {
-  RustAuditableMetadata,
-  RustPackage,
+import {
+  RUST_AUDITABLE_FORMAT_VERSION,
+  type RustAuditableMetadata,
+  type RustPackage,
 } from "../domain/rust/rustBinary.js";
 
 /** Selected-file admission limit shared with the stable artifact reader. */
@@ -25,10 +26,15 @@ const packageSchema = z.strictObject({
   dependencies: z.array(z.number().int().nonnegative()).optional(),
   root: z.boolean().optional(),
 });
-const documentSchema = z.strictObject({
-  packages: z.array(packageSchema),
+const documentVersionSchema = z.object({
   format: z.number().int().nonnegative().optional(),
 });
+const documentSchema = documentVersionSchema
+  .extend({
+    format: z.literal(RUST_AUDITABLE_FORMAT_VERSION).optional(),
+    packages: z.array(packageSchema),
+  })
+  .strict();
 
 /** Malformed or unsupported dependency-section bytes. */
 export class RustAuditableFormatFailure extends Error {
@@ -207,6 +213,21 @@ const parseDocument = (bytes: Buffer): z.infer<typeof documentSchema> => {
       { cause },
     );
   }
+  const version = documentVersionSchema.safeParse(value);
+  if (!version.success)
+    throw new RustAuditableFormatFailure(
+      "malformed",
+      "Dependency JSON does not match the format schema",
+      { cause: version.error },
+    );
+  if (
+    version.data.format !== undefined &&
+    version.data.format !== RUST_AUDITABLE_FORMAT_VERSION
+  )
+    throw new RustAuditableFormatFailure(
+      "unsupported",
+      `Unsupported cargo-auditable format version ${version.data.format}`,
+    );
   const parsed = documentSchema.safeParse(value);
   if (!parsed.success)
     throw new RustAuditableFormatFailure(
