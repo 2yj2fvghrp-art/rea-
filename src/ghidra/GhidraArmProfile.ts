@@ -96,6 +96,17 @@ export const ghidraArmUnsupportedReason = (
   return null;
 };
 
+/** Derive the admitted ARM import language from target facts, independently of a committed profile. */
+export const ghidraArmLanguageOverride = (
+  target: BinaryTarget,
+): GhidraLanguageOverride | undefined =>
+  target.kind === "executable" &&
+  target.format === "elf" &&
+  target.architecture === "arm" &&
+  ghidraArmUnsupportedReason(target) === null
+    ? { languageId: "ARM:LE:32:v7", compilerSpecId: "default" }
+    : undefined;
+
 /** Commit source ELF interpretation without confusing target ISA with host CPU. */
 export const ghidraArmProfileParameters = (
   target: BinaryTarget,
@@ -108,6 +119,7 @@ export const ghidraArmProfileParameters = (
     target.arm === undefined
   )
     return {};
+  const pinnedLanguage = ghidraArmLanguageOverride(target);
   // A deliberate caller-selected language wins over the provider pin; the pin
   // exists because header auto-selection misselects for interworked images.
   return {
@@ -128,10 +140,10 @@ export const ghidraArmProfileParameters = (
             : "unspecified",
     },
     arm_support_lane: "elf32-exec-le-eabi5-v7-pinned-v1",
-    ...(languageOverride === undefined
+    ...(languageOverride === undefined && pinnedLanguage !== undefined
       ? {
-          language_id: "ARM:LE:32:v7",
-          compiler_spec_id: "default",
+          language_id: pinnedLanguage.languageId,
+          compiler_spec_id: pinnedLanguage.compilerSpecId ?? "default",
           language_selection: "provider-pinned-v1",
         }
       : {}),

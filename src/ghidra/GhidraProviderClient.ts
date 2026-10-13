@@ -20,7 +20,11 @@ import {
   sameGhidraDisabledAnalyzers,
   sameGhidraLanguageOverride,
 } from "./GhidraAnalysisProfile.js";
-import { ghidraPinnedArmLanguage } from "./GhidraArmProfile.js";
+import {
+  ghidraArmLanguageOverride,
+  ghidraPinnedArmLanguage,
+} from "./GhidraArmProfile.js";
+import { ghidraPinnedMipsLanguage } from "./GhidraMipsProfile.js";
 import type { AnalysisProfileCommitment } from "../domain/analysisProfile.js";
 import type { BinaryTarget } from "../domain/binaryTargetTypes.js";
 import {
@@ -78,10 +82,7 @@ import {
   parseNativeAotPe,
   type NativeAotPeResult,
 } from "../domain/native/nativeAotPe.js";
-import {
-  ABORTED,
-  waitForAbortable,
-} from "../application/binary/AbortablePromise.js";
+import { ABORTED, waitForAbortable } from "../process/AbortablePromise.js";
 import { nativeLoadImageObservationSchema } from "../domain/native/nativeLoadImage.js";
 import {
   GHIDRA_PROVIDER_IDENTITY,
@@ -91,7 +92,10 @@ import {
   relationshipCoverageFor,
 } from "./GhidraProviderCapabilities.js";
 import type { GhidraSessionError } from "./GhidraSessionError.js";
-import type { GhidraSessionInfo } from "./GhidraSessionValues.js";
+import {
+  ghidraPdbLimitations,
+  type GhidraSessionInfo,
+} from "./GhidraSessionValues.js";
 import { ghidraExtensionFailure } from "./extensions/GhidraExtensionFailures.js";
 import {
   ghidraExtensionSchema,
@@ -453,32 +457,41 @@ export const createGhidraProviderClient = (input: {
   const parameterLanguage = ghidraProfileLanguageOverride(
     committedProfile.parameters,
   );
-  const pinnedLanguage = ghidraPinnedArmLanguage(committedProfile.parameters);
-  // The parameter slots carry provider-pinned languages through the same
-  // field caller-configured profiles use; the pin itself is not a caller
-  // override.
-  const languageOverride =
-    pinnedLanguage !== undefined &&
-    sameGhidraLanguageOverride(parameterLanguage, pinnedLanguage)
-      ? undefined
-      : parameterLanguage;
+  const pinnedArmLanguage = ghidraPinnedArmLanguage(
+    committedProfile.parameters,
+  );
+  const pinnedLanguage =
+    pinnedArmLanguage ?? ghidraPinnedMipsLanguage(committedProfile.parameters);
+  const targetLanguage =
+    ghidraPinnedLanguage(target) ?? ghidraArmLanguageOverride(target);
+  if (pinnedLanguage !== undefined && targetLanguage === undefined)
+    return unavailableClient(
+      new ProviderAdapterError("ghidra", "open_binary", {
+        diagnostics: {
+          reason:
+            "The committed profile pins a processor language that the current target does not establish; reopen an admitted target to resolve a new profile.",
+        },
+      }),
+    );
+  // Provider-pinned profiles declare their language through the same
+  // parameter slot caller-configured profiles use, so only an environment
+  // override conflicts with the legacy pin; the slot itself carries it.
   if (
     pinnedLanguage !== undefined &&
-    (languageOverride !== undefined ||
-      config.ghidraLanguageOverride !== undefined)
+    config.ghidraLanguageOverride !== undefined
   )
     return unavailableClient(
       new ProviderAdapterError("ghidra", "open_binary", {
         diagnostics: {
           reason:
-            "The committed ARM profile pins its import language; REA_GHIDRA_LANGUAGE_ID/REA_GHIDRA_COMPILER_SPEC_ID cannot be combined with it. Reopen the target without the override.",
+            "The committed provider profile pins its import language; REA_GHIDRA_LANGUAGE_ID/REA_GHIDRA_COMPILER_SPEC_ID cannot be combined with it. Reopen the target without the override.",
         },
       }),
     );
   if (
     !sameGhidraLanguageOverride(
-      languageOverride,
-      config.ghidraLanguageOverride ?? ghidraPinnedLanguage(target),
+      parameterLanguage,
+      config.ghidraLanguageOverride ?? targetLanguage,
     )
   )
     return unavailableClient(
@@ -489,9 +502,9 @@ export const createGhidraProviderClient = (input: {
         },
       }),
     );
-  // Import language: a caller-selected override wins; a provider-pinned ARM
-  // profile supplies its own because header auto-selection misselects.
-  const importLanguage = languageOverride ?? pinnedLanguage;
+  // Both caller-selected and provider-pinned languages use the validated
+  // committed slot; the profile cannot supply its own applicability proof.
+  const importLanguage = parameterLanguage;
   const disabledAnalyzers = ghidraProfileDisabledAnalyzers(
     committedProfile.parameters,
   );
@@ -525,6 +538,7 @@ export const createGhidraProviderClient = (input: {
   let extensionFailure: AnalysisError | undefined;
   // Replaced by the reported outcome once the session handshake is checked.
   const seedLimitations: string[] = [...ghidraSeedLimitations(seeds)];
+  const pdbLimitations: string[] = [];
   // Replaced by the reported storage outcome once the handshake is checked.
   const softFloatLimitations: string[] = [
     ...ghidraMipsSoftFloatLimitations(softFloat),
@@ -550,9 +564,7 @@ export const createGhidraProviderClient = (input: {
     ...(target.kind === "executable" && target.architecture === "mips"
       ? (target.mips.limitations ?? [])
       : []),
-    // The pinned-language statement describes the provider pin, which a
-    // caller-selected override replaces; it stays out of those sessions.
-    ...(pinnedLanguage === undefined
+    ...(pinnedArmLanguage === undefined
       ? []
       : [
           "The ARM lane pins the ARM:LE:32:v7 import language and checks it after import; Ghidra header auto-selection is not used for this admission.",
@@ -562,6 +574,13 @@ export const createGhidraProviderClient = (input: {
     target.format === "elf"
       ? [
           "ARM and Thumb-2 interworking is analyzed per instruction set state; the ELF float ABI declaration does not change the modeled calling convention.",
+        ]
+      : []),
+    ...(committedProfile.parameters.mips_abi_basis ===
+    "inferred-o32-assumption-v1"
+      ? [
+          "The ELF header declares no ABI field and no ABI flags record was observed; o32 calling conventions are an analysis assumption of this lane, not a declared fact.",
+          "Floating-point ABI semantics are unverified for this recordless legacy admission.",
         ]
       : []),
     ...ghidraMipsRelocatableLimitations(target),
@@ -653,10 +672,16 @@ export const createGhidraProviderClient = (input: {
     ...(context === undefined ? {} : { runId: context.runId }),
     logger: logger.child({ layer: "ghidra-bridge" }),
   });
-  const checkExtensions = async (
+  const checkSessionObservations = async (
     operation: AnalysisOperation,
     info: GhidraSessionInfo,
   ): Promise<AnalysisError | undefined> => {
+    if (target.format === "pe")
+      pdbLimitations.splice(
+        0,
+        pdbLimitations.length,
+        ...ghidraPdbLimitations(info.pdb),
+      );
     const softFloatReason = ghidraMipsSoftFloatFailure(
       softFloat,
       info.mips_soft_float_storage,
@@ -708,6 +733,7 @@ export const createGhidraProviderClient = (input: {
     ...softFloatLimitations,
     ...ghidraExtensionLimitations(extensions),
     ...seedLimitations,
+    ...pdbLimitations,
     ...(releaseLimitation === undefined ? [] : [releaseLimitation]),
   ];
   const nativeAotOwner =
@@ -779,7 +805,7 @@ export const createGhidraProviderClient = (input: {
               config.ghidraStartupTimeoutMs,
             ),
           );
-        const failed = await checkExtensions(operation, started.value);
+        const failed = await checkSessionObservations(operation, started.value);
         if (failed !== undefined) return err(failed);
         return ok(
           createAnalysisExecution(started.value, committedProfile.provider, {
@@ -792,7 +818,12 @@ export const createGhidraProviderClient = (input: {
         ? parseGhidraFunctionInput(operation, parameters)
         : parseGhidraInventoryInput(operation, parameters);
       if (!input.ok) return input;
-      if (extensions.length > 0 || seeds !== undefined || softFloat) {
+      if (
+        target.format === "pe" ||
+        extensions.length > 0 ||
+        seeds !== undefined ||
+        softFloat
+      ) {
         const started = await client.start(options?.signal, options?.progress);
         if (!started.ok)
           return err(
@@ -802,7 +833,7 @@ export const createGhidraProviderClient = (input: {
               config.ghidraStartupTimeoutMs,
             ),
           );
-        const failed = await checkExtensions(operation, started.value);
+        const failed = await checkSessionObservations(operation, started.value);
         if (failed !== undefined) return err(failed);
       }
       const called = await client.callTool(operation, input.value, {

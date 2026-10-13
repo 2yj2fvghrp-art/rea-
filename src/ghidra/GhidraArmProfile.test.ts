@@ -11,8 +11,10 @@ import { silentLogger } from "../logger.js";
 import { GhidraProvider } from "./GhidraProvider.js";
 import {
   ghidraArmProfileParameters,
+  ghidraArmLanguageOverride,
   ghidraPinnedArmLanguage,
 } from "./GhidraArmProfile.js";
+import { ghidraPinnedMipsLanguage } from "./GhidraMipsProfile.js";
 import type { GhidraInstallationHost } from "./GhidraInstallation.js";
 import type { GhidraClientOptions } from "./GhidraClientTypes.js";
 import type { GhidraHeadlessLauncher } from "./GhidraLauncher.js";
@@ -243,4 +245,23 @@ describe("Ghidra ARM client import wiring", () => {
       }
     },
   );
+});
+
+it("derives ARM pin applicability from target facts and keeps MIPS pin ownership separate", () => {
+  const admitted = target();
+  const armProfile = ghidraArmProfileParameters(admitted);
+  expect(ghidraArmLanguageOverride(admitted)).toEqual({
+    languageId: "ARM:LE:32:v7",
+    compilerSpecId: "default",
+  });
+  expect(ghidraArmLanguageOverride(target({ cpuArch: 14 }))).toBeUndefined();
+  expect(ghidraPinnedMipsLanguage(armProfile)).toBeUndefined();
+  expect(
+    ghidraPinnedArmLanguage({
+      language_selection: "provider-pinned-v1",
+      mips_support_lane: "elf32-exec-arch32-legacy-pinned-v1",
+      language_id: "MIPS:LE:32:default",
+      compiler_spec_id: "default",
+    }),
+  ).toBeUndefined();
 });
