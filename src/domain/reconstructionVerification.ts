@@ -294,22 +294,10 @@ const comparisonObservation = (
     );
     if (dimension === undefined)
       throw new TypeError("Function comparison dimension missing");
-    if (
-      dimension.evidence_links.some(
-        (id) => !evidence.evidence_links.includes(id),
-      )
-    )
-      throw new TypeError(
-        "Function dimension cites Evidence outside comparison closure",
-      );
     return { status: dimension.status, limitations: dimension.limitations };
   }
   const result = artifactComparisonResultSchema.parse(
     evidence.normalized_result,
-  );
-  assertComparisonFindingLinks(
-    evidence,
-    result.changes.flatMap(({ evidence_links }) => evidence_links),
   );
   assertComparisonFindingLinks(
     evidence,
@@ -379,12 +367,12 @@ const authorityLimitations = (
 const sourceCallCoverageLimitations = (
   claim: Claim,
   functionSources: readonly FunctionSourceFacts[],
-  observed: ObservedStatus,
+  hasIndependentFunctionChange: boolean,
 ): string[] => {
   if (
     claim.kind !== "structural-function" ||
     (claim.dimension !== "calls" &&
-      !(claim.dimension === "overall" && observed !== "changed"))
+      !(claim.dimension === "overall" && !hasIndependentFunctionChange))
   )
     return [];
   return functionSources.flatMap(({ evidence_id, callCoverageLimitations }) =>
