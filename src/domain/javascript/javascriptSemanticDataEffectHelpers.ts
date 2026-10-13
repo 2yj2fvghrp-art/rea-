@@ -617,9 +617,14 @@ const computeOriginalBuiltinReceiver = (
   const receiver = t.isIdentifier(callee.object)
     ? resolveSemanticBindingState(state, callee.object, callee.object.name)
     : undefined;
-  const evaluatedReceiver = evaluateSemanticExpression(callee.object, state);
+  const evaluatedReceiver =
+    receiver === undefined &&
+    (t.isMemberExpression(callee.object) ||
+      t.isOptionalMemberExpression(callee.object))
+      ? evaluateSemanticExpression(callee.object, state)
+      : undefined;
   const provenance =
-    evaluatedReceiver.status === "module"
+    evaluatedReceiver?.status === "module"
       ? evaluatedReceiver
       : receiver === undefined
         ? undefined
