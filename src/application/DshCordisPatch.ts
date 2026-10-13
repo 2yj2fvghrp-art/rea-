@@ -214,8 +214,12 @@ export class DshCordisDocument {
         new ConfigurationError("Cordis server environment must be a mapping"),
       );
     const literals: Record<string, string> = {};
+    const unresolvedSettings = new Set<string>();
     for (const [key, value] of Object.entries(raw ?? {})) {
-      if (value instanceof CordisExpression) continue;
+      if (value instanceof CordisExpression) {
+        if (overrides[key] === undefined) unresolvedSettings.add(key);
+        continue;
+      }
       if (typeof value !== "string")
         return err(
           new ConfigurationError("Invalid Cordis server environment", {
@@ -231,7 +235,7 @@ export class DshCordisDocument {
       literals[key] = value;
     }
     const environment = { ...literals, ...overrides };
-    const validated = parseEnvironment(environment);
+    const validated = parseEnvironment(environment, unresolvedSettings);
     return validated.ok ? ok(environment) : validated;
   }
 
