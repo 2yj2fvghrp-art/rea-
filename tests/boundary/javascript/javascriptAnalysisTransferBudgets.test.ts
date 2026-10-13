@@ -18,8 +18,13 @@ import {
 it("allows larger streamed transfers only with corresponding parent capacity", () => {
   const mib = 1024 * 1024;
   expect(javaScriptTransferByteBudget(0)).toBe(512 * mib);
-  expect(javaScriptTransferByteBudget(4096 * mib)).toBe(512 * mib);
-  expect(javaScriptTransferByteBudget(12288 * mib)).toBe(1536 * mib);
+  expect(javaScriptTransferByteBudget(4096 * mib)).toBe(
+    Math.floor((4096 * mib) / 5),
+  );
+  expect(javaScriptTransferByteBudget(8192 * mib)).toBe(
+    Math.floor((8192 * mib) / 5),
+  );
+  expect(javaScriptTransferByteBudget(12288 * mib)).toBe(2048 * mib);
   expect(javaScriptTransferByteBudget(32768 * mib)).toBe(2048 * mib);
 });
 

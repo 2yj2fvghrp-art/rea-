@@ -66,10 +66,12 @@ type Descriptor = z.output<typeof javaScriptAnalysisTransferDescriptorSchema>;
  * the measured transfer against 1.4 GB free; 4x admitted but undercounted
  * seal-time peak).
  */
+const TRANSFER_RETENTION_MULTIPLIER = 5;
+
 export const javaScriptTransferRetentionBytes = (
   bytes: number,
   records: number,
-): number => bytes * 5 + records * 64;
+): number => bytes * TRANSFER_RETENTION_MULTIPLIER + records * 64;
 
 /** Larger streamed files require corresponding parent admission capacity. */
 export const javaScriptTransferByteBudget = (
@@ -77,7 +79,10 @@ export const javaScriptTransferByteBudget = (
 ): number =>
   Math.min(
     MAX_TRANSFER_BYTES,
-    Math.max(TRANSFER_BYTES, Math.floor(resultBudgetBytes / 8)),
+    Math.max(
+      TRANSFER_BYTES,
+      Math.floor(resultBudgetBytes / TRANSFER_RETENTION_MULTIPLIER),
+    ),
   );
 
 const assertTransferByteBudget = (transferBytes: number): void => {
