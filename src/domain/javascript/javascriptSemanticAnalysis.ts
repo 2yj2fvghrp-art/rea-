@@ -946,11 +946,21 @@ const ambientNamespaceContext = (
 const globalAugmentationDeclaration = (
   node: t.Node,
   state: JavaScriptSemanticAnalysisState,
-): boolean =>
-  t.isTSModuleDeclaration(node) &&
-  node.declare === true &&
-  node.kind === "global" &&
-  t.isProgram(state.parentsByNode.get(node) ?? null);
+): boolean => {
+  if (!t.isTSModuleDeclaration(node) || node.kind !== "global") return false;
+  const parent = state.parentsByNode.get(node);
+  if (t.isProgram(parent)) return node.declare === true;
+  // An ambient module can nest a global augmentation without repeating
+  // `declare`; Babel then carries `declare` on the enclosing module only.
+  if (t.isTSModuleBlock(parent)) {
+    const moduleDeclaration = state.parentsByNode.get(parent);
+    return (
+      t.isTSModuleDeclaration(moduleDeclaration) &&
+      moduleDeclaration.declare === true
+    );
+  }
+  return false;
+};
 
 /**
  * Return the outer scope holding `declare global` members, creating it once
@@ -978,6 +988,22 @@ const globalAugmentationScope = (
   return outer;
 };
 
+const programScopeForGlobalAugmentation = (
+  scope: JavaScriptSemanticScopeState,
+  state: JavaScriptSemanticAnalysisState,
+): JavaScriptSemanticScopeState => {
+  let candidate: JavaScriptSemanticScopeState | undefined = scope;
+  while (candidate !== undefined && candidate.kind !== "program") {
+    candidate =
+      candidate.parentScopeId === null
+        ? undefined
+        : state.scopesById.get(candidate.parentScopeId);
+  }
+  return (
+    candidate ?? state.scopes.find(({ kind }) => kind === "program") ?? scope
+  );
+};
+
 const nestedScope = (
   node: t.Node,
   parent: t.Node | null,
@@ -1003,7 +1029,7 @@ const nestedScope = (
       // environment, outside the module scope, so file-local bindings
       // shadow them instead of merging with them.
       namespaceExportScopeId = globalAugmentationScope(
-        parentScope,
+        programScopeForGlobalAugmentation(parentScope, state),
         state,
       ).scopeId;
     } else {
