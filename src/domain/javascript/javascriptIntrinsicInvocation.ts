@@ -135,8 +135,12 @@ export const resolveJavaScriptIntrinsicInvocation = (
         : t.isMemberExpression(callee) || t.isOptionalMemberExpression(callee)
           ? callee.object
           : undefined;
-      // The callee resolves to an invocation member read but names no callable.
-      // An unexamined receiver is unknown effect, not proof of no write.
+      // The callee resolves to an invocation member read but names no
+      // callable, as when an identifier aliases `Object.defineProperty.call`
+      // and is invoked bare. Such a call throws TypeError when no callable
+      // receiver exists, which static analysis cannot prove. An unexamined
+      // receiver is unknown effect, neither proof of no write nor a
+      // confirmed write.
       if (!t.isExpression(callable))
         return { kind: "opaque", path, arguments: undefined };
       callee = callable;
