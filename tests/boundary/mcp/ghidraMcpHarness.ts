@@ -95,7 +95,7 @@ export const sessionEvidence = (session: BinarySession, value: unknown) => {
 const installationHost = (): GhidraInstallationHost => ({
   platform: "linux",
   architecture: "x64",
-  readText: () => "application.version=12.1.4\n",
+  readText: () => "application.version=12.1.4\napplication.java.min=21\n",
   executable: () => true,
   probeJava: () => ({
     version: "21.0.11",
@@ -263,6 +263,8 @@ const resultFor = (
 const functionObservationOperations: ReadonlySet<GhidraOperation> = new Set([
   "analyze_function",
   "procedure_assembly",
+  "procedure_callees",
+  "procedure_callers",
   "procedure_info",
   "procedure_pseudo_code",
   "read_function_instructions",

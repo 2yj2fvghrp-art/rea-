@@ -123,8 +123,8 @@ const ENHANCED_REQUIREMENTS: Readonly<
   analyze_function: ["analyze_function"],
   inspect_native_api: ["analyze_function"],
   trace_feature: [
-    "list_strings",
-    "list_procedures",
+    "search_strings",
+    "search_procedures",
     "xrefs",
     "resolve_containing_procedure",
   ],
@@ -143,6 +143,7 @@ const FRIDA_OPERATION_NAMES: ReadonlySet<string> = new Set(
 
 /** Native contracts defined only for an active Mach-O executable. */
 const MACHO_TARGET_OPERATIONS: ReadonlySet<string> = new Set([
+  "inspect_signature",
   "inspect_macho",
   "list_architectures",
   "observe_native_calls",
@@ -399,7 +400,7 @@ const workflowAvailabilityFor = ({
           remediation:
             "On Linux x64, set absolute REA_PWNTOOLS_PYTHON to caller-supplied Python with pwntools 4.15.0. No active binary target is required.",
         };
-  if (name === "inspect_packet_capture")
+  if (name === "inspect_packet_capture" || name === "inspect_packet_fields")
     return policy.packetCaptureEnabled === true
       ? { reason: "available", remediation: null }
       : {
@@ -407,7 +408,7 @@ const workflowAvailabilityFor = ({
           remediation:
             "On Linux, supply TShark 4.x via absolute REA_TSHARK_COMMAND and util-linux prlimit (REA_TSHARK_PRLIMIT_COMMAND, default /usr/bin/prlimit). No active binary target or hardware is required; the tool is checked at execution.",
         };
-  if (name === "decode_signal_recording")
+  if (name === "decode_signal_recording" || name === "inspect_signal_decoders")
     return policy.signalRecordingEnabled === true
       ? { reason: "available", remediation: null }
       : {

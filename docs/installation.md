@@ -57,6 +57,10 @@ Hopper installation or any file write. Declining or pressing Ctrl-C makes no
 changes. Agent configuration writes preserve unrelated entries and comments,
 create backups, use atomic replacement, and verify their result. Setup and
 uninstall retain an existing `.rea.backup` rather than replacing the first snapshot.
+If that snapshot differs from the current configuration, setup previews and
+preserves a verified `.rea.backup.<sha256>.recovery` copy of the current bytes.
+Both snapshots remain available; a failed rollback reports the current recovery
+copy's path and the restore failure.
 Setup also retains valid environment overrides in REA's existing server entry,
 such as `REA_MCP_INPUT_SCHEMA_PROFILE` and `REA_MCP_MAX_RESPONSE_BYTES`.
 Detected provider settings replace only matching environment keys.
@@ -279,6 +283,7 @@ hosted connector; see [its configuration](client-configuration.md#other-client-s
 | Pi                 | `pi`             |
 | Hermes             | `hermes`         |
 | Qoder              | `qoder`          |
+| Factory Droid      | `droid`          |
 | Trae               | `trae`           |
 | ZCode              | `zcode`          |
 | DeepSeek Harness   | `dsh`            |
@@ -508,7 +513,10 @@ and `set_addresses_names` name a function entry or any other mapped address
 session metadata edits leave executable bytes unchanged and are discarded on close. GUI controls
 require Hopper; Windows P0 remains read-only.
 
-Windows P0 admits native x86 and x86-64 PE applications and DLLs on fixed local NTFS volumes.
+Windows P0 admits native x86 and x86-64 PE applications and DLLs, plus explicitly
+selected [raw NMOS 6502 images](raw-binary.md#nmos-6502) with a caller-supplied
+entry at file offset 0, on fixed local NTFS volumes. Other raw CPU families remain
+unsupported on Windows.
 The npm package bundles native Job Object ownership, protected private runtime
 DACLs, and handle-based path admission; no separate addon installation is needed.
 See the [Windows Ghidra P0 guide](windows-ghidra-p0.md) for verified scope and
