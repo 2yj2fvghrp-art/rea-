@@ -1,4 +1,4 @@
-import { chmod, mkdir, realpath, writeFile } from "node:fs/promises";
+import { chmod, mkdir, realpath, symlink, writeFile } from "node:fs/promises";
 import { join } from "node:path";
 
 import { expect, it as test } from "vitest";
@@ -35,6 +35,70 @@ it("publishes REA_JADX_MCP_JAR as registration environment when the configured J
       },
     ],
   });
+});
+
+it("publishes JAVA_HOME alongside the JAR when the configured JAR validates", async () => {
+  const root = await createTestTempDirectory("rea-jadx-doctor-javahome-");
+  const jar = join(root, "jadx-headless-mcp.jar");
+  const javaHome = await createFakeJdk(root);
+  await writeJadxJarInventory(jar);
+
+  const inspection = await inspectJadxProvider({
+    REA_JADX_MCP_JAR: jar,
+    JAVA_HOME: javaHome,
+  });
+
+  expect(inspection.registrationEnvironment).toEqual({
+    REA_JADX_MCP_JAR: jar,
+    JAVA_HOME: javaHome,
+  });
+});
+
+it("preserves the caller-selected JAR path when it is a symlink", async () => {
+  const root = await createTestTempDirectory("rea-jadx-doctor-symlink-");
+  const jar = join(root, "jadx-headless-mcp.jar");
+  const link = join(root, "current.jar");
+  const javaHome = await createFakeJdk(root);
+  await writeJadxJarInventory(jar);
+  await symlink(jar, link);
+
+  const inspection = await inspectJadxProvider({
+    REA_JADX_MCP_JAR: link,
+    JAVA_HOME: javaHome,
+  });
+
+  expect(inspection.available).toBe(true);
+  expect(inspection.registrationEnvironment["REA_JADX_MCP_JAR"]).toBe(link);
+});
+
+it("guides Java selection when the Java runtime is missing", async () => {
+  const root = await createTestTempDirectory("rea-jadx-doctor-remediation-");
+  const jar = join(root, "jadx-headless-mcp.jar");
+  await writeJadxJarInventory(jar);
+
+  const inspection = await inspectJadxProvider({
+    REA_JADX_MCP_JAR: jar,
+    JAVA_HOME: join(root, "missing-jdk"),
+  });
+
+  expect(inspection.checks[0]?.code).toBe("runtime_missing");
+  expect(inspection.checks[0]?.remediation).toContain("JAVA_HOME");
+  expect(inspection.checks[0]?.remediation).not.toContain("REA_JADX_MCP_JAR");
+});
+
+it("guides Java selection when JAVA_HOME is not an absolute path", async () => {
+  const root = await createTestTempDirectory("rea-jadx-doctor-options-");
+  const jar = join(root, "jadx-headless-mcp.jar");
+  await writeJadxJarInventory(jar);
+
+  const inspection = await inspectJadxProvider({
+    REA_JADX_MCP_JAR: jar,
+    JAVA_HOME: "relative/path",
+  });
+
+  expect(inspection.checks[0]?.code).toBe("open_options_invalid");
+  expect(inspection.checks[0]?.remediation).toContain("JAVA_HOME");
+  expect(inspection.checks[0]?.remediation).not.toContain("REA_JADX_MCP_JAR");
 });
 
 it("publishes no registration environment when REA_JADX_MCP_JAR is unset", async () => {

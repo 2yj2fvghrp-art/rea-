@@ -15,6 +15,10 @@ export const JADX_BRIDGE_IDENTITY = Object.freeze({
 /** Remediation when `REA_JADX_MCP_JAR` is missing or not an absolute path. */
 export const JADX_JAR_CONFIGURATION_REMEDIATION = `Set REA_JADX_MCP_JAR to the absolute path of a caller-supplied jadx-headless-mcp ${JADX_RELEASE.version} JAR. REA does not download or install it.`;
 
+/** Remediation when the selected Java runtime cannot satisfy the JADX bridge. */
+export const JADX_JAVA_RUNTIME_REMEDIATION =
+  "Select a full JDK including jdk.compiler via JAVA_HOME or PATH, then verify it with java --list-modules. REA does not install Java.";
+
 /** Producing engine identity used by Evidence and the generated product catalog. */
 export const JADX_PROVIDER_IDENTITY = Object.freeze({
   id: "jadx",

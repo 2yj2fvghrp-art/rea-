@@ -4,7 +4,10 @@ import type {
 } from "../application/Doctor.js";
 import type { ProviderAvailability } from "../application/AnalysisProvider.js";
 import { inspectJadxAvailability } from "./JadxConfiguration.js";
-import { JADX_JAR_CONFIGURATION_REMEDIATION } from "./JadxRelease.js";
+import {
+  JADX_JAR_CONFIGURATION_REMEDIATION,
+  JADX_JAVA_RUNTIME_REMEDIATION,
+} from "./JadxRelease.js";
 
 /** Project the validated JADX configuration into the doctor contract. */
 export const inspectJadxProvider = async (
@@ -21,13 +24,24 @@ export const inspectJadxProvider = async (
       : undefined;
   const available =
     availability.status === "available" && jarPath !== undefined;
+  // Preserve the caller-selected JAR path (it may be a stable symlink) and
+  // the validated JAVA_HOME selection; the resolved jarPath stays in
+  // diagnostics as inspection evidence.
+  const configuredJar = environment.REA_JADX_MCP_JAR;
   return {
     id: "jadx",
     configured,
     available,
     providerVersion: null,
     registrationEnvironment:
-      jarPath === undefined ? {} : { REA_JADX_MCP_JAR: jarPath },
+      jarPath === undefined || configuredJar === undefined
+        ? {}
+        : {
+            REA_JADX_MCP_JAR: configuredJar,
+            ...(environment.JAVA_HOME === undefined
+              ? {}
+              : { JAVA_HOME: environment.JAVA_HOME }),
+          },
     checks: [configurationCheck(configured, availability, jarPath)],
   };
 };
@@ -56,7 +70,14 @@ const configurationCheck = (
       availability.status === "available"
         ? "Validated JADX configuration reported no JAR path."
         : availability.reason,
-    remediation: JADX_JAR_CONFIGURATION_REMEDIATION,
+    // Point at the failed requirement: Java selection failures need JDK
+    // guidance, and an unsupported host is already explained by the reason.
+    remediation:
+      code === "runtime_missing" || code === "open_options_invalid"
+        ? JADX_JAVA_RUNTIME_REMEDIATION
+        : code === "unsupported_host"
+          ? null
+          : JADX_JAR_CONFIGURATION_REMEDIATION,
     classification:
       code === "unsupported_host"
         ? "unsupported_host"
