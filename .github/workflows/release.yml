@@ -548,6 +548,7 @@ jobs:
           $hasChecksum = $assetNames -ccontains $checksumName
           $uploadPaths = [System.Collections.Generic.List[string]]::new()
           $archivePath = $env:ASSET
+          $uploadArchive = $false
 
           if ($hasArchive -or $hasChecksum) {
             $existingDirectory = Join-Path $env:RUNNER_TEMP "rea-gui-release-assets"
@@ -581,7 +582,7 @@ jobs:
 
             $archiveHash = (Get-FileHash -Algorithm SHA256 $archivePath).Hash.ToLowerInvariant()
             $expectedChecksum = "$archiveHash  $archiveName"
-            if ($hasChecksum -and $existingChecksum -cne $expectedChecksum) {
+            if ($hasArchive -and $hasChecksum -and $existingChecksum -cne $expectedChecksum) {
               throw "The existing GUI checksum does not match the published archive; preserving both assets."
             }
             if ($hasArchive -and -not $hasChecksum) {
@@ -594,15 +595,29 @@ jobs:
               $uploadPaths.Add($checksumPath)
             }
             elseif (-not $hasArchive -and $hasChecksum) {
-              $uploadPaths.Add($env:ASSET)
+              gh release delete-asset $env:TAG $checksumName --yes
+              if ($LASTEXITCODE -ne 0) {
+                throw "Could not remove the orphaned GUI checksum before recovery."
+              }
+              $uploadArchive = $true
             }
             else {
               Write-Output "The qualified GUI archive and checksum already exist and match; preserving the published assets."
             }
           }
           else {
-            $uploadPaths.Add($env:ASSET)
-            $uploadPaths.Add($env:CHECKSUM)
+            $uploadArchive = $true
+          }
+
+          if ($uploadArchive) {
+            & gh release upload $env:TAG $env:ASSET
+            if ($LASTEXITCODE -ne 0) {
+              throw "Could not upload the portable GUI archive."
+            }
+            & gh release upload $env:TAG $env:CHECKSUM
+            if ($LASTEXITCODE -ne 0) {
+              throw "Could not upload the portable GUI checksum."
+            }
           }
 
           if ($uploadPaths.Count -gt 0) {

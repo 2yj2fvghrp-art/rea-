@@ -1,7 +1,7 @@
 #!/usr/bin/env node
 
 import { spawn } from "node:child_process";
-import { dirname, isAbsolute, join } from "node:path";
+import { isAbsolute, join } from "node:path";
 import { fileURLToPath } from "node:url";
 
 if (process.platform !== "win32") {
@@ -32,7 +32,7 @@ if (process.platform !== "win32") {
         scriptPath,
       ],
       {
-        cwd: dirname(scriptPath),
+        cwd: process.cwd(),
         stdio: "inherit",
       },
     );
