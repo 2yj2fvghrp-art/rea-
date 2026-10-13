@@ -5,7 +5,11 @@ import { ArtifactResourceScope } from "../artifacts/ArtifactResourceScope.js";
 import { ArtifactReaderFailure } from "../artifacts/ArtifactReader.js";
 import { ConfigurationError } from "../domain/configurationErrors.js";
 import { PRODUCT_IDENTITY } from "../identity.js";
-import { npxRegistrationCommand } from "./ClientRegistrationIdentity.js";
+import {
+  invokingPackageRunner,
+  packageRunnerRegistrationCommand,
+  type PackageRunner,
+} from "./ClientRegistrationIdentity.js";
 import {
   SUPPORTED_NODE_VERSION_PROSE,
   supportsNodeVersion,
@@ -29,9 +33,11 @@ import {
 } from "./SetupSkill.js";
 import {
   clientConfigurationAligned,
+  ClientConfigurationCleanupRollbackFailure,
   configureClientConfiguration,
   inspectClientConfiguration,
 } from "./SetupClientConfiguration.js";
+import { failedConfigurationMessage } from "./SetupClients.js";
 import { setupInstallFailure } from "./SetupInstallFailure.js";
 import {
   RegularFileCleanupFailure,
@@ -48,10 +54,10 @@ import type { DoctorScope } from "./Doctor.js";
 /** Resolve the executable and arguments used in a managed MCP registration. */
 export const setupRegistrationCommand = (
   platform: NodeJS.Platform,
-  useNpmRunner: boolean,
+  packageRunner: PackageRunner | undefined,
 ): readonly string[] =>
-  useNpmRunner
-    ? npxRegistrationCommand(platform)
+  packageRunner !== undefined
+    ? packageRunnerRegistrationCommand(packageRunner, platform)
     : platform === "win32"
       ? [
           process.execPath,
@@ -113,12 +119,12 @@ export const systemSetupHost = (
       skillDestinations(homeDirectory, clientIds, environment, platform),
     registrationCommand: setupRegistrationCommand(
       platform,
-      environment.npm_command === "exec",
+      invokingPackageRunner(environment, platform),
     ),
     nodeVersion: process.versions.node,
     macosVersion: () => doctorHost.macosVersion(),
     linuxDistribution: readLinuxDistribution,
-    close: () => closeSetupResources(resources, macHopperHost),
+    close: () => closeSetupResources(resources, macHopperHost, doctorHost),
     initialSetupState: async (
       scope?: DoctorScope,
     ): Promise<SetupInitialState> => {
@@ -177,9 +183,17 @@ export const systemSetupHost = (
         clientIds,
         environment,
         platform,
+        resources,
       ),
     installSkill: (clientIds) =>
-      installCanonicalSkill(homeDirectory, clientIds, environment, platform),
+      installCanonicalSkill(
+        homeDirectory,
+        clientIds,
+        environment,
+        platform,
+        undefined,
+        resources,
+      ),
     doctor: (scope) => runDoctor(undefined, doctorHost, scope),
   };
 };
@@ -222,11 +236,14 @@ const clientConfigurationOperations = (resources: ArtifactResourceScope) => ({
 const closeSetupResources = async (
   resources: ArtifactResourceScope,
   macHopperHost: ReturnType<typeof systemMacHopperInstallHost> | undefined,
+  doctorHost: DoctorHost,
 ): Promise<string | undefined> => {
-  const [resourceCleanup, hopperCleanup] = await Promise.allSettled([
-    resources.close(),
-    Promise.resolve().then(() => macHopperHost?.close()),
-  ]);
+  const [resourceCleanup, hopperCleanup, doctorCleanup] =
+    await Promise.allSettled([
+      resources.close(),
+      Promise.resolve().then(() => macHopperHost?.close()),
+      Promise.resolve().then(() => doctorHost.close?.()),
+    ]);
   const failures: string[] = [];
   if (hopperCleanup.status === "rejected")
     failures.push(
@@ -234,6 +251,12 @@ const closeSetupResources = async (
     );
   else if (hopperCleanup.value !== undefined)
     failures.push(hopperCleanup.value);
+  if (doctorCleanup.status === "rejected")
+    failures.push(
+      `Doctor host cleanup failed: ${errorMessage(doctorCleanup.reason)}`,
+    );
+  else if (doctorCleanup.value !== undefined)
+    failures.push(doctorCleanup.value);
   if (resourceCleanup.status === "rejected")
     failures.push(errorMessage(resourceCleanup.reason));
   return failures.length === 0 ? undefined : failures.join("; ");
@@ -254,8 +277,12 @@ const runClientConfigurationOperation = async <Value>(
           cleanup.outcome.kind === "failed"
             ? cleanup.outcome.cause
             : cause.cleanupCause;
+        const rollbackMessage =
+          cause instanceof ClientConfigurationCleanupRollbackFailure
+            ? ` ${failedConfigurationMessage(cause.configurationFailure)}`
+            : "";
         throw configurationCleanupError(
-          `Could not safely access client configuration at ${cause.path}: ${errorMessage(primary)}`,
+          `Could not safely access client configuration at ${cause.path}: ${errorMessage(primary)}.${rollbackMessage}`,
           cause,
           cleanup.cleanup,
         );

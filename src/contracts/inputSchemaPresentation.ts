@@ -242,8 +242,6 @@ export const presentInputJsonSchema = (
  */
 export const advertisedReferenceExpansionBudget = 32;
 
-/** Keys whose values are literal data, never nested schema positions. */
-const literalKeys = new Set(["const", "enum", "examples", "default"]);
 const definitionKeys = new Set(["$defs", "definitions"]);
 
 const countReferenceExpansions = (
@@ -273,8 +271,13 @@ const countReferenceExpansions = (
     }
   }
   for (const [key, value] of Object.entries(node)) {
-    if (literalKeys.has(key) || definitionKeys.has(key)) continue;
-    countReferenceExpansions(value, root, active, count);
+    if (definitionKeys.has(key)) continue;
+    if (schemaMaps.has(key) && isObject(value)) {
+      for (const child of Object.values(value))
+        countReferenceExpansions(child, root, active, count);
+    } else if (schemaArrays.has(key) || schemaChildren.has(key)) {
+      countReferenceExpansions(value, root, active, count);
+    }
   }
 };
 

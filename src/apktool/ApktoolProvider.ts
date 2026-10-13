@@ -1,5 +1,5 @@
 import { createHash, randomUUID } from "node:crypto";
-import { createWriteStream, constants as fsConstants } from "node:fs";
+import { createWriteStream } from "node:fs";
 import {
   access,
   chmod,
@@ -20,6 +20,7 @@ import type {
   ExecutionOptions,
   ProviderAvailability,
 } from "../application/AnalysisProvider.js";
+import { providerConfigurationRefusal } from "../domain/providerConfigurationRefusal.js";
 import {
   createAnalysisExecution,
   type AnalysisExecution,
@@ -48,9 +49,11 @@ import {
 } from "../process/OwnedCommand.js";
 import type { ProviderProcessSupervisor } from "../process/ProviderProcess.js";
 import { snapshotEnvironment } from "../process/snapshotEnvironment.js";
+import { WindowsBatchCommandError } from "../process/WindowsBatchCommand.js";
 import {
   ApktoolConfigurationFailure,
   apktoolConfigurationAvailability,
+  apktoolInvocation,
   inspectApktoolClient,
   resolveApktoolCommand,
   type ApktoolCommandSelection,
@@ -114,13 +117,20 @@ const readBoundedText = async (
     throwIfCancelled(operation, signal);
     const truncated = length > budget;
     // A prefix may end within a UTF-8 character; omit those trailing bytes.
-    const decoder = new TextDecoder("utf-8");
-    return {
-      text: decoder.decode(bytes.subarray(0, Math.min(length, budget)), {
-        stream: truncated,
-      }),
-      truncated,
-    };
+    try {
+      const decoder = new TextDecoder("utf-8", { fatal: true });
+      return {
+        text: decoder.decode(bytes.subarray(0, Math.min(length, budget)), {
+          stream: truncated,
+        }),
+        truncated,
+      };
+    } catch (cause: unknown) {
+      throw new AnalysisProtocolError(
+        `apktool produced invalid UTF-8 in ${path}`,
+        { cause },
+      );
+    }
   } finally {
     await file.close();
   }
@@ -136,7 +146,7 @@ interface DecodeLimits {
 
 const runApktool = async (
   operation: string,
-  command: string,
+  selection: ApktoolCommandSelection,
   arguments_: readonly string[],
   limits: DecodeLimits,
   signal: AbortSignal | undefined,
@@ -145,13 +155,30 @@ const runApktool = async (
 ): Promise<Result<{ stdout: string; stderr: string }, AnalysisError>> => {
   if (signal?.aborted === true)
     return err(new AnalysisCancelledError(operation));
+  const hostEnvironment = { ...process.env, ...environment };
+  let invocation: ReturnType<typeof apktoolInvocation>;
+  try {
+    invocation = apktoolInvocation(selection, arguments_, hostEnvironment);
+  } catch (cause) {
+    if (!(cause instanceof WindowsBatchCommandError)) throw cause;
+    const reason = `The apktool batch launcher cannot receive REA's decode paths through cmd.exe: ${cause.message}`;
+    return err(
+      new AnalysisCapabilityUnavailableError(
+        APKTOOL_PROVIDER_IDENTITY.id,
+        operation,
+        reason,
+        { cause, userMessage: reason },
+      ),
+    );
+  }
   try {
     const output = await runOwnedCommand(
       {
-        command,
-        arguments: arguments_,
+        command: invocation.command,
+        arguments: invocation.arguments,
+        windowsVerbatimArguments: invocation.windowsVerbatimArguments,
         runId: randomUUID(),
-        hostEnvironment: { ...process.env, ...environment },
+        hostEnvironment,
       },
       {
         timeoutMs: limits.timeoutMs,
@@ -219,7 +246,7 @@ const runApktool = async (
     return err(
       new AnalysisUnsupportedTargetError(
         operation,
-        command,
+        selection.command,
         output?.stderr.text.trim().slice(0, STDERR_EXCERPT_BYTES) ||
           `apktool exited with code ${String(output?.exitCode ?? "unknown")} for ${operation}`,
         {
@@ -327,8 +354,8 @@ export class ApktoolProvider {
   async #inspectAvailability(
     signal: AbortSignal,
   ): Promise<ProviderAvailability> {
-    const selection = this.selection();
     try {
+      const selection = this.selection();
       await inspectApktoolClient(selection, signal, this.environment);
       throwIfCancelled("inspect_apktool_client", signal);
       return {
@@ -379,9 +406,10 @@ export class ApktoolProvider {
   ): Promise<Result<AnalysisExecution, AnalysisError>> {
     if (signal?.aborted === true)
       return err(new AnalysisCancelledError(request.operation));
-    const selection = this.selection();
+    let selection: ApktoolCommandSelection;
     let identity: ApktoolClientIdentity;
     try {
+      selection = this.selection();
       identity = await inspectApktoolClient(
         selection,
         signal,
@@ -389,17 +417,15 @@ export class ApktoolProvider {
       );
     } catch (cause) {
       if (cause instanceof AnalysisCancelledError) return err(cause);
-      if (cause instanceof ApktoolConfigurationFailure)
+      if (cause instanceof ApktoolConfigurationFailure) {
         return err(
-          new AnalysisCapabilityUnavailableError(
+          providerConfigurationRefusal(
             APKTOOL_PROVIDER_IDENTITY.id,
             request.operation,
-            typeof cause.diagnostics.remediation === "string"
-              ? `${cause.message} ${cause.diagnostics.remediation}`
-              : cause.message,
-            { cause },
+            cause,
           ),
         );
+      }
       return err(
         new AnalysisProtocolError(
           `apktool version probe failed for ${request.operation}`,
@@ -586,7 +612,7 @@ export class ApktoolProvider {
       await mkdir(framework);
       const decoded = await runApktool(
         operation,
-        selection.command,
+        selection,
         [
           "d",
           "--no-src",
@@ -630,7 +656,9 @@ export class ApktoolProvider {
       );
       const manifest = manifestRead.text;
       const packageName =
-        manifest === null ? null : parseManifestPackage(manifest);
+        manifest === null || manifestRead.truncated
+          ? null
+          : parseManifestPackage(manifest);
       const stringsDirectory =
         input.locale === undefined
           ? "values"
@@ -698,7 +726,7 @@ export class ApktoolProvider {
                 : []),
               ...(parsedStrings.unparsedCount > 0
                 ? [
-                    `${String(parsedStrings.unparsedCount)} string entries with nested markup were not projected`,
+                    `String entries omitted due to malformed XML or unsupported markup: ${String(parsedStrings.unparsedCount)}`,
                   ]
                 : []),
               ...(parsedStrings.entries.length > MAX_STRINGS

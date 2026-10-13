@@ -1,4 +1,5 @@
 import type { ManagedDecodeBudget } from "./ManagedDecodeBudget.js";
+import { ManagedReaderFailure } from "./ManagedReaderFailure.js";
 import type {
   ManagedExceptionRegion,
   ManagedInstructionAnchor,
@@ -264,6 +265,10 @@ type OperandResult = {
 
 type OperandReader = (il: Buffer, offset: number) => OperandResult;
 
+// String(-0) loses a CIL constant's sign in both anchors and normalized hashes.
+const floatingPointOperand = (value: number): string =>
+  Object.is(value, -0) ? "-0" : String(value);
+
 const FIXED_OPERAND_READERS = new Map<string, OperandReader>([
   [
     "none",
@@ -314,7 +319,7 @@ const FIXED_OPERAND_READERS = new Map<string, OperandReader>([
     (il, offset) => ({
       next: offset + 4,
       anchorKind: "constant",
-      value: String(il.readFloatLE(offset)),
+      value: floatingPointOperand(il.readFloatLE(offset)),
     }),
   ],
   [
@@ -322,7 +327,7 @@ const FIXED_OPERAND_READERS = new Map<string, OperandReader>([
     (il, offset) => ({
       next: offset + 8,
       anchorKind: "constant",
-      value: String(il.readDoubleLE(offset)),
+      value: floatingPointOperand(il.readDoubleLE(offset)),
     }),
   ],
   [
@@ -381,6 +386,7 @@ const readOperand = (
 
 export const decodeInstructions = (
   il: Buffer,
+  admitInstruction?: (offset: number) => void,
 ): {
   readonly parsed: readonly ParsedInstruction[];
   readonly instructionStarts: readonly number[];
@@ -409,6 +415,9 @@ export const decodeInstructions = (
         issue = `Instruction ${descriptor.name} at IL offset ${String(start)} leaves method body`;
         break;
       }
+      // Charge each actual instruction before growing the decoded arrays.
+      // A multi-byte operand must not consume a full record per raw IL byte.
+      admitInstruction?.(start);
       offset = operand.next;
       if (PREFIX_OPCODES.has(descriptor.name)) {
         prefixStart ??= start;
@@ -424,6 +433,7 @@ export const decodeInstructions = (
       });
     }
   } catch (cause: unknown) {
+    if (cause instanceof ManagedReaderFailure) throw cause;
     issue =
       cause instanceof Error ? cause.message : "Instruction decode failed";
   }
@@ -489,7 +499,8 @@ export const parseExceptionRegions = (
       );
 
     const count = (size - 4) / clauseSize;
-    budget?.reserve(count * 256, sectionOffset);
+    // Accumulates with the method IL bound; the body reserves what it retains.
+    budget?.admitTransient(count * 256, sectionOffset);
     for (const region of readExceptionClauses(
       bytes,
       sectionOffset + 4,

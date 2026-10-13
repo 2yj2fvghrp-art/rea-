@@ -9,7 +9,11 @@ import type {
 import { SafeOutputTree } from "../../artifacts/SafeOutputTree.js";
 import { SafeOutputTreeCreationFailure } from "../../artifacts/SafeOutputTreeCreationFailure.js";
 import { AnalysisError } from "../../domain/analysisErrorBase.js";
-import { AnalysisOutputError } from "../../domain/analysisErrorCore.js";
+import {
+  AnalysisCancelledError,
+  AnalysisOutputError,
+} from "../../domain/analysisErrorCore.js";
+import { ArtifactReaderFailure } from "../../artifacts/ArtifactReader.js";
 import {
   javascriptRecoveryResultSchema,
   type JavaScriptRecoveryInput,
@@ -22,7 +26,7 @@ import {
   checkRecoveryDeadline,
   recoveryFailureMessage,
   recoveryInputFailure,
-  snapshotRecoveryInput,
+  snapshotRecoveryInputs,
 } from "./RecoveryFiles.js";
 import {
   resolveWakaruCommand,
@@ -55,7 +59,7 @@ export class WakaruProvider implements JavaScriptRecoveryPort {
     readonly launcher?: WakaruLauncher,
   ) {}
 
-  /** Recover one script using validated upstream reports and verified output bytes. */
+  /** Recover selected scripts using validated reports and verified output bytes. */
   recover(
     input: JavaScriptRecoveryInput,
     options?: ExecutionOptions,
@@ -100,7 +104,7 @@ export class WakaruProvider implements JavaScriptRecoveryPort {
     let tree: SafeOutputTree | undefined;
     let failed: { readonly cause: unknown } | undefined;
     let execution: AnalysisExecution | undefined;
-    const deadline = Date.now() + RECOVERY_LIMITS.timeoutMs;
+    const deadline = performance.now() + RECOVERY_LIMITS.timeoutMs;
     try {
       checkRecoveryCancellation(options?.signal);
       const engine = await resolveWakaruCommand(this.environment);
@@ -109,9 +113,9 @@ export class WakaruProvider implements JavaScriptRecoveryPort {
       const staging = join(root, "modules");
       await mkdir(inputs, { mode: 0o700 });
       await mkdir(staging, { mode: 0o700 });
-      const source = await snapshotRecoveryInput(
-        input.path,
-        join(inputs, "bundle.js"),
+      const sources = await snapshotRecoveryInputs(
+        [input.path, ...(input.additional_paths ?? [])],
+        inputs,
         options?.signal,
       );
       try {
@@ -128,7 +132,7 @@ export class WakaruProvider implements JavaScriptRecoveryPort {
         root,
         tree,
         input,
-        source,
+        sources,
         engine,
         environment: this.environment,
         launcher: this.launcher,
@@ -139,12 +143,16 @@ export class WakaruProvider implements JavaScriptRecoveryPort {
       await rm(root, { recursive: true, force: true });
       root = undefined;
       checkRecoveryDeadline(deadline, options?.signal);
-      await tree.commit();
+      await tree.commit(options?.signal);
     } catch (cause: unknown) {
       failed = { cause };
     }
     if (failed !== undefined) {
-      const failure = failed.cause;
+      const failure =
+        failed.cause instanceof ArtifactReaderFailure &&
+        failed.cause.reason === "cancelled"
+          ? new AnalysisCancelledError(OPERATION, { cause: failed.cause })
+          : failed.cause;
       const residuals: string[] = [];
       const cleanupFailures: { resource: string; reason: string }[] = [];
       const cleanupOwner =
