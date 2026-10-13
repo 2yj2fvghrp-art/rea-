@@ -169,7 +169,7 @@ environment and can otherwise inspect or recreate default-profile state:
 
 ```bash
 CLAUDE_CONFIG_DIR=~/.claude-rea claude mcp list
-CLAUDE_CONFIG_DIR=~/.claude-rea npx rea-agents doctor --client claude_code --json
+CLAUDE_CONFIG_DIR=~/.claude-rea npx rea-agents doctor --client claude_code --skill --json
 CLAUDE_CONFIG_DIR=~/.claude-rea npx -y rea-agents@latest setup --client claude_code --dry-run
 ```
 
@@ -189,6 +189,13 @@ REA from the project directory at Claude Code's local scope:
 claude mcp add --scope local rea -- npx -y rea-agents@6.4.0 mcp
 ```
 
+On native Windows, use the same project directory and wrap the package-runner
+shim so the stdio client can launch it:
+
+```powershell
+claude mcp add --scope local rea -- cmd.exe /d /c npx -y rea-agents@6.4.0 mcp
+```
+
 <!-- x-release-please-end -->
 
 Local scope stores the entry under that directory's path in `~/.claude.json`,
@@ -198,10 +205,16 @@ can be committed or copied. `rea doctor` and `rea uninstall` read only the
 user-level entry, so they don't report or remove a local-scope registration;
 remove it with `claude mcp remove --scope local rea` from the same directory.
 `rea update` doesn't refresh it either, so it stays on the version it names.
-To move it to a newer release, run `claude mcp remove --scope local rea` from
-the same directory, then the `claude mcp add` command above with the new
-version. Running setup for Claude Code instead would add a user-level entry
-for every project.
+To move it to a newer release, first back up the project entry in
+`~/.claude.json` and record its environment and other metadata. In particular,
+preserve caller-selected overrides such as `REA_MCP_INPUT_SCHEMA_PROFILE` and
+`REA_MCP_MAX_RESPONSE_BYTES`. Run `claude mcp remove --scope local rea` from the
+same directory, then recreate it with the platform-appropriate command above
+and the new version. Reapply every recorded environment value with Claude
+Code's `mcp add --env NAME=value` options and restore any other retained entry
+metadata before restarting the project session. Removal and re-addition do not
+preserve these values automatically. Running setup for Claude Code instead
+would add a user-level entry for every project.
 
 Check the separate profile with the prefixed `claude mcp list` above and compare
 with the default profile with `CLAUDE_CONFIG_DIR` unset. For local scope, run
