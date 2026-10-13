@@ -1,19 +1,15 @@
 /**
  * Validate optional source-map content against its source inventory.
  *
- * ECMA-426 DecodeSourceMapSources reads a content entry only when the source
- * index is within `sourcesContent`, so trailing missing slots decode as null
- * content instead of invalidating the map. Extra entries beyond the source
- * inventory and non-string/non-null entries are still rejected.
+ * ECMA-426 DecodeSourceMapSources reads a content slot only while its index is
+ * within `sourcesContent`, so a shorter array leaves trailing sources without
+ * content and a longer array contributes no extra sources. Only the entry types
+ * are checked here.
  */
-export const hasValidSourceMapContents = (
-  sourceCount: number,
-  contents: unknown,
-): boolean =>
+export const hasValidSourceMapContents = (contents: unknown): boolean =>
   contents === undefined ||
   contents === null ||
   (Array.isArray(contents) &&
-    contents.length <= sourceCount &&
     contents.every(
       (content: unknown) => content === null || typeof content === "string",
     ));
