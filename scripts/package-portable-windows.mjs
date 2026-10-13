@@ -123,6 +123,10 @@ for (const { path } of dependencies) {
 await mkdir(join(output, "runtime"));
 for (const name of ["node.exe", "LICENSE"])
   await cp(join(runtime, name), join(output, "runtime", name));
+await cp(
+  join(root, "scripts/lib/portable-node-bootstrap.cjs"),
+  join(output, "runtime/launch.cjs"),
+);
 await writeFile(
   join(output, "rea.cmd"),
   '@echo off\r\nsetlocal DisableDelayedExpansion\r\nset "npm_command="\r\n"%~dp0runtime\\node.exe" "%~dp0app\\scripts\\rea.mjs" %*\r\nexit /b %errorlevel%\r\n',

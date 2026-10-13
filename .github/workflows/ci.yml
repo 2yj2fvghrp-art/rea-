@@ -559,6 +559,8 @@ jobs:
           npm run package:portable:windows -- --node-directory "$runtime" --output-directory "$portable"
           if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
           node scripts/verify-portable-windows.mjs --directory "$portable"
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+          node scripts/verify-portable-windows.mjs --directory "$portable" --powershell (Get-Command pwsh).Source
       - name: Verify native directory identity on Node 24
         run: >-
           npx vitest run --coverage.enabled=false

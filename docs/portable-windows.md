@@ -20,10 +20,12 @@ Registrations use the absolute paths of this directory's Node and REA entry
 point. If you move the directory later, rerun setup from the new location and
 restart the client. Moving a running server is not supported.
 
-Use `rea.ps1` from PowerShell to keep literal percent-bearing paths intact.
+Use `rea.ps1` from PowerShell to keep literal `%NAME%` and `!NAME!` paths intact.
 For Command Prompt, change into the portable directory and use `rea.cmd`.
-Command Prompt expands `%NAME%` in command text before the launcher runs;
-for inputs containing those characters, use the PowerShell entrypoint.
+Command Prompt expands `%NAME%` in command text before the launcher runs. Callers
+with delayed expansion enabled (`cmd /v:on` or `EnableDelayedExpansion`) also
+expand `!NAME!` before `rea.cmd` starts. The wrapper cannot recover altered
+arguments; use the PowerShell entrypoint for inputs containing `%` or `!`.
 If local policy disables PowerShell scripts, call the bundled runtime directly:
 `& .\runtime\node.exe .\app\scripts\rea.mjs --help`. The same CLI arguments apply.
 
@@ -76,6 +78,11 @@ and REA entry point. Children use an
 isolated user directory, with no npm or system Node on PATH. A Node preload
 rejects socket connections; this is not an OS-level network sandbox. Optional
 external providers and a live agent connection remain separate checks.
+
+The PowerShell checks include relative paths after `Set-Location`, captured and
+piped JSON output, literal arguments, and live stdio MCP. Windows PowerShell 5.1
+is the default; pass `--powershell <path-to-pwsh.exe>` to check PowerShell 7.
+The Windows CI lane runs both.
 
 For a Windows path regression check, extract the same archive into a directory
 containing spaces, Unicode, `&`, and literal `%PATH%` / `!NAME!`, then run from PowerShell:

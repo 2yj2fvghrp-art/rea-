@@ -19,7 +19,9 @@ import { StdioClientTransport } from "@modelcontextprotocol/client/stdio";
 import { parse as parseToml } from "smol-toml";
 import { verifyPortableInventory } from "./lib/portable-inventory.mjs";
 
-const { values } = parseArgs({ options: { directory: { type: "string" } } });
+const { values } = parseArgs({
+  options: { directory: { type: "string" }, powershell: { type: "string" } },
+});
 if (process.platform !== "win32" || !values.directory)
   throw new Error("Use --directory <extracted portable directory> on Windows.");
 const directory = resolve(values.directory);
@@ -44,7 +46,14 @@ for (const file of manifest.files) {
 }
 
 const workspace = await mkdtemp(join(tmpdir(), "rea-portable-verification-"));
-const execute = promisify(execFile);
+const executeFile = promisify(execFile);
+const execute = (...args) => {
+  const result = executeFile(...args);
+  // These finite CLI calls have no input. PowerShell's native boundary otherwise
+  // keeps the host alive waiting for the redirected input stream to close.
+  result.child.stdin.end();
+  return result;
+};
 const node = join(directory, "runtime/node.exe");
 const entry = join(directory, "app/scripts/rea.mjs");
 let complete = false;
@@ -64,6 +73,7 @@ try {
   const environment = {
     SystemRoot: process.env.SystemRoot,
     WINDIR: process.env.WINDIR,
+    PATHEXT: ".COM;.EXE;.BAT;.CMD",
     PATH: join(process.env.SystemRoot, "System32"),
     HOME: workspace,
     USERPROFILE: workspace,
@@ -98,12 +108,15 @@ try {
     );
   // Invoke the full script path through inbox Windows PowerShell (including 5.1).
   // The artifact is local test output; bypass policy only in this child process.
+  const powershellExecutable =
+    values.powershell ??
+    join(
+      process.env.SystemRoot,
+      "System32/WindowsPowerShell/v1.0/powershell.exe",
+    );
   const powershell = async (root, args) =>
     execute(
-      join(
-        process.env.SystemRoot,
-        "System32/WindowsPowerShell/v1.0/powershell.exe",
-      ),
+      powershellExecutable,
       [
         "-NoProfile",
         "-NonInteractive",
@@ -128,6 +141,10 @@ try {
   await mkdir(join(capture, "runtime"), { recursive: true });
   await mkdir(join(capture, "app/scripts"), { recursive: true });
   await copyFile(node, join(capture, "runtime/node.exe"));
+  await copyFile(
+    join(directory, "runtime/launch.cjs"),
+    join(capture, "runtime/launch.cjs"),
+  );
   await copyFile(join(directory, "rea.ps1"), join(capture, "rea.ps1"));
   await writeFile(
     join(capture, "app/scripts/rea.mjs"),
@@ -139,6 +156,7 @@ try {
     "C:\\has spaces\\",
     "",
     "中文",
+    "literal !REA_PORTABLE_PROBE! and %REA_PORTABLE_PROBE%",
   ];
   await assert.rejects(powershell(capture, capturedArgs), (cause) => {
     assert.equal(cause.code, 17);
@@ -197,35 +215,130 @@ try {
       .stdout,
   );
   assert.equal(cli.operation, "analyze_javascript_application");
-  const client = new Client({
-    name: "rea-portable-verifier",
-    version: "1.0.0",
-  });
-  const transport = new StdioClientTransport({
-    command: node,
-    args: [entry, "mcp"],
-    env: environment,
-    stderr: "pipe",
-  });
-  try {
-    await client.connect(transport);
-    const tools = await client.listTools();
-    assert.ok(
-      tools.tools.some(({ name }) => name === "analyze_javascript_application"),
+  const sessionHarness = join(workspace, "powershell-session.ps1");
+  await writeFile(
+    sessionHarness,
+    `param([string]$Launcher, [string]$Sample, [string]$Mode, [string]$Passing)
+$ErrorActionPreference = 'Stop'
+if ($Passing) { $PSNativeCommandArgumentPassing = $Passing }
+if ($Mode -eq 'argv') {
+  $golden = Get-Content -LiteralPath $Sample -Raw -Encoding UTF8 | ConvertFrom-Json
+  $beforeEncoding = [Console]::OutputEncoding.CodePage
+  $beforeNpm = $env:npm_command
+  $captured = & $Launcher @golden
+  if ($LASTEXITCODE -ne 17) { throw 'Captured exit code changed' }
+  if ($env:npm_command -ne $beforeNpm) { throw 'Caller npm context changed' }
+  if ([Console]::OutputEncoding.CodePage -ne $beforeEncoding) { throw 'Caller encoding changed' }
+  [Console]::OutputEncoding = [Text.UTF8Encoding]::new($false)
+  [Console]::Out.WriteLine(($captured | ConvertFrom-Json | ConvertTo-Json -Compress))
+  exit 0
+}
+Set-Location -LiteralPath $Sample
+if ($Mode -eq 'relative') {
+  & $Launcher analyze-javascript-application . --json
+  exit $LASTEXITCODE
+}
+$captured = & $Launcher doctor --client codex --skill --json
+if ($LASTEXITCODE -ne 0) { throw 'Captured doctor failed' }
+if (@($captured).Count -eq 0) { throw 'PowerShell did not capture doctor output' }
+$doctor = $captured | ConvertFrom-Json
+if (-not $doctor.healthy) { throw 'Captured doctor was not healthy' }
+$piped = & $Launcher doctor --client codex --skill --json | ConvertFrom-Json
+if ($LASTEXITCODE -ne 0 -or -not $piped.healthy) { throw 'Piped doctor failed' }
+[Console]::Out.WriteLine((@{ captured = $doctor.healthy; piped = $piped.healthy } | ConvertTo-Json -Compress))
+`,
+    "utf8",
+  );
+  const sessionPowerShell = (
+    mode,
+    root = directory,
+    input = sample,
+    passing = "",
+  ) =>
+    execute(
+      powershellExecutable,
+      [
+        "-NoProfile",
+        "-NonInteractive",
+        "-ExecutionPolicy",
+        "Bypass",
+        "-File",
+        sessionHarness,
+        join(root, "rea.ps1"),
+        input,
+        mode,
+        passing,
+      ],
+      {
+        cwd: workspace,
+        env: environment,
+        windowsHide: true,
+        timeout: 120_000,
+        maxBuffer: 8 * 1024 * 1024,
+      },
     );
-    const result = await client.callTool({
-      name: "analyze_javascript_application",
-      arguments: { input_path: sample },
+  const goldenPath = join(workspace, "argv.json");
+  await writeFile(goldenPath, JSON.stringify(capturedArgs), "utf8");
+  for (const passing of ["", "Legacy"]) {
+    assert.deepEqual(
+      JSON.parse(
+        (await sessionPowerShell("argv", capture, goldenPath, passing)).stdout,
+      ),
+      { args: capturedArgs, npm: null },
+    );
+  }
+  const relative = JSON.parse((await sessionPowerShell("relative")).stdout);
+  assert.deepEqual(relative.normalized_result, cli.normalized_result);
+  assert.deepEqual(JSON.parse((await sessionPowerShell("capture")).stdout), {
+    captured: true,
+    piped: true,
+  });
+  for (const invocation of [
+    { command: node, args: [entry, "mcp"] },
+    ...["mcp", "--mcp"].map((mode) => ({
+      command: powershellExecutable,
+      args: [
+        "-NoProfile",
+        "-NonInteractive",
+        "-ExecutionPolicy",
+        "Bypass",
+        "-File",
+        join(directory, "rea.ps1"),
+        mode,
+      ],
+    })),
+  ]) {
+    const client = new Client({
+      name: "rea-portable-verifier",
+      version: "1.0.0",
     });
-    assert.notEqual(result.isError, true, JSON.stringify(result));
-    const payload =
-      result.structuredContent ??
-      JSON.parse(result.content.find(({ type }) => type === "text").text);
-    assert.equal(payload.operation, "analyze_javascript_application");
-    assert.deepEqual(payload.normalized_result, cli.normalized_result);
-    await client.ping();
-  } finally {
-    await client.close();
+    const transport = new StdioClientTransport({
+      ...invocation,
+      env: environment,
+      stderr: "pipe",
+    });
+    try {
+      await client.connect(transport);
+      const tools = await client.listTools();
+      assert.ok(
+        tools.tools.some(
+          ({ name }) => name === "analyze_javascript_application",
+        ),
+      );
+      const result = await client.callTool({
+        name: "analyze_javascript_application",
+        arguments: { input_path: sample },
+      });
+      assert.notEqual(result.isError, true, JSON.stringify(result));
+      const payload =
+        result.structuredContent ??
+        JSON.parse(result.content.find(({ type }) => type === "text").text);
+      assert.equal(payload.operation, "analyze_javascript_application");
+      assert.deepEqual(payload.normalized_result, cli.normalized_result);
+      await client.ping();
+    } finally {
+      await client.close();
+    }
   }
   assert.equal(await readFile(join(sample, "app.js"), "utf8"), source);
   const uninstalled = JSON.parse(
