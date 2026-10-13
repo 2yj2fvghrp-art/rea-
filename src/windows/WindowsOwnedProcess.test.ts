@@ -282,48 +282,45 @@ describe("Windows output capture drain", () => {
     }
   });
 
-  it("backs off to the 25ms delay when the consumer stops accepting output", async () => {
+  it("stops native reads until both paused output consumers drain", async () => {
     vi.useFakeTimers();
     try {
-      const chunk = Buffer.alloc(8192, 0x63);
+      const chunk = Buffer.alloc(65536, 0x63);
       const { native, calls } = authority({
         polls: [
           {
             stdout: chunk,
-            stderr: Buffer.alloc(0),
+            stderr: chunk,
             stdoutEnded: false,
             stderrEnded: false,
             exitCode: null,
             activeProcesses: 1,
           },
-          {
-            stdout: chunk,
-            stderr: Buffer.alloc(0),
-            stdoutEnded: false,
-            stderrEnded: false,
-            exitCode: null,
-            activeProcesses: 1,
-          },
-          { ...settledPoll },
+          { ...settledPoll, stderr: Buffer.alloc(0) },
         ],
       });
       const child = launch(native);
       const closed = once(child, "close");
-      // The consumer stops draining: writes report backpressure.
-      vi.spyOn(child.stdout, "write").mockReturnValue(false);
+      child.stdout.pause();
+      child.stderr.pause();
       const pollCount = () =>
         calls.filter((call) => call.operation === "process_poll").length;
       await vi.advanceTimersByTimeAsync(25);
+      expect(child.stdout.writableNeedDrain).toBe(true);
+      expect(child.stderr.writableNeedDrain).toBe(true);
+      await vi.advanceTimersByTimeAsync(5000);
       expect(pollCount()).toBe(1);
-      // Data flowed but the consumer is not keeping up, so the next poll
-      // must wait out the 25ms idle delay instead of repolling at once.
-      await vi.advanceTimersByTimeAsync(1);
-      expect(pollCount()).toBe(1);
-      await vi.advanceTimersByTimeAsync(24);
-      expect(pollCount()).toBe(2);
-      // Reach the settle poll so the child closes.
+      const stdoutDrained = once(child.stdout, "drain");
+      child.stdout.resume();
+      await stdoutDrained;
       await vi.advanceTimersByTimeAsync(25);
+      expect(pollCount()).toBe(1);
+      const stderrDrained = once(child.stderr, "drain");
+      child.stderr.resume();
+      await stderrDrained;
+      await vi.advanceTimersByTimeAsync(1);
       await closed;
+      expect(pollCount()).toBe(2);
     } finally {
       vi.useRealTimers();
     }

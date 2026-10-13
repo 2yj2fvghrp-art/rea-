@@ -67,6 +67,7 @@ export class WindowsOwnedProcess extends EventEmitter {
   #closed = false;
   #failure: string | undefined;
   #timer: NodeJS.Timeout | undefined;
+  readonly #blockedOutput = new Set<PassThrough>();
   #unreferenced = false;
   #cleanup: Promise<ProcessCleanupResult> | undefined;
   readonly #memoryLimitBytes: number | undefined;
@@ -266,7 +267,12 @@ export class WindowsOwnedProcess extends EventEmitter {
   }
 
   #schedule(delay = 25): void {
-    if (this.#closed || this.#timer !== undefined) return;
+    if (
+      this.#closed ||
+      this.#timer !== undefined ||
+      this.#blockedOutput.size > 0
+    )
+      return;
     this.#timer = setTimeout(() => this.#poll(), delay);
     if (this.#unreferenced) this.#timer.unref();
   }
@@ -289,16 +295,11 @@ export class WindowsOwnedProcess extends EventEmitter {
         state = limited;
       }
       this.#failure = undefined;
-      // Drain while the child produces: a poll that returned data is
-      // followed immediately instead of after the idle delay, so capture
-      // runs at pipe speed rather than one chunk per 25ms. Writes that the
-      // consumer is not draining report backpressure, so slow readers fall
-      // back to the idle cadence instead of filling the parent heap.
+      // Stop native reads while either consumer is backpressured. A slower
+      // cadence still accumulates unbounded unread output in the parent heap.
       const idle = state.stdout.length === 0 && state.stderr.length === 0;
-      const stdoutAccepted =
-        state.stdout.length === 0 || this.stdout.write(state.stdout);
-      const stderrAccepted =
-        state.stderr.length === 0 || this.stderr.write(state.stderr);
+      this.#writeOutput(this.stdout, state.stdout);
+      this.#writeOutput(this.stderr, state.stderr);
       if (state.exitCode !== null && this.exitCode === null) {
         this.exitCode = state.exitCode;
         this.emit("exit", state.exitCode, null);
@@ -310,7 +311,7 @@ export class WindowsOwnedProcess extends EventEmitter {
         state.activeProcesses === 0
       ) {
         this.#release();
-      } else this.#schedule(idle || !stdoutAccepted || !stderrAccepted ? 25 : 0);
+      } else this.#schedule(idle ? 25 : 0);
     } catch (cause: unknown) {
       const failure = cause instanceof Error ? cause : new Error(String(cause));
       this.#failure = failure.message;
@@ -319,6 +320,15 @@ export class WindowsOwnedProcess extends EventEmitter {
       if (this.listenerCount("error") > 0) this.emit("error", failure);
       // Retain the original job so explicit cleanup can retry its observation.
     }
+  }
+
+  #writeOutput(stream: PassThrough, bytes: Buffer): void {
+    if (bytes.length === 0 || stream.write(bytes)) return;
+    this.#blockedOutput.add(stream);
+    stream.once("drain", () => {
+      this.#blockedOutput.delete(stream);
+      this.#schedule(0);
+    });
   }
 
   #release(): void {
