@@ -12,20 +12,13 @@ import { LazyAnalysisProvider } from "../application/binary/LazyAnalysisProvider
 import { ManagedStaticProvider } from "../dotnet/ManagedStaticProvider.js";
 
 /**
- * Provider ids served by the binary `analyze` lane. JEB inspects projects
- * through its dedicated commands instead, so guidance must not send
- * JEB-only setups to `analyze`.
- */
-export const BINARY_ANALYSIS_PROVIDER_IDS: ReadonlySet<string> = new Set([
-  "hopper",
-  "ghidra",
-  "ida",
-]);
-
-/**
  * Compose the target-switching runtime shared directly by CLI and MCP adapters.
  * This is the sole production wiring point, so both adapters share identical
  * provider selection, profile, lifecycle, and Evidence semantics.
+ *
+ * The binary lane membership (`hopper`, `ghidra`, `ida`) is published for
+ * startup-safe consumers as `BINARY_ANALYSIS_PROVIDER_IDS` in
+ * `application/binary/BinaryProviderIds.ts`; keep both aligned.
  */
 export const createBinarySession = (
   config: AppConfig,

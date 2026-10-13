@@ -18,7 +18,7 @@ import type {
 import { SUPPORTED_CLIENT_DEFINITIONS } from "../application/SupportedClients.js";
 import { invokingPackageRunner } from "../application/ClientRegistrationIdentity.js";
 import { CLI_COMMANDS } from "../cliCommandNames.js";
-import { BINARY_ANALYSIS_PROVIDER_IDS } from "../composition/binary.js";
+import { BINARY_ANALYSIS_PROVIDER_IDS } from "../application/binary/BinaryProviderIds.js";
 
 const clientDisplayNames: ReadonlyMap<string, string> = new Map(
   SUPPORTED_CLIENT_DEFINITIONS.map(({ name, displayName }) => [
