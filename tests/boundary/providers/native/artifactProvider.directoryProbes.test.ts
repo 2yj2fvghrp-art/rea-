@@ -101,6 +101,27 @@ describe("directory inspection probes", () => {
     },
   );
 
+  it("proposes JavaScript analysis for source-map-only bundles", async () => {
+    const root = await createTestTempDirectory("rea-artifact-sourcemap-");
+    const bundle = join(root, "Fixture.app");
+    await writeTree(bundle, {
+      "Contents/MacOS/Fixture": MACH_O_64,
+      "Contents/Info.plist": INFO_PLIST,
+      "Contents/Resources/app.js.map": JSON.stringify({
+        version: 3,
+        sources: ["original.ts"],
+        sourcesContent: ["export const recovered = true;"],
+        names: [],
+        mappings: "",
+      }),
+    });
+    expect(await probeOperations(bundle)).toEqual([
+      "analyze_javascript_application",
+      "open_binary",
+      "inspect_plist",
+    ]);
+  });
+
   it("preserves plist inspection for a readable Info.plist symlink", async () => {
     const root = await createTestTempDirectory("rea-artifact-plist-link-");
     const bundle = join(root, "Fixture.app");

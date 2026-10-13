@@ -1,3 +1,4 @@
+import { classifyJavaScriptArtifactFilePath } from "./javascript/javascriptArtifactFiles.js";
 import { z } from "zod";
 
 import {
@@ -308,33 +309,26 @@ const probesFor = (
 // the formats it holds: a bundle of Mach-O executables is not a JavaScript tree.
 // Formats are ordered so a repeated operation keeps its most general rationale.
 const DIRECTORY_MEMBER_FORMATS: readonly ArtifactInventoryResult["manifest"]["root_format"][] =
-  [
-    "asar",
-    "javascript-bundle",
-    "mach-o-universal",
-    "mach-o",
-    "elf",
-    "pe",
-    "plist",
-  ];
+  ["asar", "mach-o-universal", "mach-o", "elf", "pe", "plist"];
 
 const directoryProbes = (
   inventory: ArtifactInventoryResult,
 ): ArtifactInspectionResult["next_probes"] => {
-  // JavaScript acquisition does not follow symlinks. Other probes retain
-  // their own applicability rules; plist inspection follows readable links.
   const present = new Set(
-    inventory.occurrences
-      .filter(
-        ({ entry_kind, artifact_format }) =>
-          entry_kind !== "symlink" || artifact_format !== "javascript-bundle",
-      )
-      .map(({ artifact_format }) => artifact_format),
+    inventory.occurrences.map(({ artifact_format }) => artifact_format),
+  );
+  const hasJavaScriptMember = inventory.occurrences.some(
+    ({ entry_kind, logical_path }) =>
+      entry_kind === "file" &&
+      classifyJavaScriptArtifactFilePath(logical_path) !== undefined,
   );
   const members = DIRECTORY_MEMBER_FORMATS.filter((format) =>
     present.has(format),
   );
-  const probes = members.flatMap(probesForFormat);
+  const probes = [
+    ...(hasJavaScriptMember ? probesForFormat("javascript-bundle") : []),
+    ...members.flatMap(probesForFormat),
+  ];
   return probes.filter(
     (probe, index) =>
       probes.findIndex(({ operation }) => operation === probe.operation) ===
