@@ -454,9 +454,16 @@ it.skipIf(process.platform !== "linux" || process.arch !== "x64")(
       max_iterations: 1,
     });
     if (!response.ok) throw response.error;
-    expect(
-      javascriptDeobfuscationResultSchema.parse(response.value.result),
-    ).toMatchObject({ status: "unchanged", proof: { iterations: 0 } });
+    const result = javascriptDeobfuscationResultSchema.parse(
+      response.value.result,
+    );
+    expect(result).toMatchObject({
+      status: "unchanged",
+      proof: {
+        input_sha256: result.source.sha256,
+        output_sha256: result.output.sha256,
+      },
+    });
   },
 );
 
