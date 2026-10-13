@@ -62,7 +62,8 @@ export const registerCaptureCommands = (
           .int()
           .positive()
           .max(Number.MAX_SAFE_INTEGER)
-          .optional(),
+          .optional()
+          .describe("Maximum matching records to return; defaults to 50"),
         all: z
           .boolean()
           .default(false)

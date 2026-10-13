@@ -2,7 +2,12 @@ import { z } from "zod";
 import { packetCaptureSchema } from "./packetCapture.js";
 
 export const inspectPacketFieldsInputSchema = z.strictObject({
-  kind: z.enum(["protocols", "fields"]).default("protocols"),
+  kind: z
+    .enum(["protocols", "fields"])
+    .default("protocols")
+    .describe(
+      "Return protocol registrations or field definitions; defaults to protocols",
+    ),
   protocol: z
     .string()
     .min(1)
@@ -24,7 +29,8 @@ export const inspectPacketFieldsInputSchema = z.strictObject({
     .int()
     .nonnegative()
     .max(Number.MAX_SAFE_INTEGER)
-    .default(0),
+    .default(0)
+    .describe("Number of matching records to skip; defaults to 0"),
   limit: z
     .number()
     .int()
