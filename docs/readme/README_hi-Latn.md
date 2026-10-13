@@ -123,9 +123,9 @@ Setup changes review kijiye aur apna agent restart kijiye. Ek baar ke CLI comman
 
 Aapka agent target ko inspect karne aur relevant code trace karne ke liye MCP ke zariye REA ko call karta hai. REA findings ko unke evidence ke saath return karta hai. Agent inhi ke aadhaar par follow-up sawaal poochta hai, behavior samjhata hai, ya implementation likhkar test karta hai. CLI commands bhi yahi workflows use karte hain.
 
-![REA investigation flow: aapka agent ek local target ke baare mein poochta hai, REA analysis tools se use inspect aur trace karta hai, aur agent return hue code, references aur unknowns ko explain, implement aur test karne ke liye use karta hai.](website/public/assets/figures/rea-investigation-flow.svg)
+![REA investigation flow: aapka agent ek local target ke baare mein poochta hai, REA analysis tools se use inspect aur trace karta hai, aur agent return hue code, references aur unknowns ko explain, implement aur test karne ke liye use karta hai.](../../website/public/assets/figures/rea-investigation-flow.svg)
 
-[Full-size figure kholiye](website/public/assets/figures/rea-investigation-flow.svg).
+[Full-size figure kholiye](../../website/public/assets/figures/rea-investigation-flow.svg).
 
 <a id="current-status"></a>
 
@@ -266,7 +266,7 @@ Website ki [worked guides](https://rea.tools/guides/) se shuru kijiye. Exact opt
 - [Tool catalog](../mcp-contracts.md#generated-catalog): tools, providers aur CLI commands ki generated inventory.
 - [Roadmap](../roadmap.md): planned kaam aur capability trackers.
 
-Vulnerabilities [SECURITY.md](SECURITY.md) ke zariye report kijiye.
+Vulnerabilities [SECURITY.md](../../SECURITY.md) ke zariye report kijiye.
 
 ## Star history
 
@@ -284,7 +284,7 @@ REA use karne, bugs report karne, features request karne, builds test karne aur 
 
 ## Disclaimer
 
-Responsible-use guidance ke liye [DISCLAIMER.md](DISCLAIMER.md) dekhiye.
+Responsible-use guidance ke liye [DISCLAIMER.md](../../DISCLAIMER.md) dekhiye.
 
 Illegal ya unauthorized use par project ka stand REA ke saare versions, distribution channels aur platforms par laagu hota hai; har copy ke apne applicable licenses bane rehte hain.
 
@@ -300,6 +300,6 @@ Development setup aur checks ke liye [CONTRIBUTING.md](../../CONTRIBUTING.md), v
 
 [MIT](../../LICENSE)
 
-REA-authored code MIT ke under licensed hai. Third-party material ke apne licenses aur copyright notices bane rehte hain; dependency inventory, preserved license texts aur external-tool terms ke liye [Third-party notices](THIRD_PARTY_NOTICES.md) dekhiye.
+REA-authored code MIT ke under licensed hai. Third-party material ke apne licenses aur copyright notices bane rehte hain; dependency inventory, preserved license texts aur external-tool terms ke liye [Third-party notices](../../THIRD_PARTY_NOTICES.md) dekhiye.
 
 **Commercial tools aapko legally obtain karne honge aur unhe use karne ke liye authorized hona hoga**, jisme IDA Pro / Hex-Rays decompilers, Hopper aur JEB shaamil hain, unke applicable licenses ke under. REA koi tool license, key ya activation entitlement nahi deta. Trials aur demos vendor terms ke adheen rehte hain, jisme user, feature, automation aur output sharing restrictions shaamil hain. Cracked copies, stolen keys, unauthorized key sharing aur license restrictions ko bypass karna authorized nahi hai. Yeh guidance MIT ya third-party licenses ko amend nahi karti.
