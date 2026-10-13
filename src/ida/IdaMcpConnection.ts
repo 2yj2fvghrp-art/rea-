@@ -1,3 +1,4 @@
+import { createIdaDiagnosticRedactor } from "./IdaDiagnosticRedactor.js";
 import { snapshotEnvironment } from "../process/snapshotEnvironment.js";
 import {
   Client,
@@ -107,40 +108,6 @@ export const decodeIdaToolResult = (
     }
   });
   return values[0] ?? null;
-};
-
-/** Parse configured authentication once for both transport and tool diagnostics. */
-export const createIdaDiagnosticRedactor = (
-  config: IdaConfiguration,
-): ((message: string) => string) => {
-  const headers = "headers" in config ? Object.entries(config.headers) : [];
-  const values = headers.flatMap(([name, value]) => {
-    if (!/^(?:authorization|proxy-authorization|cookie)$/iu.test(name))
-      return [];
-    // Fetch normalizes surrounding HTTP whitespace before sending headers.
-    const normalized = value.replace(/^[ \t\r\n]+|[ \t\r\n]+$/gu, "");
-    if (normalized.length === 0) return [];
-    const credential = normalized.match(
-      /^(?:Bearer|Basic)\s+([\s\S]+)$/iu,
-    )?.[1];
-    return credential === undefined
-      ? [value, normalized]
-      : [value, normalized, credential];
-  });
-  const secrets = [...new Set(values.filter((value) => value.length > 0))].sort(
-    (left, right) => right.length - left.length,
-  );
-  if (secrets.length === 0) return (message) => message;
-  const pattern = new RegExp(
-    secrets
-      .map((secret) => secret.replace(/[.*+?^${}()|[\]\\]/gu, "\\$&"))
-      .join("|"),
-    "gu",
-  );
-  // One pass over the original text keeps overlapping values and the
-  // replacement marker independent of header iteration order.
-  return (message) =>
-    message.replace(pattern, "[redacted transport credential]");
 };
 
 /** Create a standard SDK connection to an existing upstream registration. */

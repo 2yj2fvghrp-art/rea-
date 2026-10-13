@@ -8,10 +8,8 @@ import {
 import type { JsonValue } from "../domain/jsonValue.js";
 import { projectAnalysisError } from "../domain/analysisErrorProjection.js";
 import { AnalysisInputError } from "../domain/analysisErrorCore.js";
-import {
-  createIdaDiagnosticRedactor,
-  decodeIdaToolResult,
-} from "./IdaMcpConnection.js";
+import { createIdaDiagnosticRedactor } from "./IdaDiagnosticRedactor.js";
+import { decodeIdaToolResult } from "./IdaMcpConnection.js";
 import type { AnalysisOperation } from "../application/AnalysisProvider.js";
 import { IdaSessionClient } from "./IdaSessionClient.js";
 
@@ -29,7 +27,10 @@ it("preserves a rejected headless decompile diagnostic with completed lookup evi
     "Invalid params: unexpected parameters: ['offset', 'max_lines']";
   const config = {
     url: "http://127.0.0.1:12345/mcp",
-    headers: { Authorization: "Bearer transport-fixture-secret" },
+    headers: {
+      Authorization: "Token custom-fixture-token",
+      Cookie: "session=cookie-fixture-secret",
+    },
     mode: "headless" as const,
     timeoutMs: 1000,
     workspaceRoot: root,
@@ -43,7 +44,7 @@ it("preserves a rejected headless decompile diagnostic with completed lookup evi
           content: [
             {
               type: "text",
-              text: reason + " (Bearer transport-fixture-secret)",
+              text: reason + " (custom-fixture-token / cookie-fixture-secret)",
             },
           ],
         },
@@ -51,7 +52,9 @@ it("preserves a rejected headless decompile diagnostic with completed lookup evi
         redact,
       );
   };
-  const safeReason = reason + " ([redacted transport credential])";
+  const safeReason =
+    reason +
+    " ([redacted transport credential] / [redacted transport credential])";
   const client = new IdaSessionClient(config, target, producer);
   try {
     const result = await client.execute("procedure_pseudo_code", {
@@ -77,7 +80,10 @@ it("preserves a rejected headless decompile diagnostic with completed lookup evi
       },
     });
     expect(JSON.stringify(projectAnalysisError(result.error))).not.toContain(
-      "transport-fixture-secret",
+      "custom-fixture-token",
+    );
+    expect(JSON.stringify(projectAnalysisError(result.error))).not.toContain(
+      "cookie-fixture-secret",
     );
     expect(
       producer.calls.find(({ name }) => name === "decompile"),

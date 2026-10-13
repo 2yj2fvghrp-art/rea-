@@ -276,12 +276,101 @@ it.each([false, true])(
   },
 );
 
+const parsedCredentialCases: readonly {
+  label: string;
+  headers: Readonly<Record<string, string>>;
+  payloads: readonly string[];
+}[] = [
+  {
+    label: "Cookie values",
+    headers: {
+      Cookie:
+        'session=cookie-fixture-secret; quoted="quoted-fixture=value=="; empty=',
+    },
+    payloads: ["cookie-fixture-secret", "quoted-fixture=value=="],
+  },
+  {
+    label: "Authorization Token payload",
+    headers: { Authorization: "Token custom-fixture-token+/==" },
+    payloads: ["custom-fixture-token+/=="],
+  },
+  {
+    label: "Proxy-Authorization custom token68",
+    headers: { "Proxy-Authorization": "Custom proxy-fixture-token._~+/-==" },
+    payloads: ["proxy-fixture-token._~+/-=="],
+  },
+  {
+    label: "Digest auth-param values",
+    headers: {
+      Authorization:
+        'Digest username="fixture-user", nonce="nonce,fixture", response="response\\\"secret", opaque="back\\\\slash"',
+    },
+    payloads: [
+      "fixture-user",
+      "nonce,fixture",
+      'response"secret',
+      "back\\slash",
+    ],
+  },
+];
+
+it.each(
+  parsedCredentialCases.flatMap((testCase) =>
+    [false, true].map((native) => ({ ...testCase, native })),
+  ),
+)(
+  "redacts parsed $label from tool errors (native: $native)",
+  async ({ headers, payloads, native }) => {
+    const context = "/caller/input?cursor=visible API_KEY=caller-evidence";
+    const { connection } = await fixture({
+      native,
+      configurationHeaders: headers,
+      toolResult: {
+        isError: true,
+        content: [
+          {
+            type: "text",
+            text: "Rejected " + payloads.join(" / ") + " at " + context,
+          },
+        ],
+      },
+    });
+    await connection.connect();
+    const failure = await connection
+      .call("first", {})
+      .catch((cause: unknown) => cause);
+    if (!(failure instanceof AnalysisProtocolError))
+      throw new Error(
+        "Expected the upstream rejection to remain a protocol error",
+      );
+    const reason =
+      "Rejected " +
+      payloads.map(() => "[redacted transport credential]").join(" / ") +
+      " at " +
+      context;
+    expect(failure.message).toBe("IDA MCP tool failed: " + reason);
+    expect(projectAnalysisError(failure)).toMatchObject({
+      code: "unreadable_output",
+      details: { diagnostics: { reason } },
+    });
+  },
+);
+
 it.each([false, true])(
   "retains successful credential-like evidence through SDK transport (native: %s)",
   async (native) => {
-    const evidence = { observed: "Bearer transport-fixture-secret" };
+    const evidence = {
+      observed: "custom-fixture-token+/==",
+      cookie: "quoted-fixture=value==",
+      digest: 'response"secret',
+    };
     const { connection } = await fixture({
       native,
+      configurationHeaders: {
+        Authorization: "Token custom-fixture-token+/==",
+        Cookie: 'session="quoted-fixture=value=="',
+        "Proxy-Authorization": 'Digest response="response\\\"secret"',
+      },
       toolResult: native
         ? { content: [{ type: "text", text: JSON.stringify(evidence) }] }
         : { content: [], structuredContent: evidence },
@@ -291,30 +380,64 @@ it.each([false, true])(
   },
 );
 
-it("redacts credentials echoed in an HTTP failure through the SDK rejection path", async () => {
-  const context = "/caller/input?cursor=visible API_KEY=caller-evidence";
-  const { connection } = await fixture({
-    toolStatus: 500,
-    toolResult: {
-      isError: true,
-      content: [
-        {
-          type: "text",
-          text:
-            "Transport rejected Bearer transport-fixture-secret at " + context,
-        },
-      ],
+it.each<{
+  label: string;
+  headers: Readonly<Record<string, string>>;
+  payloads: readonly string[];
+}>([
+  {
+    label: "Cookie and custom token payloads",
+    headers: {
+      Authorization: "Token custom-fixture-token",
+      Cookie: "session=cookie-fixture-secret",
     },
-  });
-  await connection.connect();
-  const failure = await connection
-    .call("first", {})
-    .catch((cause: unknown) => cause);
-  expect(failure).not.toBeInstanceOf(AnalysisProtocolError);
-  if (!(failure instanceof Error))
-    throw new Error("Expected the SDK to reject the HTTP failure");
-  expect(failure.message).toContain(
-    "Transport rejected [redacted transport credential] at " + context,
-  );
-  expect(failure.message).not.toContain("transport-fixture-secret");
-});
+    payloads: ["custom-fixture-token", "cookie-fixture-secret"],
+  },
+  {
+    label: "JSON-escaped Digest payloads and header",
+    headers: {
+      Authorization: 'Digest response="q\\\"uote", opaque="back\\\\slash"',
+    },
+    payloads: [
+      'q"uote',
+      "back\\slash",
+      'Digest response="q\\\"uote", opaque="back\\\\slash"',
+    ],
+  },
+])(
+  "redacts $label echoed in an HTTP failure through the SDK rejection path",
+  async ({ headers, payloads }) => {
+    const context = "/caller/input?cursor=visible API_KEY=caller-evidence";
+    const { connection } = await fixture({
+      toolStatus: 500,
+      configurationHeaders: headers,
+      toolResult: {
+        isError: true,
+        content: [
+          {
+            type: "text",
+            text:
+              "Transport rejected " + payloads.join(" / ") + " at " + context,
+          },
+        ],
+      },
+    });
+    await connection.connect();
+    const failure = await connection
+      .call("first", {})
+      .catch((cause: unknown) => cause);
+    expect(failure).not.toBeInstanceOf(AnalysisProtocolError);
+    if (!(failure instanceof Error))
+      throw new Error("Expected the SDK to reject the HTTP failure");
+    expect(failure.message).toContain(
+      "Transport rejected " +
+        payloads.map(() => "[redacted transport credential]").join(" / ") +
+        " at " +
+        context,
+    );
+    for (const payload of payloads)
+      expect(failure.message).not.toContain(
+        JSON.stringify(payload).slice(1, -1),
+      );
+  },
+);
