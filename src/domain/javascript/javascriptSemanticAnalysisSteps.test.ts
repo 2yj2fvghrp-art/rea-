@@ -63,6 +63,35 @@ it("traverses a large tree in steps with the synchronous visit order (#1462)", (
   expect(stepped).toEqual(synchronous);
 });
 
+it("skips child subtrees without changing sibling ancestry or exit callbacks", () => {
+  const parsed = parseJavaScriptSource("[1, [2], 3]", "selection.js");
+  if (parsed === null) throw new Error("Expected parsed source");
+  const entered: number[] = [];
+  const exited: number[] = [];
+  const parents: string[][] = [];
+  const steps = traverseJavaScriptAstSteps(parsed.program, {
+    skip: (node) => node.type === "ArrayExpression" && node.start === 4,
+    enter: (node, parent, readAncestors) => {
+      if (node.type !== "NumericLiteral") return;
+      entered.push(node.value);
+      expect(readAncestors().at(-1)).toBe(parent);
+      parents.push(readAncestors().map(({ type }) => type));
+    },
+    exit: (node) => {
+      if (node.type === "NumericLiteral") exited.push(node.value);
+    },
+  });
+  while (steps.next().done !== true) {
+    // Complete the same cooperative traversal used by fingerprint collection.
+  }
+  expect(entered).toEqual([1, 3]);
+  expect(exited).toEqual([1, 3]);
+  expect(parents).toEqual([
+    ["Program", "ExpressionStatement", "ArrayExpression"],
+    ["Program", "ExpressionStatement", "ArrayExpression"],
+  ]);
+});
+
 it("preserves receiver and Electron alias scope across traversal pauses (#1462)", () => {
   const padding = Array.from(
     { length: 400 },
@@ -165,5 +194,14 @@ conditionalAlias.handle("conditional-alias:ping", () => "local");
     [text.indexOf('require("electron").ipcMain.handle'), []],
     [text.indexOf('require("electron").notAnApi.ipcMain.handle'), []],
     [text.indexOf('require("electron")["ipcMain.handle"]'), []],
+  ]);
+});
+
+it("classifies Electron calls through internal TypeScript import aliases", () => {
+  const source = 'import electron = require("electron"); import ipc = electron.ipcMain; ipc.handle("ping", () => "pong");';
+  const parsed = parseJavaScriptSource(source, "aliases.ts");
+  if (parsed === null) throw new Error("Expected parsed TypeScript source");
+  expect([...classifyParsedJavaScriptElectronBindings(parsed)]).toContainEqual([
+    source.indexOf('ipc.handle("ping"'), ["ipcMain"],
   ]);
 });

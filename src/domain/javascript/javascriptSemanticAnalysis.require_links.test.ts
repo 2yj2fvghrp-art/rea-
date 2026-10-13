@@ -6,7 +6,144 @@ import {
   topLevelBinding,
 } from "./javascriptSemanticAnalysis.fixture.js";
 
+describe("TypeScript import-equals links", () => {
+  it("retains runtime external import-equals as a require dependency", () => {
+    const links = analyzeJavaScriptSemantics(`
+      import dependency = require("./dependency.cjs");
+      import type types = require("./types");
+      import alias = Namespace.Dependency;
+    `).moduleLinks;
+
+    expect(links).toEqual([
+      expect.objectContaining({
+        kind: "require",
+        specifier: "./dependency.cjs",
+        importedName: null,
+        localName: "dependency",
+        exportedName: null,
+      }),
+      expect.objectContaining({
+        kind: "type-import",
+        specifier: "./types",
+        localName: "types",
+      }),
+    ]);
+  });
+
+  it("keeps the exported binding for exported import-equals", () => {
+    const source = 'export import dependency = require("./dependency");';
+    const links = analyzeJavaScriptSemantics(source).moduleLinks;
+
+    expect(links).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({
+          kind: "require",
+          specifier: "./dependency",
+          localName: "dependency",
+          exportedName: null,
+        }),
+        expect.objectContaining({
+          kind: "export",
+          specifier: null,
+          localName: "dependency",
+          exportedName: "dependency",
+        }),
+      ]),
+    );
+    expect(
+      links.find(({ kind }) => kind === "require")?.location.start,
+    ).toEqual({ line: 1, column: 7 });
+  });
+});
+
+describe("TypeScript type-only module links", () => {
+  it("retains declarations without runtime bindings or callable claims", () => {
+    const ir = analyzeJavaScriptSemantics(`
+      import type { Whole } from "./whole";
+      import { type Inline } from "./inline";
+      import { type Erased, value } from "./mixed";
+      export type { Reexported } from "./reexported";
+      export { type InlineExport } from "./inline-export";
+      export type LocalType = string;
+      export interface LocalInterface { value: string }
+      function hiddenFunction() { return 1; }
+      export type { hiddenFunction };
+    `);
+
+    const externalLinks = ir.moduleLinks
+      .filter(({ specifier }) => specifier !== null)
+      .map(
+        ({ kind, specifier, importedName, exportedName }) =>
+          [kind, specifier, importedName, exportedName] as const,
+      );
+    expect(externalLinks).toEqual([
+      ["type-import", "./whole", "Whole", null],
+      ["type-import", "./inline", "Inline", null],
+      ["type-import", "./mixed", "Erased", null],
+      ["import", "./mixed", "value", null],
+      ["type-import", "./reexported", "Reexported", "Reexported"],
+      ["type-import", "./inline-export", "InlineExport", "InlineExport"],
+    ]);
+
+    const typeLinks = ir.moduleLinks
+      .filter(({ kind }) => kind === "type-import")
+      .map(
+        ({ specifier, localName, exportedName, callableId }) =>
+          [specifier, localName, exportedName, callableId] as const,
+      );
+    expect(typeLinks).toEqual([
+      ["./whole", "Whole", null, null],
+      ["./inline", "Inline", null, null],
+      ["./mixed", "Erased", null, null],
+      ["./reexported", null, "Reexported", null],
+      ["./inline-export", null, "InlineExport", null],
+      [null, "LocalType", "LocalType", null],
+      [null, "LocalInterface", "LocalInterface", null],
+      [null, "hiddenFunction", "hiddenFunction", null],
+    ]);
+    expect(ir.limitations).toContain(
+      "Compiler options are unavailable; inline type-only imports or re-exports may preserve a module side-effect dependency.",
+    );
+  });
+});
+
 describe("CommonJS dependency links", () => {
+  it("retains an import-equals binding and its module origin", () => {
+    const ir = analyzeJavaScriptSemantics(`
+      import typed = require("dependency");
+      import type TypeOnly = require("type-only");
+      namespace Local { export class Marker {} }
+      import Alias = Local.Marker;
+      void typed;
+    `);
+    expect(topLevelBinding(ir, "typed")).toMatchObject({
+      kind: "import",
+      mutable: false,
+      provenance: {
+        origins: [{ specifier: "dependency", importedPath: [] }],
+      },
+    });
+    expect(
+      ir.moduleLinks.filter(({ specifier }) => specifier !== null),
+    ).toEqual([
+      expect.objectContaining({
+        kind: "require",
+        specifier: "dependency",
+        importedName: null,
+        localName: "typed",
+      }),
+      expect.objectContaining({
+        kind: "type-import",
+        specifier: "type-only",
+        importedName: null,
+        localName: "TypeOnly",
+      }),
+    ]);
+    expect(ir.references.filter(({ name }) => name === "typed")).toHaveLength(
+      1,
+    );
+  });
+
   it.each([
     'require("dependency");',
     'void require("dependency");',
@@ -103,7 +240,9 @@ describe("CommonJS dependency links", () => {
     ]);
     expect(
       ir.bindings.find(({ name }) => name === "bound")?.provenance.origins,
-    ).toEqual([{ specifier: "bound", importedPath: [] }]);
+    ).toEqual([
+      { specifier: "bound", importedPath: [], resolutionMode: "require" },
+    ]);
   });
 
   it.each([
@@ -134,6 +273,7 @@ it("preserves unshadowed require origins through aliases and assignments", () =>
     expect(origin(topLevelBinding(ir, name))).toEqual({
       specifier: "electron",
       importedPath: ["ipcMain"],
+      resolutionMode: "require",
     });
   expect(topLevelBinding(ir, "assigned").provenance).toMatchObject({
     status: "ambiguous",
@@ -153,59 +293,30 @@ it("preserves unshadowed require origins through aliases and assignments", () =>
   ]);
 });
 
-it("retains import-equals value dependencies without inventing erased ones", () => {
+it("retains internal import alias provenance without inventing a dependency", () => {
   const ir = analyzeJavaScriptSemantics(`
-    import value = require("dependency");
-    import type erased = require("type-only-dependency");
-    import alias = Internal.Namespace;
-    void value; void erased; void alias;
+    import electron = require("electron");
+    import ipc = electron.ipcMain;
+    void ipc;
   `);
-
-  expect(
-    ir.moduleLinks.map(({ kind, specifier, importedName, localName }) => ({
-      kind,
-      specifier,
-      importedName,
-      localName,
-    })),
-  ).toEqual([
-    {
-      kind: "require",
-      specifier: "dependency",
-      importedName: "*",
-      localName: "value",
-    },
-  ]);
-
-  const programScope = ir.scopes.find(
-    ({ kind }) => kind === "program",
-  )?.scopeId;
-  expect(
-    ir.bindings
-      .filter(({ scopeId }) => scopeId === programScope)
-      .map(({ name, kind, mutable }) => ({ name, kind, mutable })),
-  ).toEqual([
-    { name: "alias", kind: "import", mutable: false },
-    { name: "erased", kind: "import", mutable: false },
-    { name: "value", kind: "import", mutable: false },
-  ]);
-
-  expect(
-    ir.bindings.find(({ name }) => name === "value")?.provenance,
-  ).toMatchObject({
+  expect(topLevelBinding(ir, "ipc").provenance).toMatchObject({
     status: "module",
-    origins: [{ specifier: "dependency", importedPath: [] }],
+    origins: [{ specifier: "electron", importedPath: ["ipcMain"] }],
   });
-  for (const name of ["erased", "alias"])
-    expect(
-      ir.bindings.find((binding) => binding.name === name)?.provenance,
-    ).toMatchObject({ status: "local", origins: [] });
+  expect(ir.moduleLinks.filter(({ kind }) => kind === "require")).toHaveLength(1);
+  expect(ir.references.some(({ name }) => name === "ipcMain")).toBe(false);
+});
 
-  const aliases = ir.references.filter(({ name }) =>
-    ["alias", "erased", "value"].includes(name),
-  );
-  expect(aliases.length).toBeGreaterThan(0);
-  expect(aliases.every(({ resolution }) => resolution === "resolved")).toBe(
-    true,
-  );
+it("does not publish namespace aliases into the surrounding program", () => {
+  const ir = analyzeJavaScriptSemantics(`
+    import electron = require("electron");
+    namespace A { import x = electron.ipcMain; void x; }
+    namespace B { import x = electron.ipcRenderer; void x; }
+    void x;
+  `);
+  const aliases = ir.bindings.filter(({ name }) => name === "x");
+  expect(aliases).toHaveLength(2);
+  expect(new Set(aliases.map(({ scopeId }) => scopeId)).size).toBe(2);
+  expect(aliases.every(({ scopeId }) => ir.scopes.find((scope) => scope.scopeId === scopeId)?.kind === "namespace")).toBe(true);
+  expect(ir.references.filter(({ name }) => name === "x").map(({ resolution }) => resolution)).toEqual(["resolved", "resolved", "unbound"]);
 });
