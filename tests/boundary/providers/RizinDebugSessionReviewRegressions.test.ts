@@ -222,6 +222,82 @@ it.skipIf(process.platform === "win32")(
   },
 );
 
+it.skipIf(process.platform === "win32")(
+  "keeps session UTF-8 status cumulative while command evidence reports only its frames",
+  async () => {
+    directory = await mkdtemp(join(tmpdir(), "rea-rizin-command-utf8-scope-"));
+    const provider = join(directory, "fake-rizin-command-utf8-scope.mjs");
+    await writeFile(
+      provider,
+      `#!/usr/bin/env node
+process.stdout.write(Buffer.from([0xff, 0]));
+let input = "";
+process.stdin.setEncoding("utf8");
+process.stdin.on("data", (chunk) => {
+  input += chunk;
+  for (;;) {
+    const boundary = input.indexOf("\\n"); if (boundary < 0) break;
+    const line = input.slice(0, boundary); input = input.slice(boundary + 1);
+    if (line === "invalid-output") process.stdout.write(Buffer.from([0xfe, 0]));
+    else if (!line.startsWith("!echo ")) process.stdout.write("valid output\\0");
+    else process.stdout.write(line.slice(6) + "\\0");
+  }
+});
+`,
+    );
+    await chmod(provider, 0o700);
+    const { manager, sessionId } = await startRizinWithProvider(provider);
+    if (sessionId === undefined) return;
+
+    expect(manager.status(sessionId)?.output_invalid_utf8).toBe(true);
+    const firstValid = await manager.execute(sessionId, "valid-before-invalid");
+    expect(firstValid.ok).toBe(true);
+    if (firstValid.ok) {
+      expect(firstValid.value.result).not.toHaveProperty("output_invalid_utf8");
+      expect(firstValid.value.evidence.raw_result).not.toHaveProperty(
+        "output_invalid_utf8",
+      );
+      expect(firstValid.value.evidence.normalized_result).not.toHaveProperty(
+        "output_invalid_utf8",
+      );
+      expect(firstValid.value.evidence.limitations.join(" ")).not.toContain(
+        "Collected command frames contained invalid UTF-8 bytes",
+      );
+    }
+
+    const invalid = await manager.execute(sessionId, "invalid-output");
+    expect(invalid.ok).toBe(true);
+    if (invalid.ok) {
+      expect(invalid.value.result.output_invalid_utf8).toBe(true);
+      expect(invalid.value.evidence.raw_result).toMatchObject({
+        output_invalid_utf8: true,
+      });
+      expect(invalid.value.evidence.normalized_result).toMatchObject({
+        output_invalid_utf8: true,
+      });
+      expect(invalid.value.evidence.limitations.join(" ")).toContain(
+        "Collected command frames contained invalid UTF-8 bytes; decoded text may contain replacement characters.",
+      );
+    }
+
+    const laterValid = await manager.execute(sessionId, "valid-after-invalid");
+    expect(laterValid.ok).toBe(true);
+    if (laterValid.ok) {
+      expect(laterValid.value.result).not.toHaveProperty("output_invalid_utf8");
+      expect(laterValid.value.evidence.raw_result).not.toHaveProperty(
+        "output_invalid_utf8",
+      );
+      expect(laterValid.value.evidence.normalized_result).not.toHaveProperty(
+        "output_invalid_utf8",
+      );
+      expect(laterValid.value.evidence.limitations.join(" ")).not.toContain(
+        "Collected command frames contained invalid UTF-8 bytes",
+      );
+    }
+    expect(manager.status(sessionId)?.output_invalid_utf8).toBe(true);
+  },
+);
+
 it.skipIf(process.platform !== "linux")(
   "clears retained Rizin cleanup after its identified inferior exits",
   async () => {
@@ -524,7 +600,7 @@ it.skipIf(process.platform === "win32")(
 await import("node:fs/promises").then((fs) => fs.writeFile(${JSON.stringify(join(directory ?? "", "pid"))}, String(process.pid)));
 process.stdout.write("\\0");
 process.stdin.setEncoding("utf8");
-process.stdin.on("data", () => process.stdout.write("retained\\0"));
+process.stdin.on("data", () => process.stdout.write(Buffer.from([0xff, 0])));
 `,
     );
     await chmod(provider, 0o700);
@@ -543,12 +619,17 @@ process.stdin.on("data", () => process.stdout.write("retained\\0"));
     const result = await manager.execute(started.value.session_id, "dr");
 
     expect(result.ok).toBe(true);
-    if (result.ok)
+    if (result.ok) {
       expect(result.value.result).toMatchObject({
-        output: "retained",
+        output: "�",
         output_truncated: true,
         completion_status: "unknown",
+        output_invalid_utf8: true,
       });
+      expect(result.value.evidence.limitations).toContain(
+        "Collected command frames contained invalid UTF-8 bytes; decoded text may contain replacement characters.",
+      );
+    }
     await expectOwnedProcessExited(
       await readFile(join(directory, "pid"), "utf8"),
     );
@@ -573,7 +654,10 @@ process.stdin.on("data", (chunk) => {
   for (;;) {
     const boundary = input.indexOf("\\n"); if (boundary < 0) break;
     const line = input.slice(0, boundary); input = input.slice(boundary + 1);
-    if (line === "slow") stalled = true;
+    if (line === "slow") {
+      stalled = true;
+      process.stdout.write(Buffer.from([0xff, 0]));
+    }
     else if (line.startsWith("!echo ") && !stalled) process.stdout.write(line.slice(6) + "\\n\\0");
   }
 });
@@ -606,6 +690,10 @@ process.stdin.on("data", (chunk) => {
     if (!result.ok) {
       expect(result.error._tag).toBe("AnalysisCancelledError");
       expect(result.error.partialObservation).toMatchObject({
+        normalized_result: { output_invalid_utf8: true },
+        limitations: expect.arrayContaining([
+          "Collected command frames contained invalid UTF-8 bytes; decoded text may contain replacement characters.",
+        ]),
         parameters: {
           launch_provenance: {
             caller_selected_path: callerSelectedPath,
@@ -733,7 +821,7 @@ process.stdin.on("data", (chunk) => {
     if (line === "exit-now") {
       const writer = spawn(process.execPath, ["-e", "setInterval(() => {}, 1000)"], { stdio: "inherit" });
       writeFileSync(${JSON.stringify(writerPidPath)}, String(writer.pid));
-      process.stdout.write("partial-before-exit\\0second-partial\\0", () => process.exit(7));
+      process.stdout.write(Buffer.concat([Buffer.from("partial-before-exit\\0second-partial\\0"), Buffer.from([0xff, 0])]), () => process.exit(7));
     }
   }
 });
@@ -780,8 +868,9 @@ process.stdin.on("data", (chunk) => {
       });
       expect(exited.error.partialObservation).toMatchObject({
         normalized_result: {
-          output: ["partial-before-exit", "second-partial"].join("\n"),
+          output: ["partial-before-exit", "second-partial", "�"].join("\n"),
           completion_status: "unknown",
+          output_invalid_utf8: true,
         },
         parameters: {
           command: "exit-now",
