@@ -106,6 +106,12 @@ export const redactExplicitFailure = (
   if (error instanceof AnalysisOutputError)
     return new AnalysisOutputError(error.operation, text(error.reason), {
       cause: error,
+      ...(error.userMessage === undefined ? {} : { userMessage: text(error.userMessage) }),
+      ...(error.remediationAction === undefined ? {} : { remediationAction: text(error.remediationAction) }),
+      ...(error.diagnostics === undefined ? {} : { diagnostics: diagnostics(error.diagnostics) }),
+      ...(error.capturedOutput === undefined ? {} : { capturedOutput: {
+        stdout: text(error.capturedOutput.stdout), stderr: text(error.capturedOutput.stderr), truncated: error.capturedOutput.truncated,
+      } }),
     });
   if (error instanceof AnalysisCapabilityUnavailableError)
     return new AnalysisCapabilityUnavailableError(

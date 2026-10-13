@@ -1262,7 +1262,7 @@ export class AdbProvider {
       operation,
       serial,
       selection.binary,
-      adbArguments(serial, ["shell", "pm", "path", packageName]),
+      adbArguments(serial, ["shell", "-T", "pm", "path", packageName]),
       {
         timeoutMs: PM_PATH_TIMEOUT_MS,
         maxOutputBytes: PM_PATH_MAX_OUTPUT_BYTES,

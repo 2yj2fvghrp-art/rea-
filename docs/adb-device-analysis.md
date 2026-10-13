@@ -118,6 +118,12 @@ existing analysis families directly, for example
   while POSIX hosts retain valid POSIX filenames such as names with spaces or
   colons. A package pull checks reported names against the destination
   filesystem before pulling, and refuses names that would share a local path.
+  Host filenames longer than 255 UTF-8 bytes or UTF-16 code units are refused
+  before output creation. `pm path` runs without a PTY and uses LF framing;
+  whitespace, control, private-use, default-ignorable and noncharacter code
+  points in its reported paths are refused without normalizing the source.
+  This Package Manager protocol policy is separate from caller-selected
+  `pull_adb_file` paths, which retain legal POSIX spaces and colons.
 - **Package path refusals are diagnosable.** These `pull_adb_package`
   refusals return `unreadable_output` with `retryable: false`, keep the
   `pm path` output in `details.captured_output`, and name the refusal in
@@ -128,7 +134,7 @@ existing analysis families directly, for example
   `file_name`, and the filesystem `error_code` (`EEXIST` when the
   destination volume folds the name onto an earlier entry). Diagnostics keep
   raw device strings; the human-readable `message` escapes invisible,
-  bidirectional, and default-ignorable code points as `\u{...}` so rendered
+  bidirectional, default-ignorable code points, and the blank braille cell as `\u{...}` so rendered
   text cannot be reordered or hide a character.
 - **Splits are part of the answer.** `pm path` enumerates the base APK and
   every installed split; pulls cover the whole set. System packages whose

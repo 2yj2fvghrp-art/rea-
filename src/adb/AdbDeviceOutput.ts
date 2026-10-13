@@ -213,7 +213,7 @@ export const parsePackageListOutput = (
  */
 export const displayDevicePath = (devicePath: string): string =>
   JSON.stringify(devicePath).replace(
-    /[\p{C}\p{Z}\p{Default_Ignorable_Code_Point}]/gu,
+    /[\p{C}\p{Z}\p{Default_Ignorable_Code_Point}\u2800]/gu,
     (character) =>
       character === " "
         ? character
@@ -248,7 +248,7 @@ export const parsePmPathOutput = (
     reason: AdbHostFileNameReason;
   }[] = [];
   const unparsedLines: string[] = [];
-  for (const rawLine of stdout.split(/\r?\n/u)) {
+  for (const rawLine of stdout.split("\n")) {
     if (rawLine === "") continue;
     const match = /^package:(.*)$/u.exec(rawLine);
     if (match === null) {
@@ -256,6 +256,10 @@ export const parsePmPathOutput = (
       continue;
     }
     const devicePath = match[1]!;
+    if (/[\s\p{Cc}\p{Cf}\p{Cs}\p{Co}\p{Default_Ignorable_Code_Point}\p{Noncharacter_Code_Point}]/u.test(devicePath)) {
+      rejectedPaths.push({ device_path: devicePath, reason: "unsupported_character" });
+      continue;
+    }
     const validated = adbHostFileName(devicePath);
     if (!validated.ok) {
       rejectedPaths.push({
