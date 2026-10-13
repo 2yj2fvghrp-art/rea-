@@ -409,3 +409,33 @@ const expectNativeTypeSelections = async (
     ),
   ).toBe(true);
 };
+
+it("keeps malformed mode attribute lists and interpolated type keys unknown", async () => {
+  const worker = new JavaScriptAnalysisWorker({ heapMb: 128, timeoutMs: 30_000 });
+  try {
+    for (const text of [
+      'import type { NativeMode } from "native-mode/addon.node" with { "resolution-mode": "import", type: "json" };',
+      'import type { NativeMode } from "native-mode/addon.node" with { "resolution-mode": "import", "resolution-mode": "require" };',
+      'type Native = import("native-mode/addon.node", {with: {"resolution-mode": "import", type: "json"}}).NativeMode;',
+    ]) {
+      const result = await worker.analyze(source("invalid.cts", text), 100);
+      if (!result.ok) throw result.error.error;
+      expect(
+        result.value.javascript.electron.native_addon_bindings,
+      ).toMatchObject([{ module_kind: "compiler-dependent" }]);
+    }
+    const dynamic = await worker.analyze(
+      source(
+        "dynamic.mts",
+        'type Native = (typeof import("native-mode/addon.node"))[`Native${string}`];',
+      ),
+      100,
+    );
+    if (!dynamic.ok) throw dynamic.error.error;
+    expect(
+      dynamic.value.javascript.electron.native_addon_bindings,
+    ).toMatchObject([{ members: [], dynamic_member_access: true }]);
+  } finally {
+    await worker.close();
+  }
+});

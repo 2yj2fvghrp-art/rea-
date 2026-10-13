@@ -64,7 +64,7 @@ const nativeImportEqualsSource = [
   "console.log(JSON.stringify(value.source));",
 ].join("\n");
 const nativeIndexedSource = [
-  'type Plain = (typeof import("native-mixed/addon.node"))["NativeMode"];',
+  'type Plain = (typeof import("native-mixed/addon.node"))[`NativeMode`];',
   'type Punctuated = (typeof import("native-mixed/addon.node"))["Native.Mode"];',
   'type Empty = (typeof import("native-mixed/addon.node"))[""];',
   'const first: Plain = { source: "import" };',

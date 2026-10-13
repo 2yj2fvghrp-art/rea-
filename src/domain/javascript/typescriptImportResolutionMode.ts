@@ -36,14 +36,13 @@ export const typescriptImportResolutionMode = (
   node: t.Node,
 ): "import" | "require" | "compiler-dependent" | undefined => {
   if (t.isTSImportType(node)) {
+    if (node.options == null) return undefined;
     const attributes = literalProperty(node.options, "with");
     const mode = literalProperty(attributes, "resolution-mode");
-    return mode === undefined
-      ? undefined
-      : t.isStringLiteral(mode) &&
-          (mode.value === "import" || mode.value === "require")
-        ? mode.value
-        : "compiler-dependent";
+    return t.isStringLiteral(mode) &&
+      (mode.value === "import" || mode.value === "require")
+      ? mode.value
+      : "compiler-dependent";
   }
   if (
     !t.isImportDeclaration(node) &&
@@ -53,27 +52,30 @@ export const typescriptImportResolutionMode = (
     return undefined;
   const kind = t.isImportDeclaration(node) ? node.importKind : node.exportKind;
   if (kind !== "type") return undefined;
-  const mode = node.attributes?.find(
-    ({ key }) =>
-      (t.isStringLiteral(key) ? key.value : key.name) === "resolution-mode",
-  )?.value.value;
-  return mode === undefined
-    ? undefined
-    : mode === "import" || mode === "require"
-      ? mode
-      : "compiler-dependent";
+  const attributes = node.attributes;
+  if (attributes == null || attributes.length === 0) return undefined;
+  const attribute = attributes[0];
+  if (
+    attributes.length !== 1 ||
+    attribute === undefined ||
+    (t.isStringLiteral(attribute.key) ? attribute.key.value : attribute.key.name) !==
+      "resolution-mode"
+  )
+    return "compiler-dependent";
+  const mode = attribute.value.value;
+  return mode === "import" || mode === "require" ? mode : "compiler-dependent";
 };
 
 const literalProperty = (
   node: t.Node | null | undefined,
   key: string,
 ): t.Node | undefined =>
-  t.isObjectExpression(node)
-    ? node.properties.find(
-        (property): property is t.ObjectProperty =>
-          t.isObjectProperty(property) &&
-          semanticStaticPropertyKey(property.key, property.computed) === key,
-      )?.value
+  t.isObjectExpression(node) &&
+  node.properties.length === 1 &&
+  t.isObjectProperty(node.properties[0]) &&
+  semanticStaticPropertyKey(node.properties[0].key, node.properties[0].computed) ===
+    key
+    ? node.properties[0].value
     : undefined;
 
 /** Literal source and type selection, including indexed access owned by enclosing AST nodes. */
@@ -111,11 +113,17 @@ export const typescriptImportTypeRequest = (
     const literal = t.isTSLiteralType(parent.indexType)
       ? parent.indexType.literal
       : undefined;
-    if (!t.isStringLiteral(literal) && !t.isNumericLiteral(literal)) {
+    const key =
+      t.isStringLiteral(literal) || t.isNumericLiteral(literal)
+        ? String(literal.value)
+        : t.isTemplateLiteral(literal) && literal.expressions.length === 0
+          ? literal.quasis[0]?.value.cooked
+          : undefined;
+    if (key == null) {
       dynamicMemberAccess = true;
       break;
     }
-    names.push(String(literal.value));
+    names.push(key);
     cursor = parent;
   }
   return {
