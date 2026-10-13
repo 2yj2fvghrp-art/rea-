@@ -9,6 +9,7 @@ export const BINARY_ARCHITECTURES = [
   "mips",
   "6502",
   "riscv",
+  "m68k",
 ] as const;
 export type BinaryArchitecture = (typeof BINARY_ARCHITECTURES)[number];
 
@@ -36,6 +37,7 @@ export interface PeCodeViewRecord {
 export const ELF_METADATA_ARCHITECTURES = [
   "mips",
   "riscv",
+  "m68k",
 ] as const satisfies readonly BinaryArchitecture[];
 export type ElfMetadataArchitecture =
   (typeof ELF_METADATA_ARCHITECTURES)[number];
@@ -90,6 +92,12 @@ export interface MipsAbiFlags {
  */
 export type RiscvElfMetadata = ElfFamilyMetadata;
 
+/**
+ * ELF class and raw `e_flags` retain the M68000-family and ColdFire variant
+ * declarations used by this lane; the family name alone admits nothing.
+ */
+export type M68kElfMetadata = ElfFamilyMetadata;
+
 /** Byte range of the selected slice inside its universal Mach-O container. */
 export interface UniversalMachOSlice {
   readonly offset: number;
@@ -137,6 +145,15 @@ export type BinaryTarget =
       readonly architecture: "riscv";
       readonly availableArchitectures: readonly "riscv"[];
       readonly riscv: RiscvElfMetadata;
+      readonly executableRole?: never;
+      readonly managed?: never;
+    })
+  | (BinaryTargetIdentity & {
+      readonly kind: "executable";
+      readonly format: "elf";
+      readonly architecture: "m68k";
+      readonly availableArchitectures: readonly "m68k"[];
+      readonly m68k: M68kElfMetadata;
       readonly executableRole?: never;
       readonly managed?: never;
     })
