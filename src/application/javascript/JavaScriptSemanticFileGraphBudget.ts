@@ -2,6 +2,7 @@ import type { JavaScriptSemanticEvidenceContextRegistry } from "../../domain/jav
 import type {
   JavaScriptSemanticGraphNode,
   JavaScriptSemanticGraphUnknown,
+  JavaScriptSemanticFingerprint,
 } from "../../domain/javascript/javascriptSemanticGraphSchemas.js";
 
 interface SemanticFact {
@@ -55,6 +56,10 @@ export class SemanticFileGraphBudget {
       total: number;
       retained: number;
     }
+  >();
+  readonly retainedFingerprints = new Map<
+    string,
+    JavaScriptSemanticFingerprint
   >();
   readonly pendingNodes = new Map<string, JavaScriptSemanticGraphNode>();
   readonly deferredUnknowns = new Map<string, JavaScriptSemanticGraphUnknown>();
@@ -137,10 +142,11 @@ export class SemanticFileGraphBudget {
     nodes: number,
     contexts: JavaScriptSemanticEvidenceContextRegistry,
     releasedReservations: readonly string[] = [],
+    additionalBytes = 0,
   ): boolean {
     if (this.#closed) return false;
     const addedContexts = new Set<string>();
-    let bytes = 0;
+    let bytes = additionalBytes;
     for (const fact of facts) {
       bytes += serializedSemanticFactBytes(fact);
       const id = fact.evidence.context_id;

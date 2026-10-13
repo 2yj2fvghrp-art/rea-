@@ -78,14 +78,14 @@ cliTest.skipIf(process.versions.bun !== undefined).for([
       expect(largeCoverage).toMatchObject({ status: "truncated" });
       if (
         largeCoverage?.graph_byte_budget == null ||
-        largeCoverage.retained_graph_bytes === null ||
-        largeCoverage.omitted_nodes === null
+        largeCoverage.retained_graph_bytes === null
       )
         throw new Error("A truncated source reports its exact budget use");
       expect(largeCoverage.retained_graph_bytes).toBeLessThanOrEqual(
-        largeCoverage.graph_byte_budget,
+        largeCoverage.final_shared_graph_byte_budget ??
+          largeCoverage.graph_byte_budget,
       );
-      expect(largeCoverage.omitted_nodes).toBeGreaterThan(0);
+      expect(largeCoverage.omitted_nodes).toBeNull();
       expect(result.semantic_graph.coverage).toMatchObject({
         status: "partial",
         truncated: true,

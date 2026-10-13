@@ -86,7 +86,9 @@ describe("JavaScript source selection cancellation boundary", () => {
 
 describe("Selected JavaScript source failure diagnostics", () => {
   it("retains semantic coverage for a static-only syntax failure", async () => {
-    const root = await createTestTempDirectory("rea-js-parse-failure-coverage-");
+    const root = await createTestTempDirectory(
+      "rea-js-parse-failure-coverage-",
+    );
     await writeFile(join(root, "broken.mjs"), "export const value = ;");
     const response = await analyzeJavaScriptApplication({ input_path: root });
     if (!response.ok) throw response.error;
@@ -95,7 +97,10 @@ describe("Selected JavaScript source failure diagnostics", () => {
     );
     expect(analysis.statistics.parse_failures).toBe(1);
     expect(analysis.semantic_graph.coverage.files).toContainEqual(
-      expect.objectContaining({ module_path: "broken.mjs", status: "unavailable" }),
+      expect.objectContaining({
+        module_path: "broken.mjs",
+        status: "unavailable",
+      }),
     );
   });
 
@@ -392,4 +397,23 @@ describe("JavaScript application cleanup diagnostics", () => {
       partialObservation,
     });
   });
+});
+
+it("reserves node capacity for a selected source before earlier unselected inventory", async () => {
+  const root = await createTestTempDirectory("rea-js-selected-capacity-");
+  await writeFile(join(root, "a-unselected.mjs"), "export const unused = 1;");
+  await writeFile(join(root, "z-selected.mjs"), "export const answer = 42;");
+  const result = await analyzeJavaScriptApplication({
+    input_path: root,
+    source_paths: ["z-selected.mjs"],
+    max_semantic_nodes: 1,
+  });
+  if (!result.ok) throw result.error;
+  const analysis = javascriptApplicationAnalysisResultSchema.parse(
+    result.value.normalized_result,
+  );
+  expect(
+    analysis.semantic_graph.nodes.map(({ identity }) => identity.module_path),
+  ).toEqual(["z-selected.mjs"]);
+  expect(analysis.semantic_graph.coverage.truncated).toBe(true);
 });

@@ -50,7 +50,10 @@ import {
   JAVASCRIPT_SEMANTIC_NODE_MAXIMUM,
   javaScriptAnalysisCoverageLimits,
 } from "../../domain/javascript/javascriptAnalysisResourceControls.js";
-import { projectSemanticFunctionFingerprints } from "./JavaScriptSemanticGraphFingerprintProjection.js";
+import {
+  projectSemanticFunctionFingerprints,
+  projectSemanticFunctionFingerprint,
+} from "./JavaScriptSemanticGraphFingerprintProjection.js";
 import {
   projectSemanticClosureCaptures,
   projectSemanticFrontiers,
@@ -72,6 +75,7 @@ import {
   finishSemanticFileBudget,
   bindSemanticGraphApplicationNodes,
   measureSemanticFiles,
+  admitSemanticIndexedFingerprint,
   type SemanticGraphProjectionState as BuilderState,
 } from "./JavaScriptSemanticGraphConstruction.js";
 import type { JavaScriptSemanticFileProjection } from "../../domain/javascript/javascriptSemanticFileProjection.js";
@@ -222,13 +226,12 @@ export const createJavaScriptSemanticGraphProjection = (
   const fallback = emptyState();
   if (rootArtifactSha256 !== undefined)
     addFallbackRoot(rootArtifactSha256, fallback);
-  const fallbackBytes = [
-    ...fallback.nodes.values(),
-    ...fallback.evidenceContexts.contexts,
-  ].reduce(
-    (bytes, fact) => bytes + Buffer.byteLength(JSON.stringify(fact)) + 1,
-    0,
-  );
+  const fallbackBytes =
+    Buffer.byteLength(JSON.stringify([...fallback.roots])) +
+    [...fallback.nodes.values(), ...fallback.evidenceContexts.contexts].reduce(
+      (bytes, fact) => bytes + Buffer.byteLength(JSON.stringify(fact)) + 1,
+      0,
+    );
   if (
     evidenceBudget !== undefined &&
     !evidenceBudget.reserveBytes(fallbackBytes)
@@ -270,7 +273,8 @@ export const createJavaScriptSemanticGraphProjection = (
       new SemanticFileGraphBudget(null, remainingFileNodeBudget()),
       paths,
     );
-    fingerprints.push(...projected.fingerprints);
+    for (const fingerprint of projected.fingerprints)
+      fingerprints.push(fingerprint);
     files.push(fileCoverage(file, projected.coverage));
   };
   const finishWith = <Value>(
@@ -324,10 +328,12 @@ export const createJavaScriptSemanticGraphProjection = (
         const updated = {
           ...coverage,
           retained_graph_bytes: measured.get(key)?.bytes ?? 0,
-          graph_byte_budget:
-            lost || coverage.status === "truncated"
-              ? finalBudget.limit
-              : coverage.graph_byte_budget,
+          graph_byte_budget: coverage.graph_byte_budget,
+          ...(lost ||
+          (coverage.graph_byte_budget !== null &&
+            (measured.get(key)?.bytes ?? 0) > coverage.graph_byte_budget)
+            ? { final_shared_graph_byte_budget: finalBudget.limit }
+            : {}),
           unknowns: coverage.unknowns.map((count) => ({
             ...count,
             retained:
@@ -356,7 +362,8 @@ export const createJavaScriptSemanticGraphProjection = (
           retainedFiles.push(updated);
         else omittedFiles += 1;
       }
-      files.splice(0, files.length, ...retainedFiles);
+      files.length = 0;
+      for (const file of retainedFiles) files.push(file);
     } else {
       for (let index = 0; index < files.length; index++) {
         const coverage = files[index];
@@ -454,7 +461,9 @@ export const createJavaScriptSemanticGraphProjection = (
           : null,
         limits: [
           ...executionLimits.values(),
-          ...(truncatedFiles > 0 ? [...budgetLimits, ...nodeLimits] : []),
+          ...(truncatedFiles > 0 || omittedFiles > 0
+            ? [...budgetLimits, ...nodeLimits]
+            : []),
         ],
         families: JAVASCRIPT_SEMANTIC_RELATION_FAMILIES.map((family) => ({
           family,
@@ -517,7 +526,8 @@ export const createJavaScriptSemanticGraphProjection = (
       for (const unknown of projection.unknowns)
         state.unknowns.set(unknown.unknown_id, unknown);
       for (const root of projection.roots) state.roots.add(root);
-      fingerprints.push(...projection.fingerprints);
+      for (const fingerprint of projection.fingerprints)
+        fingerprints.push(fingerprint);
       graphReservedBytes += projection.coverage.retained_graph_bytes;
       const coverage = fileCoverage(file, projection.coverage);
       if (
@@ -737,6 +747,12 @@ function* projectFileSteps(
   // Node creation keeps source order, which the per-file byte budget relies
   // on; yields between nodes do not change it.
   const callableNodes = new Map<string, JavaScriptSemanticGraphNode>();
+  const fingerprintsByCallable = new Map(
+    ir.functionFingerprints.map((fingerprint) => [
+      fingerprint.callableId,
+      fingerprint,
+    ]),
+  );
   for (const [index, callable] of ir.callables.entries()) {
     if (index % 64 === 0) yield;
     const node = retainNode(state, file, {
@@ -748,7 +764,23 @@ function* projectFileSteps(
       // The label is display text; keep the exact name, which may be "".
       properties: { name: callable.name },
     });
-    if (node !== null) callableNodes.set(callable.callableId, node);
+    if (node !== null) {
+      const fingerprint = fingerprintsByCallable.get(callable.callableId);
+      const projected =
+        fingerprint === undefined
+          ? undefined
+          : projectSemanticFunctionFingerprint(
+              file,
+              fingerprint,
+              node,
+              state.evidenceContexts,
+            );
+      if (
+        projected === undefined ||
+        admitSemanticIndexedFingerprint(state, projected)
+      )
+        callableNodes.set(callable.callableId, node);
+    }
   }
   const callableOwnerAt = createSemanticCallableOwnerLookup(ir, callableNodes);
   const bindingNodes = new Map<string, JavaScriptSemanticGraphNode>();
@@ -764,7 +796,29 @@ function* projectFileSteps(
       label: binding.name,
       functionNodeId: owner?.node_id ?? null,
     });
-    if (node !== null) bindingNodes.set(binding.bindingId, node);
+    if (node !== null) {
+      bindingNodes.set(binding.bindingId, node);
+      // Offer each definition and its binding before staging the next binding.
+      for (const [
+        definitionIndex,
+        definition,
+      ] of binding.definitions.entries()) {
+        const definitionNode = retainNode(state, file, {
+          kind: "expression",
+          roleKey: `definition:${binding.bindingId}:${String(definitionIndex)}`,
+          location: definition.location,
+          label: definition.kind,
+          functionNodeId: node.function_node_id,
+        });
+        addRelation(state, {
+          source: definitionNode,
+          target: node,
+          relation: "defines",
+          resolution: "resolved",
+        });
+        if (state.fileBudget?.closed === true) break;
+      }
+    }
   }
   const returnSiteNodes = yield* createReturnSiteNodes(
     file,
@@ -813,6 +867,7 @@ function* projectFileSteps(
     if (steps !== undefined) while (steps.next().done !== true) yield;
   }
   yield;
+  if (state.fileBudget !== undefined) return [];
   return projectSemanticFunctionFingerprints(
     file,
     ir,
@@ -867,7 +922,17 @@ function* createCallSiteNodes(
       label: call.kind,
       functionNodeId: owner,
     });
-    if (node !== null) result.set(call.callSiteId, node);
+    if (node !== null) {
+      result.set(call.callSiteId, node);
+      // Callee identities are already indexed; admit each call with its endpoints now.
+      for (const callableId of call.calleeCallableIds)
+        addRelation(state, {
+          source: node,
+          target: callables.get(callableId),
+          relation: "calls",
+          resolution: call.resolution === "exact" ? "resolved" : "candidate",
+        });
+    }
   }
   return result;
 }
@@ -875,26 +940,6 @@ function* createCallSiteNodes(
 function* projectDefinitionsAndReferences(
   context: Omit<FileContext, "referenceNodesWithin">,
 ): Generator<void, void> {
-  for (const [bindingIndex, binding] of context.ir.bindings.entries()) {
-    if (bindingIndex % 64 === 0) yield;
-    const bindingNode = context.bindingNodes.get(binding.bindingId);
-    if (bindingNode === undefined) continue;
-    for (const [index, definition] of binding.definitions.entries()) {
-      const definitionNode = retainNode(context.state, context.file, {
-        kind: "expression",
-        roleKey: `definition:${binding.bindingId}:${String(index)}`,
-        location: definition.location,
-        label: definition.kind,
-        functionNodeId: bindingNode.function_node_id,
-      });
-      addRelation(context.state, {
-        source: definitionNode,
-        target: bindingNode,
-        relation: "defines",
-        resolution: "resolved",
-      });
-    }
-  }
   for (const [index, reference] of context.ir.references.entries()) {
     if (index % 64 === 0) yield;
     const expression = retainNode(context.state, context.file, {
@@ -933,15 +978,6 @@ const projectCalls = (context: FileContext): void => {
   for (const call of context.ir.callSites) {
     const callNode = context.callSiteNodes.get(call.callSiteId);
     if (callNode === undefined) continue;
-    for (const callableId of call.calleeCallableIds) {
-      const callable = context.callableNodes.get(callableId);
-      addRelation(context.state, {
-        source: callNode,
-        target: callable,
-        relation: "calls",
-        resolution: call.resolution === "exact" ? "resolved" : "candidate",
-      });
-    }
     for (const argument of call.arguments) {
       const argumentNode = createArgumentNode(
         context,

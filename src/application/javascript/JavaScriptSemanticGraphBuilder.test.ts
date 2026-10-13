@@ -1011,3 +1011,25 @@ it("bounds a source by a caller-selected node capacity and checks adopted capaci
     bounded.adoptFileProjection(budgetFile(BUDGET_SOURCE), full),
   ).toThrow("exceed the offered node capacity");
 });
+
+it("retains an atomic callable/fingerprint prefix when source indexing reaches node capacity", () => {
+  const source = Array.from(
+    { length: 40 },
+    (_, i) => `function f${String(i)}() {}`,
+  ).join("\n");
+  const projected = projectWithin(source, null, 30);
+  expect(projected.nodes).toHaveLength(30);
+  expect(projected.fingerprints).toHaveLength(29);
+  expect(
+    projected.fingerprints.every((fingerprint) =>
+      projected.nodes.some(
+        ({ node_id }) => node_id === fingerprint.function_node_id,
+      ),
+    ),
+  ).toBe(true);
+  expect(projected.coverage).toMatchObject({
+    status: "truncated",
+    omitted_nodes: null,
+    omitted_fingerprints: null,
+  });
+});

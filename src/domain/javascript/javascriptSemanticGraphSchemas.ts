@@ -383,6 +383,12 @@ const fileCoverageSchema = z.strictObject({
   artifact_sha256: digestSchema,
   status: z.enum(["complete", "truncated", "unavailable"]),
   graph_byte_budget: countSchema.nullable(),
+  final_shared_graph_byte_budget: countSchema
+    .nullable()
+    .exactOptional()
+    .describe(
+      "Shared application allowance used to admit linked facts; the source graph_byte_budget preserves its original offer.",
+    ),
   retained_graph_bytes: countSchema.nullable(),
   omitted_nodes: countSchema.nullable(),
   omitted_relations: countSchema.nullable(),

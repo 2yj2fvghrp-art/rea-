@@ -100,8 +100,14 @@ export const bindSemanticGraphApplicationNodes = (
   // references while their final, linked representation is admitted atomically.
   for (const [id, node] of state.nodes) budget.pendingNodes.set(id, node);
   state.nodes.clear();
-  for (const id of state.roots)
-    if (!admitSemanticFact(state, budget, [id])) state.roots.delete(id);
+  let rootArrayBytes = 2;
+  for (const id of state.roots) {
+    const bytes =
+      Buffer.byteLength(JSON.stringify(id)) + (rootArrayBytes === 2 ? 2 : 1);
+    if (!admitSemanticFact(state, budget, [id], undefined, bytes))
+      state.roots.delete(id);
+    else rootArrayBytes += bytes;
+  }
   for (const [id, relation] of state.relations)
     if (
       !admitSemanticFact(
@@ -120,7 +126,8 @@ export const bindSemanticGraphApplicationNodes = (
       fingerprint,
     ),
   );
-  fingerprints.splice(0, fingerprints.length, ...retained);
+  fingerprints.length = 0;
+  for (const fingerprint of retained) fingerprints.push(fingerprint);
   for (const [id, unknown] of state.unknowns)
     if (
       !admitSemanticFact(
@@ -273,6 +280,7 @@ const admitSemanticFact = (
     | JavaScriptSemanticGraphRelation
     | JavaScriptSemanticGraphUnknown
     | JavaScriptSemanticFingerprint,
+  additionalBytes = 0,
 ): boolean => {
   const pending = new Map<string, JavaScriptSemanticGraphNode>();
   const visit = (nodeId: string): boolean => {
@@ -294,6 +302,7 @@ const admitSemanticFact = (
           ? [fact.unknown_id]
           : []),
       ],
+      additionalBytes,
     )
   )
     return false;
@@ -302,6 +311,26 @@ const admitSemanticFact = (
     budget.pendingNodes.delete(id);
     state.nodes.set(id, node);
   }
+  return true;
+};
+
+/** Admit a callable and its fingerprint atomically during source indexing. */
+export const admitSemanticIndexedFingerprint = (
+  state: SemanticGraphProjectionState,
+  fingerprint: JavaScriptSemanticFingerprint,
+): boolean => {
+  const budget = state.fileBudget;
+  if (budget === undefined) return true;
+  if (
+    !admitSemanticFact(
+      state,
+      budget,
+      [fingerprint.function_node_id],
+      fingerprint,
+    )
+  )
+    return false;
+  budget.retainedFingerprints.set(fingerprint.function_node_id, fingerprint);
   return true;
 };
 
@@ -393,14 +422,19 @@ export const finishSemanticFileBudget = (
   readonly fingerprints: JavaScriptSemanticFingerprint[];
   readonly coverage: JavaScriptSemanticFileProjectionCoverage;
 } => {
-  const retainedFingerprints = fingerprints.filter((fingerprint) =>
-    admitSemanticFact(
-      state,
-      budget,
-      [fingerprint.function_node_id],
-      fingerprint,
-    ),
-  );
+  const retainedFingerprints = [...budget.retainedFingerprints.values()];
+  for (const fingerprint of fingerprints) {
+    if (budget.retainedFingerprints.has(fingerprint.function_node_id)) continue;
+    if (
+      admitSemanticFact(
+        state,
+        budget,
+        [fingerprint.function_node_id],
+        fingerprint,
+      )
+    )
+      retainedFingerprints.push(fingerprint);
+  }
   for (const unknown of budget.deferredUnknowns.values()) {
     if (
       admitSemanticFact(
@@ -424,7 +458,10 @@ export const finishSemanticFileBudget = (
     budget.releasePending(nodeId);
   }
   budget.pendingNodes.clear();
-  const omittedFingerprints = fingerprints.length - retainedFingerprints.length;
+  const omittedFingerprints = Math.max(
+    0,
+    fingerprints.length - retainedFingerprints.length,
+  );
   const truncated =
     budget.incomplete ||
     budget.omittedNodes > 0 ||

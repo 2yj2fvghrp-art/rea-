@@ -406,6 +406,10 @@ export class JavaScriptAnalysisWorker {
         const applicationBytes = estimateJavaScriptModuleApplicationProjection(
           module,
           file.path,
+          Math.max(
+            0,
+            remaining - moduleEstimate - (retainGraph ? graphEstimate : 0),
+          ),
         );
         if (
           moduleEstimate +
@@ -422,7 +426,8 @@ export class JavaScriptAnalysisWorker {
             "Exported application facts exceed the remaining Evidence budget",
             {
               ...this.#limits(),
-              application_projection_required_bytes: applicationBytes,
+              application_projection_estimated_bytes_lower_bound:
+                applicationBytes,
             },
           );
         }

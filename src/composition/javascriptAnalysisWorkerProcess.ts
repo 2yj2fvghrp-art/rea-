@@ -87,7 +87,11 @@ const analyze: JavaScriptSourceWorkerAnalyzer = async (
         Math.max(
           0,
           admission.graphBytes -
-            estimateJavaScriptModuleApplicationProjection(module, file.path),
+            estimateJavaScriptModuleApplicationProjection(
+              module,
+              file.path,
+              admission.graphBytes,
+            ),
         ),
         javaScriptGraphBytesWithinRetention(
           resultBudgetBytes - measured.retentionBytes,

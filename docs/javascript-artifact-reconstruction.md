@@ -447,8 +447,10 @@ records, and measured consumers peak at about six times the Evidence bytes.
 Each source is offered the remaining budget in proportion to its share of the
 unanalyzed source bytes, also capped by the parent's free result heap. Within
 a source, nodes enter the graph when an admitted relation, fingerprint, or
-unknown frontier references them; relations are offered in projection order,
-then fingerprints, unknown frontiers, and unreferenced nodes. The first
+unknown frontier references them. Callable/fingerprint pairs, binding/definition
+relations, and calls with their endpoints are admitted while indexing, before
+more nodes are staged; later passes offer the remaining relationships, unknown
+frontiers, and unreferenced nodes. The first
 refusal closes that source, which keeps a connected source-ordered prefix.
 
 `semantic_graph.coverage.files` reports each source's status (`complete`,
@@ -643,10 +645,15 @@ line endings, preserving UTF-16 columns.
 
 Unavailable sources and coverage rows use the same Evidence admission owner as
 analyzed sources. If no row fits, `semantic_graph.coverage.omitted_files` counts
-unrepresented sources; their individual coverage remains unknown. Source paths
+unrepresented sources; their individual coverage remains unknown. Selected sources
+receive semantic capacity before unavailable inventory files. Source paths
 remain available in the application inventory. Exported module observations are
 reserved before the worker receives its remaining semantic graph allowance.
 Application-node links are bound before final graph admission and included in
 `retained_graph_bytes`; dependent facts are refused atomically if linking makes
-them exceed the remaining allowance. Truncated rows record the final allowance
-used when application links require this second admission.
+them exceed the remaining allowance. Serialized root IDs share that admission.
+`graph_byte_budget` preserves the source's original offer. When final linking
+removes facts or expands them beyond that offer, `final_shared_graph_byte_budget`
+records the separate shared allowance. Export return-shape forecasts count escaped
+path expansion incrementally and stop at available capacity before constructing
+flattened shapes.
