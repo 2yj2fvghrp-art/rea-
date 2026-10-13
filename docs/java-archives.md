@@ -140,3 +140,18 @@ class to 16 MiB, total decompressed class bytes to 512 MiB, the manifest to
 16 MiB and the decompiled source read to 32 MiB. They are allocation guards,
 not operating-system memory limits; exceeding one is a typed resource failure,
 not partial success. Encrypted ZIP entries are counted but not read.
+
+Archive selection uses each class file's declared binary name, including classes
+under Spring Boot, WAR, and multi-release prefixes. If that name occurs more
+than once, supply the exact `.class` entry returned by `inspect_java_archive`;
+REA does not silently choose a base or versioned occurrence. Descriptor text is
+a bounded prefix; inventory limitations report descriptors omitted by the file
+budget. Archive pages retain compact class facts instead of full member bodies.
+
+Integration remains pending a maintainer scope decision for the new providers.
+The decision must cover the caller-selected Java/Vineflower execution authority,
+resource policy, cancellation and cleanup, and required real-provider coverage.
+The simulated launcher proves staging contracts only. Real top-level and nested
+class output paths have not been established by that simulation; the opt-in acceptance case uses `REA_VERIFY_VINEFLOWER_REAL=1`, the caller's
+`REA_VINEFLOWER_JAR`, Java and javac to compile top-level/nested controls. Its
+execution remains required before asserting real Vineflower output coverage.

@@ -55,7 +55,7 @@ const classEntrySchema = z
   .string()
   .min(1)
   .describe(
-    "Binary class name with dots or slashes (com.example.Main or com/example/Main$Inner); required for a JAR, omitted for a .class file",
+    "Declared binary class name with dots or slashes, or exact archive .class entry path. Ambiguous binary names require an exact entry; required for a JAR, omitted for a .class file",
   );
 
 /** Parsed class-file structure; method bodies are measured but not decoded here. */

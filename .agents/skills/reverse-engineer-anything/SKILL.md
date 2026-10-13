@@ -137,7 +137,7 @@ explicit path or endpoint and do not need it.
   members, annotations and string literals. Both need no Java. Use
   `decompile_java_class` for source when `REA_VINEFLOWER_JAR` and Java 17+ are
   configured; its output is derived, and renamed names stay renamed. APKs use
-  the Android tools. See the [Java guide](https://github.com/nadezhdkov/react/blob/main/docs/java-archives.md).
+  the Android tools. See the [Java guide](https://github.com/morluto/rea/blob/main/docs/java-archives.md).
 - Explicit Linux ELF file for offline layout, symbols, relocations or static
   mitigation evidence: `inspect_binary_layout`. This target-free operation uses
   caller-supplied pwntools without opening a disassembler database. Preserve its

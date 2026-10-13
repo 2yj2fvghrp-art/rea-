@@ -1,3 +1,5 @@
+import { execFile } from "node:child_process";
+import { promisify } from "node:util";
 import { access, chmod, mkdir, readFile, writeFile } from "node:fs/promises";
 import { join } from "node:path";
 import { expect } from "vitest";
@@ -331,4 +333,143 @@ cliTest.skipIf(process.platform === "win32")(
       access(join(root, "..", "..", "escape.class")),
     ).rejects.toMatchObject({ code: "ENOENT" });
   },
+);
+
+cliTest(
+  "selects declared names under archive prefixes and requires explicit entries for version ambiguity",
+  async ({ cli }) => {
+    const root = await createTestTempDirectory("rea-java-prefixed-");
+    const prefixed = join(root, "prefixed.jar");
+    const base = buildClassFile({ name: "p/A" });
+    await writeFile(
+      prefixed,
+      await buildJar([["BOOT-INF/classes/p/A.class", base]]),
+    );
+    const inspected = await cli.run({
+      arguments: ["inspect-java-class", prefixed, "p.A", "--json"],
+    });
+    expect(inspected.exitCode, inspected.stderr).toBe(0);
+    expect(
+      toolContract("inspect_java_class").outputSchema.parse(inspected.json)
+        .normalized_result.entry,
+    ).toBe("BOOT-INF/classes/p/A.class");
+    const multi = join(root, "multi.jar");
+    await writeFile(
+      multi,
+      await buildJar([
+        ["p/A.class", base],
+        ["META-INF/versions/17/p/A.class", base],
+      ]),
+    );
+    const ambiguous = await cli.run({
+      arguments: ["inspect-java-class", multi, "p.A", "--json"],
+    });
+    expect(ambiguous.exitCode).toBe(1);
+    const selected = await cli.run({
+      arguments: [
+        "inspect-java-class",
+        multi,
+        "META-INF/versions/17/p/A.class",
+        "--json",
+      ],
+    });
+    expect(selected.exitCode, selected.stderr).toBe(0);
+    expect(
+      toolContract("inspect_java_class").outputSchema.parse(selected.json)
+        .normalized_result.entry,
+    ).toBe("META-INF/versions/17/p/A.class");
+  },
+);
+
+cliTest(
+  "retains descriptor prefixes and reports descriptor-count omissions",
+  async ({ cli }) => {
+    const root = await createTestTempDirectory("rea-java-descriptors-");
+    const path = join(root, "descriptors.jar");
+    await writeFile(
+      path,
+      await buildJar(
+        Array.from(
+          { length: 65 },
+          (_, index) =>
+            [
+              `META-INF/services/provider${index}`,
+              "x".repeat(70 * 1024),
+            ] as const,
+        ),
+      ),
+    );
+    const result = await cli.run({
+      arguments: ["inspect-java-archive", path, "--json"],
+    });
+    expect(result.exitCode, result.stderr).toBe(0);
+    const report = toolContract("inspect_java_archive").outputSchema.parse(
+      result.json,
+    ).normalized_result;
+    expect(report.metadata_files).toHaveLength(64);
+    expect(report.metadata_files[0]).toMatchObject({
+      text: "x".repeat(64 * 1024),
+      truncated: true,
+    });
+    expect(report.limitations).toContainEqual(
+      expect.stringContaining("1 recognized metadata descriptors were omitted"),
+    );
+  },
+);
+
+cliTest.skipIf(process.env.REA_VERIFY_VINEFLOWER_REAL !== "1")(
+  "decompiles compiler-produced top-level and nested classes with real Vineflower",
+  async ({ cli }) => {
+    const root = await createTestTempDirectory("rea-vineflower-real-");
+    const sources = join(root, "src/p");
+    const classes = join(root, "classes");
+    await mkdir(sources, { recursive: true });
+    await mkdir(classes);
+    const source = join(sources, "Outer.java");
+    await writeFile(
+      source,
+      "package p; public class Outer { public int value() { return 41; } public static class Nested { public int value() { return 42; } } }",
+    );
+    const javac =
+      process.env.JAVA_HOME === undefined
+        ? "javac"
+        : join(
+            process.env.JAVA_HOME,
+            "bin",
+            process.platform === "win32" ? "javac.exe" : "javac",
+          );
+    await promisify(execFile)(javac, ["-d", classes, source], {
+      timeout: 30000,
+    });
+    const path = join(root, "classes.jar");
+    await writeFile(
+      path,
+      await buildJar([
+        ["p/Outer.class", await readFile(join(classes, "p/Outer.class"))],
+        [
+          "p/Outer$Nested.class",
+          await readFile(join(classes, "p/Outer$Nested.class")),
+        ],
+      ]),
+    );
+    for (const name of ["p.Outer", "p.Outer$Nested"]) {
+      const result = await cli.run({
+        arguments: ["decompile-java-class", path, name, "--json"],
+        environment: {
+          REA_VINEFLOWER_JAR: process.env.REA_VINEFLOWER_JAR,
+          JAVA_HOME: process.env.JAVA_HOME,
+        },
+      });
+      expect(result.exitCode, result.stderr).toBe(0);
+      const report = toolContract("decompile_java_class").outputSchema.parse(
+        result.json,
+      ).normalized_result;
+      expect(report.source.text).toMatch(/class (?:Outer|Nested)/u);
+      expect(report.source.text).toContain(
+        name.endsWith("Nested") ? "42" : "41",
+      );
+      expect(report.target_execution).toBe("not-performed");
+    }
+  },
+  240000,
 );

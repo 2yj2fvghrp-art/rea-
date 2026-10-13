@@ -3,6 +3,31 @@ import { buildClassFile } from "../../tests/fixtures/java/classFile.js";
 import { JavaClassFormatFailure, parseJavaClassFile } from "./JavaClassFile.js";
 
 describe("parseJavaClassFile", () => {
+  it.each([
+    { value: Number.NaN, expected: "NaN" },
+    { value: Number.POSITIVE_INFINITY, expected: "Infinity" },
+    { value: Number.NEGATIVE_INFINITY, expected: "-Infinity" },
+    { value: -0, expected: "-0" },
+  ])(
+    "preserves float $expected in fields, annotations and JSON",
+    ({ value, expected }) => {
+      const parsed = parseJavaClassFile(
+        buildClassFile({
+          name: "p/Floats",
+          fields: [{ name: "VALUE", descriptor: "F", constant: value }],
+          annotations: { "Lp/Marker;": { value } },
+        }),
+      );
+      expect(parsed.fields[0]?.constant_value).toBe(expected);
+      expect(parsed.annotations[0]?.elements[0]?.value).toMatchObject({
+        kind: "constant",
+        descriptor: "F",
+        value: expected,
+      });
+      expect(JSON.parse(JSON.stringify(parsed))).toEqual(parsed);
+    },
+  );
+
   it("decodes declared structure, literals and annotation values", () => {
     const parsed = parseJavaClassFile(
       buildClassFile({

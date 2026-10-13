@@ -41,7 +41,7 @@ built in and never load or run bytecode. `decompile_java_class` needs a
 caller-supplied Vineflower JAR (`REA_VINEFLOWER_JAR`) and Java 17+; it stages
 the class, its nested classes and the archive as library context privately.
 Treat its source as derived: renamed identifiers stay as found and local names
-are synthesized. See [Java archives](https://github.com/nadezhdkov/react/blob/main/docs/java-archives.md).
+are synthesized. See [Java archives](https://github.com/morluto/rea/blob/main/docs/java-archives.md).
 
 ## Recorded Linux crashes
 
@@ -135,6 +135,8 @@ For an admitted DOS MZ target, use `inspect_native_load_image` to check measured
 loaded bytes, file mappings, relocations and the entry against the immutable
 snapshot. Keep `mismatch` and `unsupported` explicit. Verified import covers the
 reported static image, not runtime DOS or PC-98 hardware behavior.
+
+For Ghidra decompilation, `procedure_pseudo_code` also accepts `procedure: "file-offset:0x..."`; CLI `rea decompile <path> --file-offset=0x... --provider ghidra` resolves the source byte offset internally. An unresolved 0x-prefixed numeric procedure selector also falls back to a unique file mapping. Existing symbols and analysis addresses win; multiple mappings fail as ambiguous. Preserve the returned file-offset and address locations and raw selection observations. ELF virtual addresses are distinct from file offsets; never assume an arbitrary offset plus image base is an analysis address.
 
 Use `read_bytes` for initialized analysis memory and `address_to_file_offset` to
 anchor one observed address to original file bytes. Loader fixups can change a

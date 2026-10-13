@@ -170,6 +170,30 @@ export class JavaArchiveEntries {
     return bytes;
   }
 
+  /** Acquire only a bounded descriptor prefix, then cancel the unread stream. */
+  async readPrefix(
+    entry: ArtifactEntry,
+    maximum: number,
+    signal?: AbortSignal,
+  ): Promise<Buffer> {
+    const stream = await this.#reader.open(entry, signal);
+    const chunks: Buffer[] = [];
+    let total = 0;
+    try {
+      for await (const chunk of stream) {
+        signal?.throwIfAborted();
+        const bytes = chunk as Buffer;
+        const retained = bytes.subarray(0, maximum - total);
+        chunks.push(retained);
+        total += retained.length;
+        if (total === maximum) break;
+      }
+    } finally {
+      stream.destroy();
+    }
+    return Buffer.concat(chunks, total);
+  }
+
   close(): Promise<void> {
     return this.#reader.close();
   }

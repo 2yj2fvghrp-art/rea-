@@ -30,6 +30,7 @@ import {
   OwnedCommandFailure,
   runOwnedCommand,
 } from "../process/OwnedCommand.js";
+import type { ProviderProcessSupervisor } from "../process/ProviderProcess.js";
 import { PrivateRuntimeRoot } from "../process/PrivateRuntimeRoot.js";
 import { javaArchiveFailure } from "./JavaArchiveFailures.js";
 import {
@@ -157,6 +158,10 @@ export class VineflowerDecompiler implements Pick<
 > {
   readonly identity = VINEFLOWER_PROVIDER_IDENTITY;
   readonly #pendingRoots = new Set<RuntimeRoot>();
+  readonly #pendingProcesses = new Map<
+    RuntimeRoot,
+    ProviderProcessSupervisor
+  >();
 
   constructor(
     readonly environment: Readonly<NodeJS.ProcessEnv> = process.env,
@@ -168,7 +173,23 @@ export class VineflowerDecompiler implements Pick<
   /** Retry retained cleanup without discarding roots that still cannot be removed. */
   async close(): Promise<void> {
     const failures: { path: string; reason: string }[] = [];
-    for (const root of this.#pendingRoots)
+    for (const [root, owner] of this.#pendingProcesses) {
+      try {
+        const stopped = await owner.stop();
+        if (stopped.status === "incomplete") {
+          failures.push({ path: root.path, reason: stopped.reason });
+          continue;
+        }
+        this.#pendingProcesses.delete(root);
+      } catch (cause) {
+        failures.push({
+          path: root.path,
+          reason: cause instanceof Error ? cause.message : String(cause),
+        });
+      }
+    }
+    for (const root of this.#pendingRoots) {
+      if (this.#pendingProcesses.has(root)) continue;
       try {
         await root.close();
         this.#pendingRoots.delete(root);
@@ -178,6 +199,7 @@ export class VineflowerDecompiler implements Pick<
           reason: cause instanceof Error ? cause.message : String(cause),
         });
       }
+    }
     if (failures.length > 0)
       throw new ProviderCleanupError(
         VINEFLOWER_PROVIDER_IDENTITY.id,
@@ -220,7 +242,7 @@ export class VineflowerDecompiler implements Pick<
         ),
       );
     }
-    if (root !== undefined)
+    if (root !== undefined && !this.#pendingProcesses.has(root))
       try {
         await root.close();
       } catch (cause: unknown) {
@@ -285,7 +307,7 @@ export class VineflowerDecompiler implements Pick<
       join(root.path, "input"),
       join(root.path, "output"),
     ];
-    await this.#run(engine.java, args, root.path, signal);
+    await this.#run(engine.java, args, root, signal);
     const executed = await readStableArtifact(
       engineCopy,
       VINEFLOWER_LIMITS.engineBytes,
@@ -337,7 +359,7 @@ export class VineflowerDecompiler implements Pick<
   async #run(
     java: string,
     args: readonly string[],
-    cwd: string,
+    root: RuntimeRoot,
     signal?: AbortSignal,
   ): Promise<void> {
     try {
@@ -345,7 +367,7 @@ export class VineflowerDecompiler implements Pick<
         {
           command: java,
           arguments: args,
-          cwd,
+          cwd: root.path,
           expectedCommand: java,
           runId: `rea-vineflower-${randomUUID()}`,
           hostEnvironment: { ...this.environment },
@@ -360,7 +382,13 @@ export class VineflowerDecompiler implements Pick<
         },
       );
     } catch (cause: unknown) {
-      if (cause instanceof OwnedCommandFailure) throw commandFailure(cause);
+      if (cause instanceof OwnedCommandFailure) {
+        if (cause.cleanupOwner !== undefined) {
+          this.#pendingProcesses.set(root, cause.cleanupOwner);
+          this.#pendingRoots.add(root);
+        }
+        throw commandFailure(cause);
+      }
       throw cause;
     }
   }

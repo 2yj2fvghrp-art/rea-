@@ -23,6 +23,7 @@ import {
   isClassEntry,
   JAVA_ARCHIVE_LIMITS,
   JavaArchiveEntries,
+  JavaArchiveResourceFailure,
   javaArtifactIdentity,
   metadataKindFor,
   metadataText,
@@ -58,9 +59,46 @@ const packageOf = (binaryName: string): string => {
 /** Format and resource guards apply equally to archives and single class files. */
 const guardClassBytes = (bytes: Buffer): void => {
   if (bytes.length > JAVA_ARCHIVE_LIMITS.classBytes)
-    throw new JavaClassFormatFailure(
+    throw new JavaArchiveResourceFailure(
+      "class_bytes",
+      JAVA_ARCHIVE_LIMITS.classBytes,
       `Class file exceeds ${String(JAVA_ARCHIVE_LIMITS.classBytes)} bytes.`,
     );
+};
+
+interface ArchiveClassFacts {
+  readonly row: JavaArchive["classes"]["rows"][number];
+  readonly members: number;
+  readonly shortMembers: number;
+}
+
+const archiveClassFacts = (
+  entry: string,
+  parsed: JavaClass,
+): ArchiveClassFacts => {
+  let members = 0;
+  let shortMembers = 0;
+  for (const group of [parsed.fields, parsed.methods])
+    for (const member of group) {
+      if (member.name === "<init>" || member.name === "<clinit>") continue;
+      members += 1;
+      if (memberNameIsShort(member.name)) shortMembers += 1;
+    }
+  return {
+    row: {
+      entry,
+      name: parsed.name,
+      access: parsed.access,
+      super_class: parsed.super_class,
+      interfaces: parsed.interfaces,
+      major: parsed.major,
+      fields: parsed.fields.length,
+      methods: parsed.methods.length,
+      source_file: parsed.source_file,
+    },
+    members,
+    shortMembers,
+  };
 };
 
 /** In-process class-file and JAR reader without subprocesses, temporary files or a JVM. */
@@ -137,21 +175,26 @@ export class JavaClassFileProvider implements Pick<
   ): JavaArchive {
     guardClassBytes(snapshot.bytes);
     const parsed = parseJavaClassFile(snapshot.bytes);
-    return summarize(snapshot, input, [{ entry: snapshot.path, parsed }], {
-      manifest: null,
-      metadata_files: [],
-      entries: {
-        total: 1,
-        classes: 1,
-        resources: 0,
-        directories: 0,
-        encrypted: 0,
-        native_libraries: [],
-        nested_archives: [],
-        signature_files: [],
+    return summarize(
+      snapshot,
+      input,
+      [archiveClassFacts(snapshot.path, parsed)],
+      {
+        manifest: null,
+        metadata_files: [],
+        entries: {
+          total: 1,
+          classes: 1,
+          resources: 0,
+          directories: 0,
+          encrypted: 0,
+          native_libraries: [],
+          nested_archives: [],
+          signature_files: [],
+        },
+        malformed_classes: [],
       },
-      malformed_classes: [],
-    });
+    );
   }
 
   async #archive(
@@ -174,7 +217,8 @@ export class JavaClassFileProvider implements Pick<
       };
       let manifest: JavaArchive["manifest"] = null;
       const metadata: JavaArchive["metadata_files"] = [];
-      const classes: { entry: string; parsed: JavaClass }[] = [];
+      let omittedMetadata = 0;
+      const classes: ArchiveClassFacts[] = [];
       const malformed: JavaArchive["malformed_classes"] = [];
       for (const entry of entries) {
         signal?.throwIfAborted();
@@ -191,10 +235,9 @@ export class JavaClassFileProvider implements Pick<
               JAVA_ARCHIVE_LIMITS.classBytes,
               signal,
             );
-            classes.push({
-              entry: entry.path,
-              parsed: parseJavaClassFile(bytes),
-            });
+            classes.push(
+              archiveClassFacts(entry.path, parseJavaClassFile(bytes)),
+            );
           } catch (cause: unknown) {
             if (!(cause instanceof JavaClassFormatFailure)) throw cause;
             malformed.push({ entry: entry.path, reason: cause.message });
@@ -218,11 +261,16 @@ export class JavaClassFileProvider implements Pick<
             ),
           );
         const kind = metadataKindFor(entry.path);
-        if (
-          kind !== undefined &&
-          metadata.length < JAVA_ARCHIVE_LIMITS.metadataFiles
-        ) {
-          const bytes = await readPrefix(archive, entry, signal);
+        if (kind !== undefined) {
+          if (metadata.length >= JAVA_ARCHIVE_LIMITS.metadataFiles) {
+            omittedMetadata += 1;
+            continue;
+          }
+          const bytes = await archive.readPrefix(
+            entry,
+            JAVA_ARCHIVE_LIMITS.metadataBytes + 1,
+            signal,
+          );
           metadata.push({
             entry: entry.path,
             kind,
@@ -230,33 +278,27 @@ export class JavaClassFileProvider implements Pick<
           });
         }
       }
-      return summarize(snapshot, input, classes, {
+      const report = summarize(snapshot, input, classes, {
         manifest,
         metadata_files: metadata,
         entries: counts,
         malformed_classes: malformed,
       });
+      if (omittedMetadata > 0)
+        report.limitations.push(
+          `${String(omittedMetadata)} recognized metadata descriptors were omitted after the ${String(JAVA_ARCHIVE_LIMITS.metadataFiles)}-file resource limit; metadata_files is incomplete.`,
+        );
+      return report;
     } finally {
       await archive.close();
     }
   }
 }
 
-/** Read at most one byte beyond the descriptor budget so truncation is observed. */
-const readPrefix = async (
-  archive: JavaArchiveEntries,
-  entry: Parameters<JavaArchiveEntries["read"]>[0],
-  signal?: AbortSignal,
-): Promise<Buffer> => {
-  if ((entry.declaredSize ?? 0) > JAVA_ARCHIVE_LIMITS.metadataBytes)
-    return Buffer.alloc(0);
-  return archive.read(entry, JAVA_ARCHIVE_LIMITS.metadataBytes + 1, signal);
-};
-
 const summarize = (
   snapshot: JavaInputSnapshot,
   input: InspectJavaArchiveInput,
-  classes: readonly { entry: string; parsed: JavaClass }[],
+  classes: readonly ArchiveClassFacts[],
   observed: Pick<
     JavaArchive,
     "manifest" | "metadata_files" | "entries" | "malformed_classes"
@@ -267,7 +309,8 @@ const summarize = (
   let shortClasses = 0;
   let members = 0;
   let shortMembers = 0;
-  for (const { parsed } of classes) {
+  for (const facts of classes) {
+    const parsed = facts.row;
     versions.set(parsed.major, (versions.get(parsed.major) ?? 0) + 1);
     const shortClass = simpleNameIsShort(parsed.name);
     if (shortClass) shortClasses += 1;
@@ -276,11 +319,8 @@ const summarize = (
     row.classes += 1;
     if (shortClass) row.short += 1;
     packages.set(name, row);
-    for (const member of [...parsed.fields, ...parsed.methods]) {
-      if (member.name === "<init>" || member.name === "<clinit>") continue;
-      members += 1;
-      if (memberNameIsShort(member.name)) shortMembers += 1;
-    }
+    members += facts.members;
+    shortMembers += facts.shortMembers;
   }
   const limitations = [STRUCTURE_LIMITATION, HEURISTIC_LIMITATION];
   const packageRows = [...packages.entries()]
@@ -291,15 +331,15 @@ const summarize = (
       short_name_classes: row.short,
     }));
   const rows = classes
-    .filter(({ parsed }) =>
+    .filter(({ row }) =>
       input.query === undefined
         ? true
-        : parsed.name.includes(input.query.replaceAll(".", "/")),
+        : row.name.includes(input.query.replaceAll(".", "/")),
     )
     .sort((left, right) =>
-      left.parsed.name < right.parsed.name
+      left.row.name < right.row.name
         ? -1
-        : left.parsed.name > right.parsed.name
+        : left.row.name > right.row.name
           ? 1
           : 0,
     );
@@ -349,17 +389,7 @@ const summarize = (
         input.offset + page.length < rows.length
           ? input.offset + page.length
           : null,
-      rows: page.map(({ entry, parsed }) => ({
-        name: parsed.name,
-        entry,
-        access: parsed.access,
-        super_class: parsed.super_class,
-        interfaces: parsed.interfaces,
-        major: parsed.major,
-        fields: parsed.fields.length,
-        methods: parsed.methods.length,
-        source_file: parsed.source_file,
-      })),
+      rows: page.map(({ row }) => row),
     },
     limitations,
   };
@@ -408,28 +438,62 @@ export const selectJavaClass = async (
           "class_name is required for an archive. List names with inspect_java_archive.",
       },
     ]);
-  const target = javaClassEntryPath(className);
-  const nestedPrefix = `${target.slice(0, -".class".length)}$`;
   const archive = new JavaArchiveEntries(snapshot);
   try {
     const entries = (await archive.list(signal)).filter(isClassEntry);
-    const selected = entries.filter((entry) => entry.path === target);
-    if (selected.length === 0) throw missingJavaClass(operation, className);
-    if (selected.length > 1)
+    const exact = className.endsWith(".class")
+      ? entries.filter((entry) => entry.path === className)
+      : [];
+    if (exact.length > 1)
       throw new AnalysisInputError(operation, undefined, [
         {
           path: ["class_name"],
           reason: "invalid_value",
-          message: `The archive has ${String(selected.length)} central-directory entries named ${target}; the class identity is ambiguous.`,
+          message: `Archive entry ${className} is duplicated and ambiguous.`,
         },
       ]);
-    const [entry] = selected as [(typeof selected)[number]];
-    const bytes = await archive.read(
-      entry,
-      JAVA_ARCHIVE_LIMITS.classBytes,
-      signal,
-    );
-    const parsed = parseJavaClassFile(bytes);
+    let selected:
+      | { entry: (typeof entries)[number]; bytes: Buffer; parsed: JavaClass }
+      | undefined;
+    if (exact.length === 1) {
+      const entry = exact[0]!;
+      const bytes = await archive.read(
+        entry,
+        JAVA_ARCHIVE_LIMITS.classBytes,
+        signal,
+      );
+      selected = { entry, bytes, parsed: parseJavaClassFile(bytes) };
+    } else {
+      const wanted = javaClassEntryPath(className).slice(0, -".class".length);
+      for (const entry of entries) {
+        signal?.throwIfAborted();
+        const bytes = await archive.read(
+          entry,
+          JAVA_ARCHIVE_LIMITS.classBytes,
+          signal,
+        );
+        let parsed: JavaClass;
+        try {
+          parsed = parseJavaClassFile(bytes);
+        } catch (cause) {
+          if (cause instanceof JavaClassFormatFailure) continue;
+          throw cause;
+        }
+        if (parsed.name !== wanted) continue;
+        if (selected !== undefined)
+          throw new AnalysisInputError(operation, undefined, [
+            {
+              path: ["class_name"],
+              reason: "invalid_value",
+              message: `Binary name ${className} occurs at ${selected.entry.path} and ${entry.path}; select an exact .class entry from inspect_java_archive.`,
+            },
+          ]);
+        selected = { entry, bytes, parsed };
+      }
+    }
+    if (selected === undefined) throw missingJavaClass(operation, className);
+    const { entry, bytes, parsed } = selected;
+    const nestedPrefix = `${entry.path.slice(0, -".class".length)}$`;
     const nested = [];
     for (const candidate of entries)
       if (candidate.path.startsWith(nestedPrefix))

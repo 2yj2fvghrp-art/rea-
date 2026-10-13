@@ -41,7 +41,7 @@ built in and never load or run bytecode. `decompile_java_class` needs a
 caller-supplied Vineflower JAR (`REA_VINEFLOWER_JAR`) and Java 17+; it stages
 the class, its nested classes and the archive as library context privately.
 Treat its source as derived: renamed identifiers stay as found and local names
-are synthesized. See [Java archives](https://github.com/nadezhdkov/react/blob/main/docs/java-archives.md).
+are synthesized. See [Java archives](https://github.com/morluto/rea/blob/main/docs/java-archives.md).
 
 ## Recorded Linux crashes
 

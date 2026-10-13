@@ -57,7 +57,8 @@ const flagNames = (
 
 type PoolEntry =
   | { readonly tag: 1; readonly text: string }
-  | { readonly tag: 3 | 4; readonly value: number }
+  | { readonly tag: 3; readonly value: number }
+  | { readonly tag: 4; readonly value: number | string }
   | { readonly tag: 5 | 6; readonly value: string }
   | { readonly tag: 7 | 8 | 16 | 19 | 20; readonly index: number }
   | {
@@ -159,6 +160,10 @@ const decodeModifiedUtf8 = (bytes: Uint8Array): string => {
   return text;
 };
 
+/** Preserve legal IEEE special values and signed zero through JSON Evidence. */
+const jsonSafeFloatingLiteral = (value: number): number | string =>
+  Object.is(value, -0) ? "-0" : Number.isFinite(value) ? value : String(value);
+
 const readPool = (cursor: ByteCursor): (PoolEntry | undefined)[] => {
   const count = cursor.u2();
   if (count === 0)
@@ -176,7 +181,7 @@ const readPool = (cursor: ByteCursor): (PoolEntry | undefined)[] => {
       case 4: {
         const view = new DataView(new ArrayBuffer(4));
         view.setUint32(0, cursor.u4());
-        pool.push({ tag, value: view.getFloat32(0) });
+        pool.push({ tag, value: jsonSafeFloatingLiteral(view.getFloat32(0)) });
         break;
       }
       case 5:
@@ -184,11 +189,11 @@ const readPool = (cursor: ByteCursor): (PoolEntry | undefined)[] => {
         const view = new DataView(new ArrayBuffer(8));
         view.setUint32(0, cursor.u4());
         view.setUint32(4, cursor.u4());
-        // 64-bit constants stay lossless as decimal text.
+        // 64-bit constants stay textual to retain integer precision and IEEE specials.
         const value =
           tag === 5
             ? view.getBigInt64(0).toString()
-            : String(view.getFloat64(0));
+            : String(jsonSafeFloatingLiteral(view.getFloat64(0)));
         pool.push({ tag, value }, undefined);
         break;
       }

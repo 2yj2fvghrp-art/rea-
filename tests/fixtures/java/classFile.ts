@@ -57,6 +57,15 @@ class PoolBuilder {
     return this.#add(`i:${String(value)}`, [3, ...u4(value)]);
   }
 
+  float(value: number): number {
+    const view = new DataView(new ArrayBuffer(4));
+    view.setFloat32(0, value);
+    return this.#add(`f:${Object.is(value, -0) ? "-0" : String(value)}`, [
+      4,
+      ...new Uint8Array(view.buffer),
+    ]);
+  }
+
   long(value: bigint): number {
     const view = new DataView(new ArrayBuffer(8));
     view.setBigInt64(0, value);
@@ -76,9 +85,9 @@ export interface ClassFixture {
   readonly major?: number;
   readonly access?: number;
   readonly sourceFile?: string;
-  /** Simple string-valued class annotations: type descriptor -> element values. */
+  /** String and float-valued class annotations: type descriptor -> element values. */
   readonly annotations?: Readonly<
-    Record<string, Readonly<Record<string, string>>>
+    Record<string, Readonly<Record<string, string | number>>>
   >;
   readonly fields?: readonly {
     readonly name: string;
@@ -115,7 +124,9 @@ export const buildClassFile = (fixture: ClassFixture): Buffer => {
           ? pool.string(field.constant)
           : typeof field.constant === "bigint"
             ? pool.long(field.constant)
-            : pool.integer(field.constant);
+            : field.descriptor === "F"
+              ? pool.float(field.constant)
+              : pool.integer(field.constant);
       attributes.push(
         ...u2(pool.utf8("ConstantValue")),
         ...u4(2),
@@ -165,8 +176,10 @@ export const buildClassFile = (fixture: ClassFixture): Buffer => {
       for (const [name, value] of Object.entries(elements))
         body.push(
           ...u2(pool.utf8(name)),
-          "s".charCodeAt(0),
-          ...u2(pool.utf8(value)),
+          (typeof value === "number" ? "F" : "s").charCodeAt(0),
+          ...u2(
+            typeof value === "number" ? pool.float(value) : pool.utf8(value),
+          ),
         );
     }
     classAttributes.push([
