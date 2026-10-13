@@ -155,10 +155,9 @@ const runApktool = async (
 ): Promise<Result<{ stdout: string; stderr: string }, AnalysisError>> => {
   if (signal?.aborted === true)
     return err(new AnalysisCancelledError(operation));
-  const hostEnvironment = { ...process.env, ...environment };
   let invocation: ReturnType<typeof apktoolInvocation>;
   try {
-    invocation = apktoolInvocation(selection, arguments_, hostEnvironment);
+    invocation = apktoolInvocation(selection, arguments_, environment);
   } catch (cause) {
     if (!(cause instanceof WindowsBatchCommandError)) throw cause;
     const reason = `The apktool batch launcher cannot receive REA's decode paths through cmd.exe: ${cause.message}`;
@@ -178,7 +177,7 @@ const runApktool = async (
         arguments: invocation.arguments,
         windowsVerbatimArguments: invocation.windowsVerbatimArguments,
         runId: randomUUID(),
-        hostEnvironment,
+        hostEnvironment: environment,
       },
       {
         timeoutMs: limits.timeoutMs,
@@ -328,14 +327,17 @@ export class ApktoolProvider {
   #closePromise: Promise<void> | undefined;
 
   constructor(options: ApktoolProviderOptions = {}) {
-    this.environment = snapshotEnvironment(options.environment ?? process.env);
+    this.environment = snapshotEnvironment({
+      ...snapshotEnvironment(process.env),
+      ...snapshotEnvironment(options.environment ?? {}),
+    });
     this.removeWorkspace =
       options.removeWorkspace ??
       ((path) => rm(path, { recursive: true, force: true }));
   }
 
-  private selection(): ApktoolCommandSelection {
-    return resolveApktoolCommand(this.environment);
+  private selection(signal: AbortSignal): Promise<ApktoolCommandSelection> {
+    return resolveApktoolCommand(this.environment, process.platform, signal);
   }
 
   /** Probe the selected apktool launcher; decodes nothing. */
@@ -355,7 +357,7 @@ export class ApktoolProvider {
     signal: AbortSignal,
   ): Promise<ProviderAvailability> {
     try {
-      const selection = this.selection();
+      const selection = await this.selection(signal);
       await inspectApktoolClient(selection, signal, this.environment);
       throwIfCancelled("inspect_apktool_client", signal);
       return {
@@ -409,7 +411,7 @@ export class ApktoolProvider {
     let selection: ApktoolCommandSelection;
     let identity: ApktoolClientIdentity;
     try {
-      selection = this.selection();
+      selection = await this.selection(signal);
       identity = await inspectApktoolClient(
         selection,
         signal,
