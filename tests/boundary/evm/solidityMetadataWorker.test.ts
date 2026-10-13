@@ -10,6 +10,9 @@ import { createTestTempDirectory } from "../../fixtures/temporaryDirectory.js";
 it.each([
   ["compiler", "00a164736f6c634300081e000a", "decoded"],
   ["integer", "00a1011bffffffffffffffff000b", "decoded"],
+  ["BOM text", "00a1617864efbbbf610008", "decoded"],
+  ["nested value", "00a1617881000005", "partial"],
+  ["unavailable trailer", "00", "unavailable"],
   ["unsupported tag", "00a16178c0000005", "not-decoded"],
 ])(
   "retains independent %s metadata through the actual worker",
@@ -51,5 +54,20 @@ it.each([
       });
     if (kind === "compiler")
       expect(metadata.compiler_version?.value).toBe("0.8.30");
+    if (kind === "BOM text")
+      expect(metadata.entries[0]?.value).toEqual({
+        kind: "text",
+        value: "\ufeffa",
+      });
+    if (kind === "nested value")
+      expect(metadata.entries[0]?.value).toEqual({
+        kind: "uninterpreted",
+        container: "array",
+      });
+    if (kind === "unavailable trailer") {
+      expect(metadata.bytecode_offset).toBeNull();
+      expect(metadata.entries).toEqual([]);
+      expect(metadata.compiler_version).toBeNull();
+    }
   },
 );

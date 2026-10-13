@@ -5,4 +5,4 @@
 - [x] Implement lossless scalar metadata facts and compiler-version evidence.
 - [x] Integrate worker/provider contracts and summary/historical compatibility.
 - [x] Verify producer, worker and public boundary behavior with owned fixtures.
-- [ ] Run relevant repository checks and open a separately scoped PR.
+- [x] Run relevant repository checks and prepare a separately scoped PR.
