@@ -68,7 +68,7 @@ export const androidApplicationProjectionResultSchema = z.strictObject({
     // Count completeness is separate from the declared coverage status.
     inventory_complete: z.boolean(),
   }),
-  limitations: z.array(z.string().min(1)),
+  limitations: z.array(z.string()),
 });
 
 export type AndroidApplicationProjectionInput = z.infer<
