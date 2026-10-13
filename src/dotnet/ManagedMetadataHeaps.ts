@@ -238,22 +238,27 @@ export const readMetadataUserString = (
       start,
     );
   const budget = managedDecodeBudget(layout);
-  const issues: ManagedParseIssue[] = [];
   // A wider length prefix than the value needs still reads unambiguously, so
-  // it is reported like the flag rather than discarding the literal.
-  if (!decoded.minimal) {
+  // it is reported like the flag rather than discarding the literal. It is
+  // admitted only on paths that return the literal, so a fatal item leaves
+  // no budget behind.
+  const conformance = (): ManagedParseIssue[] => {
+    if (decoded.minimal) return [];
     budget.reserve(512, start);
-    issues.push({
-      code: "invalid-string",
-      scope,
-      offset: start,
-      detail: `User string length ${String(decoded.length)} uses a ${String(decoded.prefix)}-byte prefix wider than ECMA-335 II.23.2 assigns; readable UTF-16 is preserved and runtime acceptance is not assessed`,
-    });
-  }
+    return [
+      {
+        code: "invalid-string",
+        scope,
+        offset: start,
+        detail: `User string length ${String(decoded.length)} uses a ${String(decoded.prefix)}-byte prefix wider than ECMA-335 II.23.2 assigns; readable UTF-16 is preserved and runtime acceptance is not assessed`,
+      },
+    ];
+  };
   // ECMA-335 II.24.2.4: offset 0 is the heap's empty entry, a zero length
   // with no terminal flag byte; every other item carries the flag.
   if (index === 0) {
-    if (decoded.length === 0) return { offset: start, value: "", issues };
+    if (decoded.length === 0)
+      return { offset: start, value: "", issues: conformance() };
     throw managedFailure(
       "invalid-string",
       scope,
@@ -291,6 +296,7 @@ export const readMetadataUserString = (
   }
   const flagOffset = content + units * 2;
   const actualFlag = bytes[flagOffset];
+  const issues = conformance();
   if (actualFlag !== expectedFlag) {
     budget.reserve(512, flagOffset);
     issues.push({

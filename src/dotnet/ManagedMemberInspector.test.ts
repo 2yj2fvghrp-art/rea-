@@ -858,6 +858,31 @@ describe("managed user string issues", () => {
     },
   );
 
+  it("admits no width issue for an item that then fails", () => {
+    // 64 overlong zero lengths away from offset 0: each item is fatal.
+    const heap = Buffer.concat([
+      Buffer.from([0]),
+      ...Array.from({ length: 64 }, () => Buffer.from([0x80, 0x00])),
+    ]);
+    const layout = {
+      userStrings: { name: "#US", offset: 0, size: heap.length },
+    } as unknown as ManagedMetadataLayout;
+    // Leave 24 KiB: enough for the failures, not for 512 bytes leaked each.
+    managedDecodeBudget(layout).reserve(64 * 1024 * 1024 - 24 * 1024, null);
+    const method = {
+      body: {
+        anchors: Array.from({ length: 64 }, (_, index) => ({
+          il_offset: index * 5,
+          opcode: "ldstr",
+          operand_kind: "string",
+          operand: `0x70${(1 + index * 2).toString(16).padStart(6, "0")}`,
+        })),
+      },
+    } as unknown as ManagedMethod;
+
+    expect(parseUserStrings(heap, layout, [method]).issues).toHaveLength(64);
+  });
+
   it("keeps literals whose terminal flag differs from ECMA-335 and reports each flag", () => {
     const { heap, tokens } = fixtureUserStringHeap(["ok", "it's"]);
     const [ok, quoted] = tokens as [string, string];
