@@ -3659,6 +3659,9 @@ public final class ReaGhidraBridge extends HeadlessScript {
                     boolean selected = false;
                     boolean provenanceOverCapacity = false;
                     if (provenance[0] == null) provenance[0] = swiftSelectProvenance(function, budget);
+                    // Ending this flow returns control to flowConstants, which raises the
+                    // cancellation on its next monitor check.
+                    if (provenance[0] == SwiftSelectProvenance.CANCELLED) return true;
                     if (provenance[0] == SwiftSelectProvenance.UNAVAILABLE) {
                         provenanceOverCapacity = true;
                     } else {
@@ -3704,6 +3707,7 @@ public final class ReaGhidraBridge extends HeadlessScript {
                 return false;
             }
         }, false, monitor);
+        monitor.checkCancelled();
         JsonArray literals = new JsonArray();
         observed.values().forEach(literals::add);
         JsonArray omissions = new JsonArray();
@@ -3763,6 +3767,7 @@ public final class ReaGhidraBridge extends HeadlessScript {
         // charged before the analysis allocates.
         long charge = 0;
         for (Instruction instruction : currentProgram.getListing().getInstructions(function.getBody(), true)) {
+            if (monitor.isCancelled()) return SwiftSelectProvenance.CANCELLED;
             charge += SwiftSelectProvenance.BYTES_PER_INSTRUCTION;
             if (!budget.fits(charge)) return SwiftSelectProvenance.UNAVAILABLE;
             if (instruction.getFallFrom() != null) charge += SwiftSelectProvenance.BYTES_PER_EDGE;
@@ -3788,6 +3793,7 @@ public final class ReaGhidraBridge extends HeadlessScript {
         BitSet selects = new BitSet();
         int[] copies = new int[instructions.size()];
         for (int index = 0; index < instructions.size(); index++) {
+            if (monitor.isCancelled()) return SwiftSelectProvenance.CANCELLED;
             Instruction instruction = instructions.get(index);
             List<Integer> from = new ArrayList<>();
             for (Instruction predecessor : predecessors(function, instruction)) {
@@ -3819,6 +3825,7 @@ public final class ReaGhidraBridge extends HeadlessScript {
             queued[index] = true;
         }
         while (!pending.isEmpty()) {
+            if (monitor.isCancelled()) return SwiftSelectProvenance.CANCELLED;
             int index = pending.poll();
             queued[index] = false;
             BitSet entry = new BitSet();
@@ -3844,7 +3851,9 @@ public final class ReaGhidraBridge extends HeadlessScript {
     // analysis. A body too large for the budget is unknown, which keeps the candidate suppressed.
     private boolean selectedValue(Function function, Instruction use, Register register) {
         SwiftSelectProvenance provenance = swiftSelectProvenance(function, new SwiftLiteralBudget());
-        return provenance == SwiftSelectProvenance.UNAVAILABLE || provenance.selected(use, register);
+        return provenance == SwiftSelectProvenance.UNAVAILABLE ||
+            provenance == SwiftSelectProvenance.CANCELLED ||
+            provenance.selected(use, register);
     }
 
     private static int swiftRegisterBit(Map<Register, Integer> bits, Register register) {
@@ -4575,6 +4584,8 @@ public final class ReaGhidraBridge extends HeadlessScript {
         static final long BYTES_PER_INSTRUCTION = 512;
         static final long BYTES_PER_EDGE = 64;
         static final SwiftSelectProvenance UNAVAILABLE = new SwiftSelectProvenance(Map.of(), new BitSet[0], Map.of());
+        // A distinct instance: the request was cancelled while provenance was being computed.
+        static final SwiftSelectProvenance CANCELLED = new SwiftSelectProvenance(Map.of(), new BitSet[0], Map.of());
 
         boolean selected(Instruction use, Register register) {
             Integer index = indexes.get(use.getAddress());
