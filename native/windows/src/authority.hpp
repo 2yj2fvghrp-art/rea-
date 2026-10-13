@@ -29,7 +29,13 @@ inline std::wstring ordinaryDriveSeparators(std::wstring path) {
   return path;
 }
 
-enum class FailureKind { Native, ArtifactChanged, WindowOwnerMismatch, ProcessIdentityMismatch };
+enum class FailureKind {
+  Native,
+  ArtifactChanged,
+  WindowOwnerMismatch,
+  ProcessIdentityMismatch,
+  SourcePixelLimit,
+};
 
 struct Failure : std::runtime_error {
   DWORD win32;

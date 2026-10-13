@@ -1,5 +1,5 @@
 import { createHash } from "node:crypto";
-import { open, realpath } from "node:fs/promises";
+import { stat } from "node:fs/promises";
 
 import { z } from "zod";
 
@@ -13,6 +13,11 @@ import {
 } from "../application/AnalysisProvider.js";
 import { analysisInputErrorFromIssues } from "../domain/inputIssueProjection.js";
 import type { BinaryTarget } from "../domain/binaryTargetTypes.js";
+import {
+  openRegularFile,
+  RegularFileChangedError,
+  sameRegularFileState,
+} from "../filesystem/RegularFile.js";
 import {
   AnalysisAccessDeniedError,
   AnalysisArtifactChangedError,
@@ -298,16 +303,16 @@ export const captureWindowsWindowScreenshot = async (
       ),
     );
 
-  let afterTarget: ExecutableIdentity;
-  let processImage: ExecutableIdentity;
-  try {
-    [afterTarget, processImage] = await Promise.all([
-      host.identifyExecutable(target.path, options.signal),
-      host.identifyExecutable(raw.process_image_path, options.signal),
-    ]);
-  } catch (cause) {
-    return err(identityError(target.path, cause));
-  }
+  const [targetIdentity, processIdentity] = await Promise.allSettled([
+    host.identifyExecutable(target.path, options.signal),
+    host.identifyExecutable(raw.process_image_path, options.signal),
+  ]);
+  if (targetIdentity.status === "rejected")
+    return err(identityError(target.path, targetIdentity.reason));
+  if (processIdentity.status === "rejected")
+    return err(identityError(raw.process_image_path, processIdentity.reason));
+  const afterTarget = targetIdentity.value;
+  const processImage = processIdentity.value;
   if (options.signal?.aborted)
     return err(new AnalysisCancelledError(OPERATION));
   if (
@@ -382,16 +387,15 @@ const hashExecutable = async (
   path: string,
   signal?: AbortSignal,
 ): Promise<ExecutableIdentity> => {
-  const resolvedPath = await realpath(path);
-  const handle = await open(resolvedPath, "r");
+  const handle = await openRegularFile(path, { symlinks: "follow", signal });
   try {
-    const metadata = await handle.stat({ bigint: true });
-    if (metadata.ino === 0n)
+    const metadata = await handle.stat();
+    if (metadata.ino === 0)
       throw new AnalysisOutputError(
         OPERATION,
         "The host did not report stable executable file identity.",
       );
-    if (metadata.size > BigInt(MAX_EXECUTABLE_BYTES))
+    if (metadata.size > MAX_EXECUTABLE_BYTES)
       throw new AnalysisResourceConstraintError(
         OPERATION,
         "file-size",
@@ -401,7 +405,7 @@ const hashExecutable = async (
     const digest = createHash("sha256");
     const buffer = Buffer.allocUnsafe(64 * 1024);
     let position = 0;
-    const size = Number(metadata.size);
+    const size = metadata.size;
     while (position < size) {
       if (signal?.aborted) throw new AnalysisCancelledError(OPERATION);
       const { bytesRead } = await handle.read(
@@ -417,9 +421,16 @@ const hashExecutable = async (
     }
     if (signal?.aborted) throw new AnalysisCancelledError(OPERATION);
     if (position !== size)
-      throw new Error(
-        "Selected executable changed while its identity was read",
-      );
+      throw new RegularFileChangedError(path);
+    const [opened, currentPath] = await Promise.all([
+      handle.stat(),
+      stat(path),
+    ]);
+    if (
+      !sameRegularFileState(metadata, opened) ||
+      !sameRegularFileState(metadata, currentPath)
+    )
+      throw new RegularFileChangedError(path);
     return {
       fileIdentity: `${String(metadata.dev)}:${String(metadata.ino)}`,
       sha256: digest.digest("hex"),
@@ -477,6 +488,7 @@ const captureFailure = (
           "artifact_changed",
           "window_owner_mismatch",
           "process_identity_mismatch",
+          "source_pixel_limit",
         ])
         .exactOptional(),
     })
@@ -490,6 +502,14 @@ const captureFailure = (
       OPERATION,
       path,
       nativeFailureReason(cause),
+      { cause },
+    );
+  if (native.data.failureKind === "source_pixel_limit")
+    return new AnalysisResourceConstraintError(
+      OPERATION,
+      "capacity",
+      nativeFailureReason(cause),
+      { maximum_source_pixels: 4 * 1024 * 1024 },
       { cause },
     );
   if (

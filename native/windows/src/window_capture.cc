@@ -518,7 +518,8 @@ WindowImage captureWindow(DWORD pid, ULONG_PTR handle, int maximumDimension,
   const int width = bounds.right - bounds.left;
   const int height = bounds.bottom - bounds.top;
   require(width > 0 && height > 0 && static_cast<uint64_t>(width) * static_cast<uint64_t>(height) <= MAX_SOURCE_PIXELS,
-          "Selected window client area exceeds the capture limit", L"", ERROR_NOT_ENOUGH_MEMORY);
+          "Selected window client area exceeds the capture limit", L"", ERROR_NOT_ENOUGH_MEMORY,
+          FailureKind::SourcePixelLimit);
 
   DeviceContext dc;
   Bitmap bitmap(width, height);

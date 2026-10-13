@@ -25,8 +25,9 @@ export const nativeWindowsUiCapabilities = (
     platform === "win32" && architecture === "x64" ? load() : undefined;
   const availability =
     platform === "win32" && architecture === "x64"
-      ? loaded?.available === true &&
-        loaded.authority.inspection.windowCapture === true
+      ? loaded?.retryable === true ||
+        (loaded?.available === true &&
+          loaded.authority.inspection.windowCapture === true)
         ? ({ available: true, reason: null } as const)
         : ({
             available: false,

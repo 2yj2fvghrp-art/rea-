@@ -94,6 +94,7 @@ napi_value failureValue(napi_env env, const Failure& failure) {
       case FailureKind::ArtifactChanged: semantic = "artifact_changed"; break;
       case FailureKind::WindowOwnerMismatch: semantic = "window_owner_mismatch"; break;
       case FailureKind::ProcessIdentityMismatch: semantic = "process_identity_mismatch"; break;
+      case FailureKind::SourcePixelLimit: semantic = "source_pixel_limit"; break;
     }
     if (semantic != nullptr) set(env, error, "failureKind", string(env, std::string(semantic)));
     set(env, error, "win32Message", string(env, detail));

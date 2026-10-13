@@ -16,7 +16,7 @@ export const windowsWindowHandleSchema = z
 
 /** Passive capture admits exactly one already-running selected native window. */
 export const windowsWindowScreenshotInputSchema = z.strictObject({
-  pid: z.number().int().positive(),
+  pid: z.number().int().positive().max(0xffff_ffff),
   window_handle: windowsWindowHandleSchema,
   max_dimension: z.number().int().min(1).max(4096).default(2048),
 });
