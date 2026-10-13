@@ -71,11 +71,11 @@ export const parseFieldDiscovery = (
       kind: tag === "P" ? "protocol" : "field",
       name: copy(name),
       abbreviation: copy(abbreviation),
-      field_type: tag === "F" ? (columns[3] ?? "") : null,
-      parent_protocol: tag === "F" ? (columns[4] ?? "") : null,
-      display_base: tag === "F" ? (columns[5] ?? "") : null,
-      bitmask: tag === "F" ? (columns[6] ?? "") : null,
-      description: tag === "F" ? (columns[7] ?? "") : null,
+      field_type: tag === "F" ? copy(columns[3] ?? "") : null,
+      parent_protocol: tag === "F" ? copy(columns[4] ?? "") : null,
+      display_base: tag === "F" ? copy(columns[5] ?? "") : null,
+      bitmask: tag === "F" ? copy(columns[6] ?? "") : null,
+      description: tag === "F" ? copy(columns[7] ?? "") : null,
     });
   }
   if (sourceLine === 0)
