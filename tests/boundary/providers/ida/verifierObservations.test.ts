@@ -36,7 +36,11 @@ const fn = (address: string) => ({
 const observation = (
   name: string,
   args: Readonly<Record<string, JsonValue>>,
-  scenario: { readonly empty: readonly string[]; readonly omitMore: boolean },
+  scenario: {
+    readonly empty: readonly string[];
+    readonly omitMore: boolean;
+    readonly addFirstFunctionToOverview: boolean;
+  },
 ): JsonValue => {
   switch (name) {
     case "lookup_funcs":
@@ -53,7 +57,14 @@ const observation = (
     case "list_funcs":
       return [
         {
-          data: scenario.empty.includes(name) ? [] : [fn("0x1000")],
+          data: scenario.empty.includes(name)
+            ? []
+            : [
+                fn("0x1000"),
+                ...(scenario.addFirstFunctionToOverview
+                  ? [fn("0x2000")]
+                  : []),
+              ],
           next_offset: null,
         },
       ];
@@ -108,8 +119,13 @@ const observation = (
   }
 };
 
-const fixture = async (empty: readonly string[], omitMore: boolean) => {
+const fixture = async (
+  empty: readonly string[],
+  omitMore: boolean,
+  options: { readonly overviewCountMismatch?: boolean } = {},
+) => {
   const { root, target } = await createIdaTarget();
+  let listFunctionsCall = 0;
   const server = createServer(async (request, response) => {
     try {
       let body = "";
@@ -153,11 +169,21 @@ const fixture = async (empty: readonly string[], omitMore: boolean) => {
                     {
                       type: "text",
                       text: JSON.stringify(
-                        observation(
-                          z.string().parse(input.params?.name),
+                        (() => {
+                          const name = z.string().parse(input.params?.name);
+                          if (name === "list_funcs") listFunctionsCall += 1;
+                          return observation(
+                            name,
                           input.params?.arguments ?? {},
-                          { empty, omitMore },
-                        ),
+                            {
+                              empty,
+                              omitMore,
+                              addFirstFunctionToOverview:
+                                options.overviewCountMismatch === true &&
+                                listFunctionsCall === 1,
+                            },
+                          );
+                        })(),
                       ),
                     },
                   ],
@@ -210,10 +236,18 @@ it.each([
     oracles: false,
     passed: true,
   },
+  {
+    empty: [],
+    omitMore: false,
+    oracles: true,
+    passed: false,
+    overviewCountMismatch: true,
+    phase: "CLI/MCP binary overview inventory comparison",
+  },
 ])(
-  "checks real-verifier values for $empty / omitted more=$omitMore / oracles=$oracles",
-  async ({ empty, omitMore, oracles, passed }) => {
-    const upstream = await fixture(empty, omitMore);
+  "checks real-verifier values for $empty / omitted more=$omitMore / oracles=$oracles / phase=$phase",
+  async ({ empty, omitMore, oracles, passed, overviewCountMismatch, phase }) => {
+    const upstream = await fixture(empty, omitMore, { overviewCountMismatch });
     let cleanupConfirmed = false;
     try {
       const reportPath = join(upstream.root, "report.json");
@@ -247,7 +281,13 @@ it.each([
       );
       cleanupConfirmed = true;
       const report = z
-        .object({ passed: z.boolean(), unverified: z.array(z.string()) })
+        .object({
+          passed: z.boolean(),
+          unverified: z.array(z.string()),
+          failure: z
+            .object({ phase: z.string(), message: z.string() })
+            .optional(),
+        })
         .parse(JSON.parse(await readFile(reportPath, "utf8")));
       expect(report.passed, result.stdout.text + result.stderr.text).toBe(
         passed,
@@ -259,6 +299,8 @@ it.each([
           "Xref correctness: no independent expected source address supplied.",
         ]);
       else expect(report.unverified).toEqual([]);
+      if (phase !== undefined)
+        expect(report.failure?.phase).toBe(phase);
     } catch (cause) {
       if (cause instanceof OwnedCommandFailure && cause.cleanupFailure === null)
         cleanupConfirmed = true;

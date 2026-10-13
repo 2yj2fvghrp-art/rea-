@@ -3,6 +3,10 @@ import {
   assertFeatureTrace,
   findMappedNonFunction,
 } from "./lib/ida-feature-trace.mjs";
+import {
+  assertNoNewIdaWorkspaces,
+  snapshotIdaWorkspaces,
+} from "./lib/ida-verifier-workspaces.mjs";
 import { requireMcpToolError } from "./lib/mcp-verifier-results.mjs";
 
 import assert from "node:assert/strict";
@@ -10,6 +14,7 @@ import { execFile } from "node:child_process";
 import { createHash } from "node:crypto";
 import { createReadStream } from "node:fs";
 import { access, realpath, writeFile } from "node:fs/promises";
+import { tmpdir } from "node:os";
 import { basename, dirname, join, resolve } from "node:path";
 import { fileURLToPath, pathToFileURL } from "node:url";
 import { parseArgs, promisify } from "node:util";
@@ -160,16 +165,40 @@ const verifyOverview = (input, surface) => {
 };
 const cliOverview = async () => {
   phase = "production CLI binary overview";
-  const { stdout } = await promisify(execFile)(
-    process.execPath,
-    [entry, "analyze", target, "--json"],
-    {
-      env: environment,
-      timeout: config.timeoutMs * 3,
-      maxBuffer: 16 * 1024 * 1024,
-    },
+  const workspaceRoot = config.workspaceRoot ?? tmpdir();
+  const before =
+    config.mode === "headless"
+      ? await snapshotIdaWorkspaces(workspaceRoot)
+      : undefined;
+  let commandResult;
+  let commandFailure;
+  try {
+    commandResult = await promisify(execFile)(
+      process.execPath,
+      [entry, "analyze", target, "--json"],
+      {
+        env: environment,
+        timeout: config.timeoutMs * 3,
+        maxBuffer: 16 * 1024 * 1024,
+      },
+    );
+  } catch (cause) {
+    commandFailure = cause;
+  }
+  if (before !== undefined) {
+    phase = "production CLI binary overview cleanup";
+    const after = await snapshotIdaWorkspaces(workspaceRoot);
+    assertNoNewIdaWorkspaces(before, after);
+    report.checks.push(
+      "no new headless IDA workspace remained after the separate CLI overview run",
+    );
+    phase = "production CLI binary overview";
+  }
+  if (commandFailure !== undefined) throw commandFailure;
+  cliOverviewResult = verifyOverview(
+    JSON.parse(commandResult.stdout),
+    `${config.mode} CLI`,
   );
-  cliOverviewResult = verifyOverview(JSON.parse(stdout), `${config.mode} CLI`);
 };
 const cli = async () => {
   phase = "production CLI function analysis";
@@ -478,6 +507,7 @@ try {
   await mcp(await cli());
   assert.equal(typeof procedureInventoryCount, "number");
   assert.equal(typeof stringInventoryCount, "number");
+  phase = "CLI/MCP binary overview inventory comparison";
   for (const [surface, overview] of [
     ["CLI", cliOverviewResult],
     ["MCP", mcpOverview],
