@@ -132,6 +132,10 @@ existing analysis families directly, for example
   device's `Failure [...]` reason verbatim.
 - **Producer identity stays attached.** Every result embeds the producing
   adb client (`binary_path`, `path_source`, `version`, `installed_path`).
+- **Window focus comes from the complete window-manager report.** Recent Android
+  versions put these declarations in display state rather than the `windows`
+  subsection. Conflicting, absent or explicitly null declarations stay unknown;
+  `observed_lines` preserves the matching source lines.
 
 ## Resource and lifecycle limits
 

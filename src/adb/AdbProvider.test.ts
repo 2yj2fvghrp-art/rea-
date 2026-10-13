@@ -992,13 +992,15 @@ it.each(["complete", "truncated"] as const)(
 );
 
 it("inspects the display and window focus", async () => {
+  const body = shellStub({
+    "wm:size": "Physical size: 1080x2340\n",
+    "wm:density": "Physical density: 420\n",
+    "dumpsys:window":
+      "WINDOW MANAGER DISPLAY CONTENTS\n  mCurrentFocus=Window{abcdef u0 com.example.app/com.example.app.MainActivity}\n",
+  });
   const { binary } = await writeAdbStub(
-    shellStub({
-      "wm:size": "Physical size: 1080x2340\n",
-      "wm:density": "Physical density: 420\n",
-      "dumpsys:window":
-        "  mCurrentFocus=Window{abcdef u0 com.example.app/com.example.app.MainActivity}\n",
-    }),
+    (root) =>
+      `if [ "$4" = "dumpsys" ] && [ "$#" != "5" ]; then exit 2; fi\n${body(root)}`,
   );
   const display = await evidenceResult(providerOver(binary), {
     operation: "inspect_adb_display",
@@ -1013,6 +1015,9 @@ it("inspects the display and window focus", async () => {
   expect(window.focused_window).toBe(
     "Window{abcdef u0 com.example.app/com.example.app.MainActivity}",
   );
+  expect(window.observed_lines).toEqual([
+    "  mCurrentFocus=Window{abcdef u0 com.example.app/com.example.app.MainActivity}",
+  ]);
 });
 
 it("reads one settings value and reports device-side nulls", async () => {

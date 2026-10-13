@@ -1095,14 +1095,13 @@ export class AdbProvider {
         );
       }
       case "inspect_adb_window": {
-        const ran = await shell(["dumpsys", "window", "windows"], {
+        const ran = await shell(["dumpsys", "window"], {
           timeoutMs: SHELL_TIMEOUT_MS,
           maxOutputBytes: DUMPSYS_WINDOW_MAX_OUTPUT_BYTES,
         });
         if (!ran.ok) return ran;
-        const { focusedWindow, focusedApp } = parseWindowFocusOutput(
-          ran.value.stdout,
-        );
+        const { focusedWindow, focusedApp, observedLines } =
+          parseWindowFocusOutput(ran.value.stdout);
         return ok(
           createAnalysisExecution(
             {
@@ -1110,15 +1109,13 @@ export class AdbProvider {
               serial: request.input.serial,
               focused_window: focusedWindow,
               focused_app: focusedApp,
-              observed_lines: [
-                ...(focusedWindow === null ? [] : [focusedWindow]),
-                ...(focusedApp === null ? [] : [focusedApp]),
-              ],
+              observed_lines: observedLines,
             },
             provider,
             {
               limitations: [
                 "Focus values are the window manager's declarations at read time; no interaction occurred",
+                "Missing, null or conflicting focus declarations remain unknown; observed_lines retains the source declarations",
               ],
             },
           ),

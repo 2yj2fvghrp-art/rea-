@@ -224,7 +224,7 @@ export const ADB_TOOL_CONTRACTS = [
     name: "inspect_adb_window",
     ...toolContractMetadata("inspect_adb_window"),
     description:
-      "Report the window manager's current focus declarations (`dumpsys window windows`: mCurrentFocus and mFocusedApp) — what is on screen at read time without any interaction. Read-only.",
+      "Report the window manager's current focus declarations (`dumpsys window`: mCurrentFocus and mFocusedApp). Retain source lines and report unknown focus when declarations are missing, null or conflicting. Read-only.",
     kind: "adb-provider",
     inputSchema: adbInputSchemas.inspect_adb_window,
     outputSchema: evidenceResultOf(adbResultSchemas.inspect_adb_window),

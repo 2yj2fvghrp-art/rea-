@@ -172,23 +172,34 @@ export const parseWmDensityOutput = (
   return { physical, override };
 };
 
-/** Parse the focus declarations from `dumpsys window windows`. */
+/** Retain focus declarations from the complete window-manager report. */
 export const parseWindowFocusOutput = (
   stdout: string,
 ): {
   focusedWindow: string | null;
   focusedApp: string | null;
+  observedLines: readonly string[];
 } => {
-  let focusedWindow = null;
-  let focusedApp = null;
+  const windows = new Set<string>();
+  const apps = new Set<string>();
+  const observedLines: string[] = [];
   for (const line of stdout.split(/\r?\n/u)) {
     const trimmed = line.trim();
-    if (focusedWindow === null && trimmed.startsWith("mCurrentFocus="))
-      focusedWindow = trimmed.slice("mCurrentFocus=".length).trim();
-    if (focusedApp === null && trimmed.startsWith("mFocusedApp="))
-      focusedApp = trimmed.slice("mFocusedApp=".length).trim();
+    const match = /^(mCurrentFocus|mFocusedApp)=(.*)$/u.exec(trimmed);
+    if (match === null) continue;
+    observedLines.push(line);
+    (match[1] === "mCurrentFocus" ? windows : apps).add(match[2]!.trim());
   }
-  return { focusedWindow, focusedApp };
+  const unique = (values: ReadonlySet<string>): string | null => {
+    if (values.size !== 1) return null;
+    const value = values.values().next().value!;
+    return value === "" || value === "null" ? null : value;
+  };
+  return {
+    focusedWindow: unique(windows),
+    focusedApp: unique(apps),
+    observedLines,
+  };
 };
 
 export interface AdbPackageDetails {

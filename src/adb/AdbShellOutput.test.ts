@@ -1,9 +1,55 @@
 import { describe, expect, it } from "vitest";
 
-import { parseAmStartOutput } from "./AdbShellOutput.js";
+import {
+  parseAmStartOutput,
+  parseWindowFocusOutput,
+} from "./AdbShellOutput.js";
 
 const starting =
   "Starting: Intent { act=android.intent.action.MAIN cmp=com.example/.Main }";
+
+describe("window focus ownership", () => {
+  it("reads Android 16 display-scoped declarations and retains exact lines", () => {
+    const lines = [
+      "  mCurrentFocus=Window{97d4114 u0 com.rea.ui.probe/com.rea.ui.probe.Main}",
+      "  mFocusedApp=ActivityRecord{114223865 u0 com.rea.ui.probe/.Main t8}",
+    ];
+    expect(
+      parseWindowFocusOutput(
+        `WINDOW MANAGER DISPLAY CONTENTS\n${lines.join("\n")}\n`,
+      ),
+    ).toEqual({
+      focusedWindow:
+        "Window{97d4114 u0 com.rea.ui.probe/com.rea.ui.probe.Main}",
+      focusedApp: "ActivityRecord{114223865 u0 com.rea.ui.probe/.Main t8}",
+      observedLines: lines,
+    });
+  });
+  it("leaves conflicting display focus unresolved instead of selecting the first", () => {
+    const lines = [
+      "mCurrentFocus=Window{a u0 first/.Main}",
+      "mCurrentFocus=Window{b u0 second/.Main}",
+    ];
+    expect(parseWindowFocusOutput(lines.join("\n"))).toEqual({
+      focusedWindow: null,
+      focusedApp: null,
+      observedLines: lines,
+    });
+  });
+  it("distinguishes declared null from missing observations and accepts repeated agreement", () => {
+    expect(parseWindowFocusOutput("mCurrentFocus=null\n")).toEqual({
+      focusedWindow: null,
+      focusedApp: null,
+      observedLines: ["mCurrentFocus=null"],
+    });
+    expect(parseWindowFocusOutput("").observedLines).toEqual([]);
+    expect(
+      parseWindowFocusOutput(
+        "mFocusedApp=ActivityRecord{a}\nmFocusedApp=ActivityRecord{a}",
+      ).focusedApp,
+    ).toBe("ActivityRecord{a}");
+  });
+});
 
 describe("parseAmStartOutput", () => {
   it("recognizes a CRLF wait-timeout report", () => {
