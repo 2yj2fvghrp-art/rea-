@@ -29,6 +29,7 @@ import { GHIDRA_SESSION_CAPABILITIES } from "./GhidraSessionValues.js";
 import { err, ok } from "../domain/result.js";
 import type { Result } from "../domain/result.js";
 import { GhidraSessionError } from "./GhidraSessionError.js";
+import { ghidraFunctionDossier } from "../domain/ghidraValues.fixture.js";
 import { silentLogger } from "../logger.js";
 import * as WindowsNativeLoader from "../windows/WindowsNativeLoader.js";
 import { WINDOWS_NATIVE_AUTHORITY_UNAVAILABLE_REASON } from "../process/WindowsAuthority.js";
@@ -627,7 +628,8 @@ describe("Ghidra client projection", () => {
     expect(resolved.value.profile.parameters).toMatchObject({
       language_id: "auto-from-header",
       compiler_spec_id: "auto-default",
-      call_relationship_coverage: "resolved-call-reference-diagnostics-v1",
+      call_relationship_coverage: "resolved-call-reference-diagnostics-v2",
+      function_facet_availability: "declared-observed-facets-v1",
     });
 
     const result = await ghidra
@@ -667,6 +669,58 @@ describe("Ghidra client projection", () => {
       },
     });
     expect(startCount).toBe(0);
+  });
+});
+
+describe("Ghidra analyze_function coverage", () => {
+  it("reports call coverage and declared facets for analyze_function", async () => {
+    const dossier = ghidraFunctionDossier();
+    if (
+      typeof dossier !== "object" ||
+      dossier === null ||
+      Array.isArray(dossier)
+    )
+      throw new TypeError("Ghidra dossier fixture is invalid");
+    const facets = {
+      pseudocode: { available: true },
+      assembly: { available: true },
+      comments: { available: true },
+      callers: { available: true },
+      callees: { available: true },
+      references: { available: true },
+      strings_names: { available: true },
+      cfg: { available: true },
+    };
+    const ghidra = provider(installationHost(), () => ({
+      start: () => Promise.resolve(ok(sessionInfo())),
+      // analyze_function arrives in the bridge's observation envelope.
+      callTool: () =>
+        Promise.resolve(
+          ok({
+            value: { ...dossier, comments: [], facet_availability: facets },
+            limitations: [],
+          }),
+        ),
+      close: () => Promise.resolve(ok(null)),
+    }));
+    const client = await createElfClient(ghidra);
+    const execution = await client.execute("analyze_function", {
+      procedure: "fixture_main",
+    });
+    expect(execution.ok).toBe(true);
+    if (!execution.ok) return;
+    // Callers and callees come from the same call references as
+    // procedure_callers/procedure_callees, so they carry the same coverage.
+    expect(execution.value.relationshipCoverage).toEqual({
+      status: "complete",
+      diagnostics: [
+        expect.stringContaining("Only resolved Ghidra call references"),
+      ],
+    });
+    expect(execution.value.result).toMatchObject({
+      comments: [],
+      facet_availability: facets,
+    });
   });
 });
 

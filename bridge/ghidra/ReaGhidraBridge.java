@@ -1571,6 +1571,10 @@ public final class ReaGhidraBridge extends HeadlessScript {
             !decompilation.getErrorMessage().isBlank()) {
             limitations.add("Ghidra decompiler diagnostic: " + decompilation.getErrorMessage());
         }
+        result.add(
+            "facet_availability",
+            functionFacetAvailability(decompiledText(decompilation) != null)
+        );
         result.add("limitations", limitations);
         return new FunctionAnalysisObservation(result, boundaryLimitations);
     }
@@ -3543,6 +3547,42 @@ public final class ReaGhidraBridge extends HeadlessScript {
             result.add(item);
         }
         return result;
+    }
+
+    /**
+     * Declare the dossier facets this bridge observed, so an empty facet means
+     * observed absence rather than an undeclared gap. Every facet except
+     * pseudocode is read from the complete function body (all instructions,
+     * comment types, reference-manager edges, call references and basic blocks).
+     */
+    private static JsonObject functionFacetAvailability(boolean decompiled) {
+        JsonObject facets = new JsonObject();
+        JsonObject observed = new JsonObject();
+        observed.addProperty("available", true);
+        if (decompiled) {
+            facets.add("pseudocode", observed.deepCopy());
+        }
+        else {
+            JsonObject unavailable = new JsonObject();
+            unavailable.addProperty("available", false);
+            unavailable.addProperty(
+                "reason",
+                "Ghidra has no decompiled body for an external or bodyless procedure."
+            );
+            facets.add("pseudocode", unavailable);
+        }
+        for (String facet : List.of(
+            "assembly",
+            "comments",
+            "callers",
+            "callees",
+            "references",
+            "strings_names",
+            "cfg"
+        )) {
+            facets.add(facet, observed.deepCopy());
+        }
+        return facets;
     }
 
     private static JsonArray comments(List<Instruction> instructions) {

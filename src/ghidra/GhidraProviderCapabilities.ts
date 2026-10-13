@@ -47,11 +47,17 @@ const searchLimitation =
 const resolvedCallReferenceLimitation =
   "Only resolved Ghidra call references are returned; unresolved computed or indirect calls remain unknown, while function classifications distinguish thunks and externals.";
 
-/** Relationship-only caveats belong to each observed caller/callee result. */
+/**
+ * Relationship-only caveats belong to each observed caller/callee result.
+ * analyze_function reads its callers and callees from the same Ghidra
+ * FunctionManager call references as procedure_callers/procedure_callees.
+ */
 export const relationshipCoverageFor = (
   operation: string,
 ): RelationshipCoverage | undefined =>
-  operation === "procedure_callers" || operation === "procedure_callees"
+  operation === "procedure_callers" ||
+  operation === "procedure_callees" ||
+  operation === "analyze_function"
     ? {
         status: "complete",
         diagnostics: [resolvedCallReferenceLimitation],
