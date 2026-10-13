@@ -49,6 +49,7 @@ export interface SetupClient {
     | "hermes"
     | "zcode"
     | "dsh"
+    | "devin"
     | "unsupported";
 }
 
