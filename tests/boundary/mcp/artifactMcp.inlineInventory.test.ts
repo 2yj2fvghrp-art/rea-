@@ -8,7 +8,6 @@ import { TextReader, Uint8ArrayWriter, ZipWriter } from "@zip.js/zip.js";
 import { expect, it } from "vitest";
 import { z } from "zod";
 import { keyedArchiveResultSchema } from "../../../src/domain/apple/keyedArchive.js";
-import { jsonValueSchema } from "../../../src/domain/jsonValue.js";
 
 import { createTestTempDirectory } from "../../fixtures/temporaryDirectory.js";
 import { createTestBinarySession } from "../../fixtures/binarySession.js";

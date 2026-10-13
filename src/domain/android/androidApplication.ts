@@ -99,6 +99,7 @@ export const projectAndroidApplication = (
   );
   const components = classified;
   const limitations = [
+    ...inventory.limitations,
     ...(!hasCompleteInventoryCoverage(inventory, "container-entries")
       ? ["Source inventory coverage is partial; absence is unknown."]
       : []),

@@ -112,6 +112,7 @@ export const projectHarmonyApplication = (
     classified.native_libraries,
   );
   const limitations = [
+    ...inventory.limitations,
     ...(!hasCompleteInventoryCoverage(inventory, "container-entries")
       ? ["Source inventory coverage is partial; absence is unknown."]
       : []),
