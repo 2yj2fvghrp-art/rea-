@@ -249,6 +249,23 @@ export interface GhidraJavaObservation {
   readonly vmName?: string;
 }
 
+/** Successful probe output whose required identity properties were empty. */
+export interface IncompleteGhidraJavaObservation {
+  readonly status: "incomplete";
+  readonly issues: readonly ("java.version" | "java.home")[];
+  readonly version: string;
+  readonly major: number | null;
+  readonly home: string;
+  readonly bits: number | null;
+  readonly unparsedBits?: string;
+  readonly runtime?: "jdk" | "jre";
+  readonly vmName?: string;
+}
+
+export type GhidraJavaProbeResult =
+  | GhidraJavaObservation
+  | IncompleteGhidraJavaObservation;
+
 /** A bounded executable-header probe: a small prefix plus the whole file size. */
 export interface GhidraExecutableHeaderProbe {
   /** A bounded prefix; a larger or unreadable header remains unknown. */
@@ -273,7 +290,7 @@ export interface GhidraInstallationHost {
   probeJava(
     command: string,
     environment: NodeJS.ProcessEnv,
-  ): GhidraJavaObservation | undefined;
+  ): GhidraJavaProbeResult | undefined;
 }
 
 interface GhidraInstallationCoordinates {
@@ -283,7 +300,7 @@ interface GhidraInstallationCoordinates {
   readonly nativeDecompilerPath: string | null;
   readonly properties: GhidraApplicationProperties | undefined;
   readonly javaCommand: string;
-  readonly java: GhidraJavaObservation | undefined;
+  readonly java: GhidraJavaProbeResult | undefined;
 }
 
 interface GhidraInstallationCheckContext {
@@ -354,7 +371,8 @@ const availableInstallation = (
     coordinates.analyzeHeadlessPath === null ||
     providerVersion === null ||
     providerVersion === undefined ||
-    coordinates.java === undefined
+    coordinates.java === undefined ||
+    "status" in coordinates.java
   )
     throw new TypeError(
       "Passing Ghidra installation checks produced incomplete coordinates",
@@ -672,13 +690,21 @@ const versionCheck = (
 };
 
 const javaCheck = (
-  observation: GhidraJavaObservation | undefined,
+  observation: GhidraJavaProbeResult | undefined,
   command: string,
   configuredHome: string | undefined,
   properties: GhidraApplicationProperties | undefined,
 ): GhidraInstallationCheck => {
   const requirement = ghidraJavaRequirement(properties);
   const range = ghidraJavaRangeLabel(requirement);
+  if (observation !== undefined && "status" in observation)
+    return installationCheck({
+      name: "java",
+      passed: false,
+      code: "version_unresolved",
+      detail: `Java reported empty required ${observation.issues.join(" and ")}; java.version=${JSON.stringify(observation.version)}; java.home=${JSON.stringify(observation.home)}; ${javaBitnessDetail(observation)}${observation.vmName === undefined ? "" : `; ${observation.vmName}`}`,
+      remediation: javaRemediation(requirement, configuredHome, range),
+    });
   const otherwiseSupported =
     observation !== undefined &&
     ghidraJavaMajorAccepted(observation.major, requirement) &&
@@ -706,7 +732,9 @@ const javaCheck = (
   });
 };
 
-const javaBitnessDetail = (observation: GhidraJavaObservation): string => {
+const javaBitnessDetail = (
+  observation: Pick<GhidraJavaObservation, "bits" | "unparsedBits">,
+): string => {
   if (observation.bits !== null) return `${String(observation.bits)}-bit`;
   return observation.unparsedBits === undefined
     ? "bitness unknown"
@@ -789,34 +817,56 @@ const systemGhidraInstallationHost = (): GhidraInstallationHost => ({
       },
     );
     if (observed.error !== undefined || observed.status !== 0) return undefined;
-    const output = `${observed.stdout ?? ""}\n${observed.stderr ?? ""}`;
-    const version = javaProperty(output, "java.version");
-    const home = javaProperty(output, "java.home");
-    const vmName = javaProperty(output, "java.vm.name");
-    const dataModel = javaProperty(output, "sun.arch.data.model");
-    const bits = javaDataModelBits(dataModel);
-    const unparsedBits = bits === null ? dataModel : null;
-    // An empty version or home cannot identify the runtime.
-    if (!version || !home) return undefined;
-    return {
-      version,
-      major: javaMajor(version),
-      home,
-      ...(vmName === null ? {} : { vmName }),
-      bits,
-      ...(unparsedBits === null ? {} : { unparsedBits }),
-      runtime: executablePath(
-        (process.platform === "win32" ? win32 : posix).join(
-          home,
-          "bin",
-          process.platform === "win32" ? "javac.exe" : "javac",
-        ),
-      )
-        ? "jdk"
-        : "jre",
-    };
+    return parseGhidraJavaProbeOutput(
+      `${observed.stdout ?? ""}\n${observed.stderr ?? ""}`,
+    );
   },
 });
+
+/** Parse retained property evidence from a successful bounded Java probe. */
+export const parseGhidraJavaProbeOutput = (
+  output: string,
+): GhidraJavaProbeResult | undefined => {
+  const version = javaProperty(output, "java.version");
+  const home = javaProperty(output, "java.home");
+  const vmName = javaProperty(output, "java.vm.name");
+  const dataModel = javaProperty(output, "sun.arch.data.model");
+  const bits = javaDataModelBits(dataModel);
+  const unparsedBits = bits === null ? dataModel : null;
+  if (version === null || home === null) return undefined;
+  const issues = [
+    ...(version === "" ? (["java.version"] as const) : []),
+    ...(home === "" ? (["java.home"] as const) : []),
+  ];
+  const runtime =
+    home === ""
+      ? undefined
+      : executablePath(
+            (process.platform === "win32" ? win32 : posix).join(
+              home,
+              "bin",
+              process.platform === "win32" ? "javac.exe" : "javac",
+            ),
+          )
+        ? "jdk"
+        : "jre";
+  const facts = {
+    version,
+    major: version === "" ? null : javaMajor(version),
+    home,
+    ...(vmName === null ? {} : { vmName }),
+    bits,
+    ...(unparsedBits === null ? {} : { unparsedBits }),
+  };
+  if (issues.length > 0)
+    return {
+      status: "incomplete",
+      issues,
+      ...facts,
+      ...(runtime === undefined ? {} : { runtime }),
+    };
+  return { ...facts, major: javaMajor(version), runtime: runtime ?? "jre" };
+};
 
 const executablePath = (path: string): boolean => {
   try {
