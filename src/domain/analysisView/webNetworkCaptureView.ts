@@ -107,11 +107,29 @@ const hostLike = (value: JsonValue, maxLength: number): boolean =>
   value.length <= maxLength &&
   !hasControl(value, true) &&
   !/[@/\\]/u.test(value);
+type NumericSidecar = WebNetworkCaptureRecord["numeric_literals"][number];
+const MITMPROXY_INTEGER_FIELDS = new Set(["port", "status_code"]);
+/**
+ * Integer slots need exactly one integer sidecar whose literal is the value's
+ * canonical decimal; string slots need none. Selecting a field also selects
+ * its sidecars, so this keeps every copied literal small and consistent.
+ */
+const sidecarsMatch = (
+  field: string,
+  value: JsonValue,
+  sidecars: readonly NumericSidecar[],
+): boolean =>
+  MITMPROXY_INTEGER_FIELDS.has(field)
+    ? sidecars.length === 1 &&
+      sidecars[0]?.producer_type === "integer" &&
+      sidecars[0].literal === String(value)
+    : sidecars.length === 0;
 const mitmproxyHeadline = (
   field: string,
   value: JsonValue,
-  canonicalInteger: boolean,
+  sidecars: readonly NumericSidecar[],
 ): boolean => {
+  if (!sidecarsMatch(field, value, sidecars)) return false;
   switch (field) {
     case "scheme":
       return (
@@ -123,9 +141,9 @@ const mitmproxyHeadline = (
     case "authority":
       return hostLike(value, 262);
     case "port":
-      return canonicalInteger && integerIn(value, 0, 65_535);
+      return integerIn(value, 0, 65_535);
     case "status_code":
-      return canonicalInteger && integerIn(value, 100, 999);
+      return integerIn(value, 100, 999);
     case "path":
       return (
         typeof value === "string" &&
@@ -144,18 +162,8 @@ const preview = (record: WebNetworkCaptureRecord, format: string) => {
   const source = object(record.reported);
   const reported: Record<string, JsonValue> = {};
   const selectedPointers = new Set<string>();
-  // An integer slot needs exactly one integer sidecar whose literal is the
-  // value's canonical decimal, which also bounds the copied literal.
-  const canonicalInteger = (pointer: string, value: JsonValue): boolean => {
-    const sidecars = record.numeric_literals.filter(
-      (literal) => literal.pointer === pointer,
-    );
-    return (
-      sidecars.length === 1 &&
-      sidecars[0]?.producer_type === "integer" &&
-      sidecars[0].literal === String(value)
-    );
-  };
+  const sidecarsAt = (pointer: string): readonly NumericSidecar[] =>
+    record.numeric_literals.filter((literal) => literal.pointer === pointer);
   if (source !== null) {
     for (const key of ["session_id", "name", "time", "startedDateTime", "type"])
       if (Object.hasOwn(source, key) && source[key] !== undefined) {
@@ -190,7 +198,7 @@ const preview = (record: WebNetworkCaptureRecord, format: string) => {
             !mitmproxyHeadline(
               field,
               fieldValue,
-              canonicalInteger(`/${key}/${field}`, fieldValue),
+              sidecarsAt(`/${key}/${field}`),
             ))
         )
           continue;
