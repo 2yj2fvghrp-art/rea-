@@ -32,7 +32,9 @@ it
     }
     // A rejection must come from the fixture we are about to launch. An
     // existing Xvfb would otherwise mask a broken executable-identity check.
-    await assertCleanLinuxHopperRuntime(alternateMode ? [launcher] : []);
+    // The fresh launcher has not executed yet. Preflight runtime names; the
+    // post-launch assertion checks the executed file identity.
+    await assertCleanLinuxHopperRuntime([]);
     const command = alternateMode ? alternate : process.execPath;
     const arguments_ = alternateMode ? ["30"] : ["-e", childCode];
     const parentCode = `
