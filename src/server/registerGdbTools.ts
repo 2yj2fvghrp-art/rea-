@@ -180,7 +180,7 @@ export const registerGdbTools = (
           ? await execute()
           : admitted.ok
             ? admitted.value
-            : admitted;
+            : err(admitted.error);
       return result.ok
         ? delivery.toCallToolResult({ ok: true, value: result.value }, close)
         : delivery.toCallToolResult(result, close);
