@@ -64,3 +64,12 @@ remains unverified in this Flutter continuation.
 
 The Flutter cohorts keep their original frozen runtime; subsequent integration
 onto this newer main does not relabel earlier measurement receipts.
+
+Main advanced again to `bb154d106` during CI, adding retained aioquic 1.5.0
+qlog 0.3 JSON parsing and qlog views. The existing capture summary/page path
+already applies. Qlog's trace-scoped STREAM interval unions and endpoint loss
+declarations have separate semantics: they do not recover bodies, prove network
+loss or establish PCAP correlation. Measure genuine supported recordings and
+existing retained views before adding delivery or caching. Other qlog layouts
+and qlog performance remain unverified in the Flutter experiment. Shared-view
+integration is checked after rebasing; earlier runtime receipts remain pinned.
