@@ -91,8 +91,19 @@ export const collectSemanticModuleLink = (
       {
         kind: "type-import",
         specifier: request.specifier,
-        importedName: request.path.length === 0 ? null : request.path.join("."),
-        importedPath: request.path,
+        importedName: request.selection.some((keys) => keys.length > 0)
+          ? request.selection
+              .map((keys) =>
+                keys.length === 0
+                  ? "[unknown]"
+                  : keys.length === 1
+                    ? keys[0]
+                    : `(${keys.join(" | ")})`,
+              )
+              .join(".")
+          : null,
+        importedSelection: request.selection,
+        dynamicMemberAccess: request.dynamicMemberAccess,
         localName: null,
         exportedName: null,
         ...(resolutionMode === undefined ? {} : { resolutionMode }),

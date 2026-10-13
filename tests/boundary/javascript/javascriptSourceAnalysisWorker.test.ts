@@ -415,7 +415,7 @@ const expectNativeTypeSelections = async (
     [["-1"], false, false, true],
     [["0"], false, false, true],
     [["-1"], false, false, true],
-    [[], false, true, true],
+    [["NativeMode", "-1"], false, false, true],
   ]);
   expect(
     indexed.value.module?.moduleLinks.map(({ importedName }) => importedName),
@@ -431,7 +431,7 @@ const expectNativeTypeSelections = async (
     "-1",
     "0",
     "-1",
-    null,
+    "(NativeMode | -1)",
   ]);
   for (const [text, count] of [
     [
@@ -480,6 +480,12 @@ const expectNativeTypeSelections = async (
       ({ resolutionMode }) => resolutionMode,
     ),
   ).toEqual(["require", "require", "require"]);
+  await expectNativeTypeIndexAlternatives(worker);
+};
+
+const expectNativeTypeIndexAlternatives = async (
+  worker: JavaScriptAnalysisWorker,
+): Promise<void> => {
   const dynamic = await worker.analyze(
     source(
       "dynamic.mts",
@@ -497,13 +503,36 @@ const expectNativeTypeSelections = async (
       [
         'type Nested = import("native-mode/addon.node").A.B;',
         'type Literal = (typeof import("native-mode/addon.node"))["A.B"];',
+        'type Union = (typeof import("native-mode/addon.node"))["A" | "B"]["C" | "D"];',
+        'type Partial = (typeof import("native-mode/addon.node"))["A" | string];',
       ].join("\n"),
     ),
     100,
   );
   if (!segments.ok) throw segments.error.error;
+  expect(
+    segments.value.javascript.electron.native_addon_bindings,
+  ).toMatchObject([
+    { members: ["A"], dynamic_member_access: false },
+    { members: ["A.B"], dynamic_member_access: false },
+    { members: ["A", "B"], dynamic_member_access: false },
+    { members: ["A"], dynamic_member_access: true },
+  ]);
   expect(segments.value.module?.moduleLinks).toMatchObject([
-    { importedName: "A.B", importedPath: ["A", "B"] },
-    { importedName: "A.B", importedPath: ["A.B"] },
+    { importedName: "A.B", importedSelection: [["A"], ["B"]] },
+    { importedName: "A.B", importedSelection: [["A.B"]] },
+    {
+      importedName: "(A | B).(C | D)",
+      importedSelection: [
+        ["A", "B"],
+        ["C", "D"],
+      ],
+      dynamicMemberAccess: false,
+    },
+    {
+      importedName: "A",
+      importedSelection: [["A"]],
+      dynamicMemberAccess: true,
+    },
   ]);
 };

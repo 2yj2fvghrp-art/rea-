@@ -470,17 +470,18 @@ const expectNativeMixedEvidence = (
 const expectNativeTypeSelections = (
   graph: Awaited<ReturnType<typeof analyzeJavaScriptDirectory>>["graph"],
 ): void => {
-  for (const [line, member] of [
-    [1, "NativeMode"],
-    [2, "Native.Mode"],
-    [3, ""],
-    [4, "NativeMode"],
-    [5, "Native.Mode"],
-    [6, ""],
-    [8, "NativeMode"],
-    [9, "-1"],
-    [10, "0"],
-    [11, "-1"],
+  for (const [line, members] of [
+    [1, ["NativeMode"]],
+    [2, ["Native.Mode"]],
+    [3, [""]],
+    [4, ["NativeMode"]],
+    [5, ["Native.Mode"]],
+    [6, [""]],
+    [8, ["NativeMode"]],
+    [9, ["-1"]],
+    [10, ["0"]],
+    [11, ["-1"]],
+    [12, ["NativeMode", "-1"]],
   ] as const)
     expect
       .soft(graph.nodes.flatMap(({ observations }) => observations))
@@ -488,7 +489,7 @@ const expectNativeTypeSelections = (
         expect.objectContaining({
           properties: expect.objectContaining({
             specifier: "native-mixed/addon.node",
-            requested_members: [member],
+            requested_members: members,
             namespace_access: false,
             dynamic_member_access: false,
             type_only: true,
@@ -503,7 +504,7 @@ const expectNativeTypeSelections = (
           }),
         }),
       );
-  for (const line of [7, 12])
+  for (const line of [7])
     expect
       .soft(graph.nodes.flatMap(({ observations }) => observations))
       .toContainEqual(

@@ -551,17 +551,21 @@ const moduleLink = z
     ]),
     specifier: z.string().nullable(),
     importedName: z.string().nullable(),
-    importedPath: z.array(z.string()).optional(),
+    importedSelection: z.array(z.array(z.string())).optional(),
+    dynamicMemberAccess: z.boolean().optional(),
     localName: z.string().nullable(),
     exportedName: z.string().nullable(),
     callableId: z.string().nullable(),
     location: range,
   })
-  .transform(({ resolutionMode, importedPath, ...rest }) => ({
-    ...rest,
-    ...(resolutionMode === undefined ? {} : { resolutionMode }),
-    ...(importedPath === undefined ? {} : { importedPath }),
-  }));
+  .transform(
+    ({ resolutionMode, importedSelection, dynamicMemberAccess, ...rest }) => ({
+      ...rest,
+      ...(resolutionMode === undefined ? {} : { resolutionMode }),
+      ...(importedSelection === undefined ? {} : { importedSelection }),
+      ...(dynamicMemberAccess === undefined ? {} : { dynamicMemberAccess }),
+    }),
+  );
 const definitionKind = z.enum([
   "import",
   "variable",
