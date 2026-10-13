@@ -1,6 +1,8 @@
 import { MIMEType } from "node:util";
 import { createIdaDiagnosticRedactor } from "./IdaDiagnosticRedactor.js";
 import { IdaDiagnosticResourceError } from "./IdaDiagnosticWriter.js";
+import { ChildProcess } from "node:child_process";
+import { Socket } from "node:net";
 import { snapshotEnvironment } from "../process/snapshotEnvironment.js";
 import {
   Client,
@@ -16,6 +18,7 @@ import { z } from "zod";
 import type { IdaConfiguration } from "./IdaConfiguration.js";
 import { jsonValueSchema, type JsonValue } from "../domain/jsonValue.js";
 import { AnalysisProtocolError } from "../domain/analysisErrorCore.js";
+import { ProviderAdapterError } from "../domain/providerAdapterError.js";
 
 /** Injectable MCP boundary used by the provider and transport conformance tests. */
 export interface IdaMcpConnection {
@@ -27,6 +30,12 @@ export interface IdaMcpConnection {
   readResource?(uri: string): Promise<JsonValue>;
   serverInfo(): JsonValue;
   close(): Promise<void>;
+  /**
+   * Keep a connection retained after failed cleanup from holding the host
+   * process open. A long-lived MCP server can still retry through it; a
+   * one-shot CLI exits, and the upstream proxy observes end of input.
+   */
+  detach(): void;
 }
 
 const toolResultSchema = z.object({
@@ -121,6 +130,30 @@ class IdaHttpJsonError extends Error {
 
 type IdaDiagnosticRedactor = ReturnType<typeof createIdaDiagnosticRedactor>;
 
+const diagnosticMediaType = (source: string): MIMEType | undefined => {
+  const essence =
+    /^[!#$%&'*+.^_`|~\dA-Za-z-]+\/[!#$%&'*+.^_`|~\dA-Za-z-]+/u.exec(source);
+  if (essence === null) return undefined;
+  const parameter =
+    /[ \t]*;[ \t]*([!#$%&'*+.^_`|~\dA-Za-z-]+)=([!#$%&'*+.^_`|~\dA-Za-z-]+|"(?:[\t !#-\[\]-~]|\\[\t -~])*")/uy;
+  const names = new Set<string>();
+  let cursor = essence[0].length;
+  while (!/^[ \t]*$/u.test(source.slice(cursor))) {
+    parameter.lastIndex = cursor;
+    const match = parameter.exec(source);
+    if (match === null) return undefined;
+    const name = match[1]!.toLowerCase();
+    if (names.has(name)) return undefined;
+    names.add(name);
+    cursor = parameter.lastIndex;
+  }
+  try {
+    return new MIMEType(source);
+  } catch {
+    return undefined;
+  }
+};
+
 const httpErrorBody = (
   response: Response,
   text: string,
@@ -130,12 +163,8 @@ const httpErrorBody = (
     "IDA MCP response body omitted: unsupported or unknown format or character encoding.";
   const contentType = response.headers.get("content-type");
   if (contentType === null) return omitted;
-  let mediaType: MIMEType;
-  try {
-    mediaType = new MIMEType(contentType);
-  } catch {
-    return omitted;
-  }
+  const mediaType = diagnosticMediaType(contentType);
+  if (mediaType === undefined) return omitted;
   const charset = mediaType.params.get("charset")?.toLowerCase();
   if (
     charset !== undefined &&
@@ -199,25 +228,45 @@ export const createIdaMcpConnection = (
 ): IdaMcpConnection => {
   const client = new Client({ name: "rea-ida-provider", version: "1" });
   const redactor = createIdaDiagnosticRedactor(config);
+  let stderr = Buffer.alloc(0);
+  let stderrBytes = 0;
   const transportFailure = (cause: unknown): never => {
     if (cause instanceof IdaDiagnosticResourceError) throw cause;
+    let failure: Error;
     if (cause instanceof IdaHttpJsonError)
-      throw new Error(`${cause.message} Response body: ${cause.text}`, {
+      failure = new Error(`${cause.message} Response body: ${cause.text}`, {
         cause,
       });
-    const message =
-      cause instanceof Error
-        ? cause.message
-        : "Unknown IDA MCP transport failure";
-    const body = cause instanceof SdkHttpError ? cause.data.text : undefined;
-    // The fetch boundary already sanitized this body using its Content-Type.
-    // Redact only the surrounding SDK message; never rescan replacement markers.
-    const safeMessage =
-      typeof body === "string" && body.length > 0 && message.includes(body)
-        ? message.split(body).map(redactor.text).join(body)
-        : redactor.text(message);
-    throw new Error(safeMessage, {
-      cause: retainedTransportCause(cause, safeMessage),
+    else {
+      const message =
+        cause instanceof Error
+          ? cause.message
+          : "Unknown IDA MCP transport failure";
+      const body = cause instanceof SdkHttpError ? cause.data.text : undefined;
+      // The fetch boundary already sanitized this body using its Content-Type.
+      // Never rescan replacement markers inside that owned body.
+      const safeMessage =
+        typeof body === "string" && body.length > 0 && message.includes(body)
+          ? message.split(body).map(redactor.text).join(body)
+          : redactor.text(message);
+      failure = new Error(safeMessage, {
+        cause: retainedTransportCause(cause, safeMessage),
+      });
+    }
+    if (stderrBytes === 0) throw failure;
+    let start = 0;
+    if (stderrBytes > stderr.length)
+      while (start < stderr.length && (stderr[start]! & 0xc0) === 0x80) start++;
+    throw new ProviderAdapterError("ida", "transport", {
+      cause: failure,
+      diagnostics: { reason: failure.message },
+      capturedOutput: {
+        stdout: "",
+        stderr: redactor.text(stderr.subarray(start).toString("utf8")),
+        truncated: stderrBytes > stderr.length - start,
+        stdout_bytes: 0,
+        stderr_bytes: stderrBytes,
+      },
     });
   };
   const transport =
@@ -245,9 +294,15 @@ export const createIdaMcpConnection = (
           requestInit: { headers: config.headers, redirect: "error" },
           fetch: diagnosticFetch(redactor),
         });
-  // Drain proxy diagnostics without persisting ambient environment or transport credentials.
+  // Keep a bounded diagnostic tail for genuine failures; never persist ambient variables.
   if (transport instanceof StdioClientTransport)
-    transport.stderr?.on("data", () => undefined);
+    transport.stderr?.on("data", (chunk: Buffer) => {
+      stderrBytes += chunk.length;
+      const combined = Buffer.concat([stderr, chunk]);
+      stderr = Buffer.from(
+        combined.subarray(Math.max(0, combined.length - 16_384)),
+      );
+    });
   return {
     async connect() {
       await client
@@ -290,5 +345,14 @@ export const createIdaMcpConnection = (
     },
     serverInfo: () => jsonValueSchema.parse(client.getServerVersion() ?? null),
     close: () => client.close().catch(transportFailure),
+    detach() {
+      if (!(transport instanceof StdioClientTransport)) return;
+      // The SDK exposes only the child's pid, not the handles it holds.
+      const child: unknown = Reflect.get(transport, "_process");
+      if (!(child instanceof ChildProcess)) return;
+      child.unref();
+      for (const stream of [child.stdin, child.stdout, child.stderr])
+        if (stream instanceof Socket) stream.unref();
+    },
   };
 };

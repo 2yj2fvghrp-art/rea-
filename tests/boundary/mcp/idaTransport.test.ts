@@ -970,7 +970,9 @@ it.each([200, 500])(
 
 it.each(
   [200, 500].flatMap((toolStatus) =>
-    ["utf-16le", "utf-16"].map((charset) => ({ toolStatus, charset })),
+    ["utf-16le", "utf-16", " = utf-16", "=utf-8; charset=utf-16"].map(
+      (charset) => ({ toolStatus, charset }),
+    ),
   ),
 )(
   "omits unsupported $charset diagnostic bytes from HTTP $toolStatus JSON failures",
@@ -984,7 +986,11 @@ it.each(
     const { connection } = await fixture({
       configurationHeaders: { Cookie: "session=" + credential },
       toolStatus,
-      toolContentType: "application/json; charset=" + charset,
+      toolContentType:
+        "application/json; charset" +
+        (charset.startsWith("=") || charset.startsWith(" ")
+          ? charset
+          : "=" + charset),
       toolResponseBody: encoded,
     });
     await connection.connect();
