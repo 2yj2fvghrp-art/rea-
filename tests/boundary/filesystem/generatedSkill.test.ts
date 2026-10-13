@@ -141,6 +141,11 @@ it.each([
   ],
   ["SKILL.md", "npx -y rea-agents doctor", "rea-agents"],
   ["SKILL.md", "npx --yes rea-agents doctor", "rea-agents"],
+  [
+    "SKILL.md",
+    "If npm is installed, run npx -y rea-agents doctor.",
+    "rea-agents",
+  ],
   ["references/guide.md", "npm exec --package=rea-agents -- rea", "rea-agents"],
   ["SKILL.md", "npm exec -p rea-agents rea doctor", "rea-agents"],
   ["SKILL.md", "npm exec -- rea-agents doctor", "rea-agents"],
@@ -164,6 +169,10 @@ it.each([
   ["SKILL.md", "npm add -- other-package rea-agents", "rea-agents"],
   ["SKILL.md", "npm exec rea --package=rea-agents", "rea-agents"],
   ["SKILL.md", "npx -p=rea-agents rea", "rea-agents"],
+  ["SKILL.md", "npx --script-shell bash rea-agents doctor", "rea-agents"],
+  ["SKILL.md", "pnpm dlx -c rea-agents doctor", "rea-agents"],
+  ["SKILL.md", "npm exec -p --yes rea-agents doctor", "rea-agents"],
+  ["SKILL.md", "npx --cache './cache;shared' rea-agents doctor", "rea-agents"],
   ["SKILL.md", "npx --cache ./cache rea-agents doctor", "rea-agents"],
   [
     "SKILL.md",

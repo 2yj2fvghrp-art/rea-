@@ -60,7 +60,7 @@ const specifiersIn = (text) =>
 // version. Prose that names the package ("the rea-agents package", "npx with
 // the rea-agents package") is not a package operand and passes.
 const packageCommand =
-  /(?:^|[\s`"'(;&|])(npx|pnpx|bunx|npm|pnpm|yarn|bun)(?=\s)([^`\n;&|)]*)/gu;
+  /(?:^|[\s`"'(;&|])(npx|pnpx|bunx|npm|pnpm|yarn|bun)(?=\s)/gu;
 // Parse quoted words once, before interpreting runner options and operands.
 const commandWords = (text) => {
   const words = [];
@@ -78,6 +78,11 @@ const commandWords = (text) => {
     } else if (character === '"' || character === "'") {
       quote = character;
       started = true;
+    } else if (";&|".includes(character)) {
+      if (started) words.push(word);
+      words.push(character);
+      word = "";
+      started = false;
     } else if (/\s/u.test(character)) {
       if (started) words.push(word);
       word = "";
@@ -98,15 +103,16 @@ const valueOptions = new Set([
   "--globalconfig",
   "--workspace",
   "-w",
-  "--call",
-  "-c",
   "--loglevel",
   "--shell",
 ]);
 const optionTakesValue = (token, kind) =>
   valueOptions.has(token) ||
-  token === "--package" ||
-  token === "-p" ||
+  (token === "--script-shell" && ["npx-runner", "npm-exec"].includes(kind)) ||
+  (token === "--call" && kind === "npm-exec") ||
+  (token === "-c" && kind === "npm-exec") ||
+  (token === "-p" &&
+    ["npx-runner", "pnpm-runner", "bunx-runner"].includes(kind)) ||
   (kind === "pnpm-runner" && token === "--reporter");
 const packageOperands = (kind, tokens) => {
   const runs = kind !== "install";
@@ -116,18 +122,27 @@ const packageOperands = (kind, tokens) => {
   for (let index = 0; index < tokens.length; index += 1) {
     const token = tokens[index];
     if (token === "") continue;
+    if ([";", "&", "|"].includes(token)) break;
     if (token === "--") {
-      positional.push(
-        ...(runs
-          ? tokens.slice(index + 1, index + 2)
-          : tokens.slice(index + 1)),
+      const rest = tokens.slice(index + 1);
+      const boundary = rest.findIndex((value) =>
+        [";", "&", "|"].includes(value),
       );
+      const command = rest.slice(0, boundary < 0 ? rest.length : boundary);
+      positional.push(...(runs ? command.slice(0, 1) : command));
       break;
     }
-    if (token.startsWith("--package=") || token.startsWith("-p=")) {
+    if (
+      token.startsWith("--package=") ||
+      (token.startsWith("-p=") && kind !== "npm-exec")
+    ) {
       packages.push(token.slice(token.indexOf("=") + 1));
       explicitPackage = true;
-    } else if (token === "-p" || token === "--package") {
+    } else if (
+      token === "--package" ||
+      (token === "-p" &&
+        ["npx-runner", "pnpm-runner", "bunx-runner"].includes(kind))
+    ) {
       if (tokens[index + 1] !== undefined) packages.push(tokens[++index]);
       explicitPackage = true;
     } else if (optionTakesValue(token, kind)) index += 1;
@@ -165,7 +180,13 @@ const commandPackageOperands = (manager, words) => {
       ? "pnpm-runner"
       : manager === "npm"
         ? "npm-exec"
-        : "runner";
+        : manager === "npx"
+          ? "npx-runner"
+          : manager === "bunx"
+            ? "bunx-runner"
+            : manager === "bun"
+              ? "bun-runner"
+              : "runner";
   if (["npx", "pnpx", "bunx"].includes(manager))
     return packageOperands(runnerKind, words);
   let verbIndex = 0;
@@ -188,14 +209,23 @@ const commandPackageOperands = (manager, words) => {
     ...words.slice(verbIndex + (globalAdd ? 2 : 1)),
   ]);
 };
-const commandPackagesIn = (text) =>
-  [...text.replaceAll(/\\\r?\n/gu, " ").matchAll(packageCommand)]
-    .flatMap(([, manager, operands]) =>
-      commandPackageOperands(manager, commandWords(operands)),
-    )
-    .filter(
-      (operand) => operand === packageName || operand.startsWith(packagePrefix),
-    );
+const commandPackagesIn = (text) => {
+  const commands = text.replaceAll(/\\\r?\n/gu, " ");
+  const matches = [...commands.matchAll(packageCommand)];
+  return matches
+    .flatMap((match, index) => {
+      const start = match.index + match[0].length;
+      const end = matches[index + 1]?.index ?? commands.length;
+      return commandPackageOperands(
+        match[1],
+        commandWords(commands.slice(start, end)),
+      );
+    })
+    .filter((operand) => {
+      const reference = operand.replace(/[.,;:!?]+$/u, "");
+      return reference === packageName || reference.startsWith(packagePrefix);
+    });
+};
 for (const relativePath of paths) {
   const text = await readFile(join(sourceRoot, relativePath), "utf8");
   for (const specifier of [...specifiersIn(text), ...commandPackagesIn(text)])
