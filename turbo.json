@@ -1,11 +1,11 @@
 {
   "$schema": "https://turborepo.dev/schema.json",
+  "globalDependencies": [".nvmrc", ".npmrc"],
   "globalPassThroughEnv": ["GOMAXPROCS", "GOMEMLIMIT", "UV_THREADPOOL_SIZE"],
   "tasks": {
     "compile": {
       "dependsOn": ["metadata:check"],
       "inputs": [
-        ".nvmrc",
         "package.json",
         "package-lock.json",
         "scripts/check-dependency-install.mjs",
@@ -22,7 +22,6 @@
     },
     "typecheck": {
       "inputs": [
-        ".nvmrc",
         "package.json",
         "package-lock.json",
         "src/**/*.ts",
@@ -49,7 +48,6 @@
       "outputs": [".cache/static-checks/oxlint.json"],
       "inputs": [
         ".gitignore",
-        ".nvmrc",
         ".oxlintrc.json",
         "package.json",
         "package-lock.json",
@@ -71,7 +69,6 @@
       "outputs": [".cache/static-checks/oxlint.json"],
       "inputs": [
         ".gitignore",
-        ".nvmrc",
         ".oxlintrc.json",
         "package.json",
         "package-lock.json",
@@ -92,7 +89,7 @@
     "knip": {
       "dependsOn": ["compile"],
       "inputs": [
-        ".nvmrc",
+        ".gitignore",
         "knip.json",
         "package.json",
         "package-lock.json",
@@ -100,7 +97,8 @@
         "src/**/*.ts",
         "tests/**/*.ts",
         "tsconfig.json",
-        "tsconfig.build.json"
+        "tsconfig.build.json",
+        "docs/.vitepress/config.ts"
       ]
     },
     "jscpd": {
@@ -139,7 +137,6 @@
         "artifacts:skills"
       ],
       "inputs": [
-        ".nvmrc",
         "package.json",
         "package-lock.json",
         "scripts/generate-*.mjs",
@@ -171,7 +168,6 @@
     "artifacts:mcp-catalog": {
       "dependsOn": ["compile"],
       "inputs": [
-        ".nvmrc",
         "package.json",
         "package-lock.json",
         "scripts/generate-mcp-tool-catalog.mjs",
@@ -182,7 +178,6 @@
     "artifacts:skills": {
       "dependsOn": ["compile"],
       "inputs": [
-        ".nvmrc",
         "package.json",
         "package-lock.json",
         "scripts/generate-skill-metadata.mjs",
@@ -194,7 +189,6 @@
     "artifacts:product-catalog": {
       "dependsOn": ["compile"],
       "inputs": [
-        ".nvmrc",
         "package.json",
         "package-lock.json",
         "scripts/generate-product-catalog.mjs",
@@ -206,7 +200,6 @@
     "artifacts:managed-evidence": {
       "dependsOn": ["artifacts:skills"],
       "inputs": [
-        ".nvmrc",
         "package.json",
         "package-lock.json",
         "scripts/generate-completion-ledger.mjs",
@@ -222,7 +215,6 @@
     "artifacts:error-schema": {
       "dependsOn": ["compile"],
       "inputs": [
-        ".nvmrc",
         "package.json",
         "package-lock.json",
         "scripts/generate-error-schema.mjs",
@@ -235,7 +227,6 @@
     "mcp-catalog:check:built": {
       "dependsOn": ["artifacts:mcp-catalog"],
       "inputs": [
-        ".nvmrc",
         "package.json",
         "package-lock.json",
         "scripts/generate-mcp-tool-catalog.mjs",
@@ -249,7 +240,6 @@
     "evidence:check:built": {
       "dependsOn": ["artifacts:managed-evidence"],
       "inputs": [
-        ".nvmrc",
         "package.json",
         "package-lock.json",
         "scripts/generate-completion-ledger.mjs",
