@@ -733,17 +733,17 @@ const resolveExportTarget = (
         `Package metadata ${packagePath}, ${mapKind} target ${JSON.stringify(target.value)}${target.expanded_value === undefined ? "" : `, expanded as ${JSON.stringify(target.expanded_value)}`}: ${reason}`,
     ),
   });
-  // Pattern substitution can assemble an encoded parent segment that URL
-  // normalization removes. Confine the final URL, after all substitutions,
-  // to the owning package rather than only to the enclosing artifact.
-  const packageDirectory = new URL(".", packageMetadataUrl(packagePath));
+  // Node checks package confinement before pattern substitution; a capture
+  // can then assemble a parent segment. Preserve that selected runtime edge,
+  // while the shared finalizer still confines it to the retained artifact.
   if (
-    target.url.origin !== packageDirectory.origin ||
-    !target.url.pathname.startsWith(packageDirectory.pathname)
+    target.url.protocol !== PACKAGE_ARTIFACT_ROOT_URL.protocol ||
+    target.url.host !== PACKAGE_ARTIFACT_ROOT_URL.host ||
+    !target.url.pathname.startsWith(PACKAGE_ARTIFACT_ROOT_URL.pathname)
   )
     return withTargetSource(
       unresolvedCandidate("rejected", [
-        "The selected package URL escapes its package directory.",
+        "The selected package URL escapes the retained artifact root.",
       ]),
     );
   // Node's CommonJS finalizer checks the serialized URL, including suffixes;

@@ -2339,7 +2339,7 @@ describe("url-reference JavaScript artifact path resolution", () => {
 
 describe("package exports pattern keys", () => {
   it.each(["imports", "exports"] as const)(
-    "rejects a normalized pattern URL escaping its %s package",
+    "preserves a Node-selected normalized pattern URL outside its %s package",
     (mapKind) => {
       const files = fileMap([
         file("app/pkg/main.js", "root"),
@@ -2364,14 +2364,52 @@ describe("package exports pattern keys", () => {
           files,
         });
         expect(outcome).toMatchObject({
+          resolution_status: "resolved",
+          resolved_path: "app/secret.js",
+        });
+      }
+    },
+  );
+
+  it.each(["imports", "exports"] as const)(
+    "rejects an expanded %s URL outside the retained artifact root",
+    (mapKind) => {
+      const files = fileMap([
+        file("main.js", "root"),
+        file(
+          "package.json",
+          "root",
+          JSON.stringify({
+            name: "fixture",
+            [mapKind]: {
+              [mapKind === "imports" ? "#x/*" : "./x/*"]:
+                "./.%*/outside-the-artifact.js",
+            },
+          }),
+        ),
+        file("outside-the-artifact.js", "root"),
+      ]);
+      for (const moduleKind of ["import", "require"] as const) {
+        const outcome = resolve({
+          declaredPath: mapKind === "imports" ? "#x/2e" : "fixture/x/2e",
+          sourcePath: "main.js",
+          context: "module-specifier",
+          moduleKind,
+          files,
+        });
+        expect(outcome).toMatchObject({
           resolution_status: "rejected",
           resolved_path: null,
         });
         expect(outcome.limitations.join(" ")).toContain(
-          "escapes its package directory",
+          "escapes the retained artifact root",
         );
-        expect(outcome.limitations.join(" ")).toContain("./.%*/secret.js");
-        expect(outcome.limitations.join(" ")).toContain("./.%2e/secret.js");
+        expect(outcome.limitations.join(" ")).toContain(
+          "./.%*/outside-the-artifact.js",
+        );
+        expect(outcome.limitations.join(" ")).toContain(
+          "./.%2e/outside-the-artifact.js",
+        );
       }
     },
   );
