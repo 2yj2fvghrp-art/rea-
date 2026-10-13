@@ -105,7 +105,7 @@ it("enforces the offered complete-file byte budget while preserving authenticate
   ).rejects.toBeInstanceOf(RangeError);
 });
 
-it("charges measured retained expansion for production transfer shapes", () => {
+it("admits the recorded transfer under the retention policy", () => {
   // Recorded admission refusal (#1387 follow-up): a single 3.2 MB minified
   // source produced a 210,238,252-byte / 260,560-record graph transfer with
   // 1,434,390,040 bytes remaining in the parent budget. The worker and its
@@ -125,11 +125,9 @@ it("charges measured retained expansion for production transfer shapes", () => {
   );
   expect(moduleEstimate).toBe(9_607_460);
   expect(graphEstimate).toBe(1_067_867_100);
-  // Calibrated to measured metrology: admitting at this charge completed with
-  // 100k nodes retained and a 1.12 GB parent peak RSS. The 5x charge accounts
-  // for both retention (~2.5-3x) and the seal-time duplicate representation
-  // (~2x while parseElementSteps clones live collections). The previous 8x
-  // charge (1,714,012,544 bytes) refused this transfer against the same budget.
+  // This checks admission policy, not a measured memory bound. Completed
+  // process-family measurements live in the transfer-retention experiment.
+  // The previous 8x charge refused this transfer against the same budget.
   expect(graphEstimate / graphBytes).toBeGreaterThanOrEqual(5);
   expect(graphEstimate / graphBytes).toBeLessThan(5.5);
   expect(moduleEstimate + graphEstimate).toBeLessThanOrEqual(remaining);

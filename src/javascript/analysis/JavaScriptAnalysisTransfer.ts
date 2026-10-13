@@ -51,20 +51,17 @@ type Descriptor = z.output<typeof javaScriptAnalysisTransferDescriptorSchema>;
  * Retained-object expansion for validated transfer rows, including the
  * seal-time duplicate representation.
  *
- * Measured metrology (single 3.2 MB minified source, 210 MB / 260,560-record
- * graph transfer): admitting at 3x completed with 100k nodes retained and a
- * 1.12 GB parent peak RSS, i.e. ~4x transfer bytes end to end including the
- * separately-charged static checkpoint transient. Parsed small-fact objects
- * retain ~2.5-3x their JSON bytes. During semantic graph sealing,
- * `parseElementSteps` clones every element via `safeParse` while the
- * original container arrays stay live through `...container`, so peak
- * parent memory during sealing is approximately 2x the retained collection
- * size. The 8 MB per-record cap bounds single-object spikes, and the parent
- * result budget this feeds is already halved for host-side control and
- * transient copies. Charging 5x (3x retention + 2x seal overlap) keeps
- * headroom without refusing work that fits several times over (8x refused
- * the measured transfer against 1.4 GB free; 4x admitted but undercounted
- * seal-time peak).
+ * This is a heuristic admission charge, not a hard process-family memory
+ * bound. Sealing clones parsed elements while the transferred collections
+ * remain live; the reusable producer can also remain alive during adoption.
+ * The parent result budget separately reserves half its available heap for
+ * control/transients and 24 maximum-size records for decoding. Worker heap
+ * limits are independent of this parent charge.
+ *
+ * Completed CLI process-family comparisons, record mixes and limitations:
+ * experiments/analysis-efficiency/javascript-transfer-retention.md. Keep the
+ * stream cap and admission charge on this same multiplier. Arithmetic tests
+ * verify that policy; they do not calibrate its memory expansion.
  */
 const TRANSFER_RETENTION_MULTIPLIER = 5;
 
