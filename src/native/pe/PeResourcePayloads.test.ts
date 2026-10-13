@@ -249,6 +249,23 @@ describe("PE version payloads", () => {
     ).toBe("Embarcadero");
   });
 
+  it("rejects text lengths larger than the containing block", async () => {
+    const companyName = text("CompanyName", "Embarcadero");
+    companyName.writeUInt16LE(0xffff, 2);
+    const payload = versionNode("VS_VERSION_INFO", 0, fixedFileInfo(), [
+      versionNode("StringFileInfo", 1, Buffer.alloc(0), [
+        versionNode("040904E4", 1, Buffer.alloc(0), [companyName]),
+      ]),
+    ]);
+    const { result } = await parse([
+      { type: 16, name: 1, language: 1033, payload },
+    ]);
+    expect(result.version_infos[0]).toMatchObject({
+      status: "malformed",
+      reason: expect.stringContaining("leaves its block"),
+    });
+  });
+
   it.each([
     [
       "bad signature",

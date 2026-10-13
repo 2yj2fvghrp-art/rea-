@@ -141,9 +141,12 @@ const readBlock = (
   // Text values count UTF-16 units and binary values count bytes. Some
   // resource compilers count text in bytes, or leave out the terminator, so a
   // text value is read up to its terminator inside its own block instead.
+  const available = blockEnd - valueAt;
+  if (type === 1 && valueLength > available)
+    malformed(`Version value for ${JSON.stringify(key)} leaves its block.`);
   const declared =
-    type === 1 ? Math.min(valueLength * 2, blockEnd - valueAt) : valueLength;
-  if (valueAt + declared > blockEnd)
+    type === 1 ? Math.min(valueLength * 2, available) : valueLength;
+  if (declared > available)
     malformed(`Version value for ${JSON.stringify(key)} leaves its block.`);
   return {
     location: { offset: at, bytes: length },
