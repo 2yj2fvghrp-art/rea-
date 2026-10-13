@@ -20,6 +20,7 @@ import {
   createImmutableJavaScriptSemanticGraphSteps,
 } from "../javascript/javascriptSemanticGraph.js";
 import {
+  ANALYSIS_VIEW_MESSAGE_LIMIT,
   completeWithinViewCoverage,
   pageViewCoverage,
 } from "./analysisViewCoverage.js";
@@ -697,6 +698,38 @@ it("retains semantic coverage and limitations in a summary", () => {
       "semantic_graph.coverage.status is partial",
     ]),
   });
+});
+
+it("bounds parent limitations in every JavaScript view", () => {
+  const analysis = analysisViewJavaScriptAnalysis();
+  const many = Array.from(
+    { length: 10_000 },
+    (_, index) => `Module ${String(index).padStart(5, "0")} was not parsed.`,
+  );
+  const parent = {
+    ...javascriptParent({ ...analysis, limitations: many }),
+    limitations: many,
+  };
+  for (const view of [
+    { kind: "summary" },
+    { kind: "page", collection: "modules", offset: 0, limit: 1 },
+  ] as const) {
+    const result = projectAnalysisView(parent, view);
+    if (!result.ok) throw result.error;
+    expect(result.value.limitations).toHaveLength(
+      ANALYSIS_VIEW_MESSAGE_LIMIT + 1,
+    );
+    const omission = result.value.limitations.at(-1) ?? "";
+    expect(omission).toContain(
+      `additional limitations omitted from this view; the complete list remains in parent Evidence ${parent.evidenceId}`,
+    );
+    expect(Number.parseInt(omission, 10)).toBeGreaterThanOrEqual(
+      10_000 - ANALYSIS_VIEW_MESSAGE_LIMIT,
+    );
+    expect(result.value.unknowns.length).toBeLessThanOrEqual(
+      ANALYSIS_VIEW_MESSAGE_LIMIT + 1,
+    );
+  }
 });
 
 it("does not match unavailable layout names using a display placeholder", () => {

@@ -3,12 +3,12 @@ import {
   type AnalysisInputIssue,
 } from "../analysisErrorCore.js";
 import type { AnalysisError } from "../analysisErrorBase.js";
-import { uniqueSorted } from "../canonicalOrdering.js";
 import { jsonObjectSchema, type JsonValue } from "../jsonValue.js";
 import type { JavaScriptApplicationAnalysisResult } from "../javascript/javascriptApplicationAnalysis.js";
 import type { ApplicationNode } from "../javascript/javascriptApplicationGraphSchemas.js";
 import { err, ok, type Result } from "../result.js";
 import {
+  boundedViewMessages,
   completeWithinViewCoverage as completeCoverage,
   pageViewCoverage as pageCoverage,
 } from "./analysisViewCoverage.js";
@@ -172,13 +172,21 @@ const parentFields = (
     path: analysis.input_path,
     sha256: analysis.root_artifact_sha256,
   },
-  limitations: uniqueSorted([
-    ...parent.limitations,
-    ...analysis.limitations,
-    ...analysis.graph.limitations,
-    ...analysis.semantic_graph.limitations,
-  ]),
-  unknowns: uniqueSorted([...javascriptUnknowns(analysis)]),
+  limitations: boundedViewMessages(
+    [
+      ...parent.limitations,
+      ...analysis.limitations,
+      ...analysis.graph.limitations,
+      ...analysis.semantic_graph.limitations,
+    ],
+    parent.evidenceId,
+    "limitations",
+  ),
+  unknowns: boundedViewMessages(
+    javascriptUnknowns(analysis),
+    parent.evidenceId,
+    "unknowns",
+  ),
 });
 
 const selectModule = (
