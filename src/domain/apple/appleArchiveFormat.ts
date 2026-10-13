@@ -7,6 +7,26 @@ const NIB_ARCHIVE_MAGIC = [
 export const hasBinaryPlistSignature = (bytes: Uint8Array): boolean =>
   BINARY_PLIST_MAGIC.every((byte, index) => bytes[index] === byte);
 
+/** Recognize an XML plist prolog without claiming that its document is valid. */
+export const hasXmlPlistSignature = (bytes: Uint8Array): boolean => {
+  const utf16le = bytes[0] === 0xff && bytes[1] === 0xfe;
+  const utf16be = bytes[0] === 0xfe && bytes[1] === 0xff;
+  const usable =
+    utf16le || utf16be ? bytes.subarray(0, bytes.length & ~1) : bytes;
+  let text: string;
+  try {
+    text = new TextDecoder(
+      utf16le ? "utf-16le" : utf16be ? "utf-16be" : "utf-8",
+      { fatal: true },
+    ).decode(usable);
+  } catch {
+    return false;
+  }
+  return /^\uFEFF?\s*(?:<\?xml\s[\s\S]*?\?>\s*)?(?:<!--[\s\S]*?-->\s*)*(?:<!DOCTYPE\s+plist\b|<plist\b)/u.test(
+    text,
+  );
+};
+
 /** Recognize the serialized signature without claiming a valid NIB object table. */
 export const hasNibArchiveSignature = (bytes: Uint8Array): boolean =>
   NIB_ARCHIVE_MAGIC.every((byte, index) => bytes[index] === byte);

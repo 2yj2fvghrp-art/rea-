@@ -257,6 +257,28 @@ describe("binary target I/O: package classification", () => {
     });
   });
 
+  it("classifies an XML plist by content while preserving named artifact formats", async () => {
+    const directory = await createTestTempDirectory("rea-xml-plist-target-");
+    const xml = Buffer.from(
+      '<?xml version="1.0"?><!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd"><plist version="1.0"><dict><key>$archiver</key><string>NSKeyedArchiver</string></dict></plist>',
+    );
+    const archive = join(directory, "Model.archive");
+    const javascript = join(directory, "Model.js");
+    await writeFile(archive, xml);
+    await writeFile(javascript, xml);
+
+    const detected = await parseBinaryTarget(archive);
+    const named = await parseBinaryTarget(javascript);
+    expect(detected.ok && detected.value).toMatchObject({
+      kind: "artifact",
+      format: "plist",
+    });
+    expect(named.ok && named.value).toMatchObject({
+      kind: "artifact",
+      format: "javascript",
+    });
+  });
+
   it("does not trust a ZIP-family extension without ZIP magic", async () => {
     const directory = await createTestTempDirectory("rea-fake-archive-");
     const path = join(directory, "fake.zip");

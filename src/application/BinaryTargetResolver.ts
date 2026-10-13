@@ -32,7 +32,10 @@ import {
 } from "../domain/rawBinary.js";
 import type { BinaryArchitecture } from "../domain/binaryTargetTypes.js";
 import { observeMzWindowsHeader } from "../domain/dosMz.js";
-import { hasBinaryPlistSignature } from "../domain/apple/appleArchiveFormat.js";
+import {
+  hasBinaryPlistSignature,
+  hasXmlPlistSignature,
+} from "../domain/apple/appleArchiveFormat.js";
 import {
   hasZipSignature,
   isZipPackageFormat,
@@ -277,12 +280,12 @@ const detectArtifactFormat = async (
 > => {
   throwIfTargetResolutionCancelled(signal);
   const lower = path.toLowerCase();
-  const magic = Buffer.alloc(8);
+  const magic = Buffer.alloc(4096);
   const observed = await handle.read(magic, 0, magic.length, 0);
   throwIfTargetResolutionCancelled(signal);
   if (
-    observed.bytesRead === 8 &&
-    magic.equals(Buffer.from([0, 0x61, 0x73, 0x6d, 1, 0, 0, 0]))
+    observed.bytesRead >= 8 &&
+    magic.subarray(0, 8).equals(Buffer.from([0, 0x61, 0x73, 0x6d, 1, 0, 0, 0]))
   )
     throw new BinaryTargetError(
       path,
@@ -300,6 +303,9 @@ const detectArtifactFormat = async (
     return "plist";
   const named = namedArtifactFormat(lower);
   if (named !== undefined) return named;
+  // XML plist documents can also use archive-specific suffixes such as .archive.
+  if (hasXmlPlistSignature(magic.subarray(0, observed.bytesRead)))
+    return "plist";
   if (
     lower.endsWith(".pkg") &&
     observed.bytesRead >= 4 &&
