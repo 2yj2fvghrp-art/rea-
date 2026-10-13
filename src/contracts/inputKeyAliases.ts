@@ -70,11 +70,39 @@ export const compatibleToolInputSchema = <Schema extends z.ZodObject>(
   }, schema);
   return withAdvertisedJsonSchema(canonical, "input", () => (options) => {
     const projected = accepted["~standard"].jsonSchema.input(options);
+    const alternatives = Array.isArray(projected.anyOf) ? projected.anyOf : [];
+    const invalidSelections = Object.entries(aliases).flatMap(
+      ([alias, key]) => {
+        const conflicts: Record<string, unknown>[] = [
+          { required: [key, alias] },
+        ];
+        const selectorRequired =
+          alternatives.length > 0 &&
+          alternatives.every(
+            (branch: unknown) =>
+              typeof branch === "object" &&
+              branch !== null &&
+              "required" in branch &&
+              Array.isArray(branch.required) &&
+              (branch.required.includes(key) ||
+                branch.required.includes(alias)),
+          );
+        if (selectorRequired)
+          conflicts.push({
+            not: { anyOf: [{ required: [key] }, { required: [alias] }] },
+          });
+        return conflicts;
+      },
+    );
     // Existing input presentation owns flattening for hosts that prohibit root
     // unions; keep the exact accepted alternatives here for schema consumers.
     return {
       ...projected,
       type: "object",
+      // Shared root-union presentation may flatten alternatives for hosts.
+      // These exclusions preserve exactly-one required selector independently
+      // of optional/defaulted fields, without a prohibited root combinator.
+      not: { anyOf: invalidSelections },
       description: [
         schema.description,
         `Supply one spelling for each input: ${Object.entries(aliases)

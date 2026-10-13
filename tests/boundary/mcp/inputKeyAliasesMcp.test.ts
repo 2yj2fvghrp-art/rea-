@@ -137,6 +137,19 @@ describe("MCP input key aliases", () => {
           expect(definition.inputSchema.type).toBe("object");
           expect(ajv.validate(definition.inputSchema, canonical)).toBe(true);
           expect(ajv.validate(definition.inputSchema, alias)).toBe(true);
+          for (const invalid of [
+            tool === "procedure_pseudo_code"
+              ? { document: "x" }
+              : { mode: "literal" },
+            { ...canonical, ...alias },
+          ]) {
+            expect(ajv.validate(definition.inputSchema, invalid)).toBe(false);
+            const invalidReply = await client.callTool({
+              name: tool,
+              arguments: invalid,
+            });
+            expect(invalidReply.isError, errorText(invalidReply)).toBe(true);
+          }
           const reply = await client.callTool({ name: tool, arguments: alias });
           expect(reply.isError, errorText(reply)).toBeFalsy();
         }
