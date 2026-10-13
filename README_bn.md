@@ -155,16 +155,21 @@ REA-এর জন্য লাগবে Node.js 22.x (>=22.19), 24.x (>=24.11) �
 | Go বাইনারি                | Embedded compiler সংস্করণ, module, replacement ও build setting                   | বিল্ট-ইন static ELF/PE/thin Mach-O পরীক্ষা; Go ইনস্টল করার দরকার নেই                                                                 |
 | WASM artifact           | Validation, section, হুবহু import/export WAT রূপ এবং decode করা WAT                 | Caller-এর দেওয়া WABT 1.0.42; `inspect_wasm_artifact`                                                                            |
 | EVM bytecode            | Dispatch selector, byte offset, অনুমিত argument ও mutability                     | Linux x64-এ local raw/hex carrier; [offline EVM গাইড](docs/evm-bytecode.md)                                                     |
+| SQLite ডেটাবেস           | Table, column, index, view, trigger এবং নির্বাচিত সাধারণ table-এর row               | Local database/WAL snapshot; native SQLite সীমাসহ Node.js 24.x >=24.15 বা 26+                                                    |
 | রেকর্ড করা Linux crash    | Raw note, রেকর্ড করা প্রতিটি thread-এর register/signal এবং ঐচ্ছিক mapping candidate | Linux x64-এ caller-এর দেওয়া pwntools; ঐচ্ছিক GDB/pwndbg; [রেকর্ড করা crash](docs/recorded-crashes.md)                              |
 | JavaScript / Electron   | Module, import, source map, route, IPC এবং native add-on-এর সম্পর্ক               | Node.js ও npm; [অ্যাপ্লিকেশন বিশ্লেষণ](https://rea.tools/guides/javascript/)                                                       |
 | ওয়েবসাইট                 | পেজের গঠন, script, network পর্যবেক্ষণ এবং অনুরোধ করা screenshot                     | একটি Chrome-ঘরানার ব্রাউজার; [ব্রাউজার বিশ্লেষণ](https://rea.tools/guides/browser/)                                                     |
-| সংরক্ষিত network capture | Request, response, উন্মুক্ত payload ও source location                              | HAR; native mitmproxy capture-এর জন্য Linux-এ mitmdump; [capture গাইড](docs/web-network-captures.md)                             |
+| সংরক্ষিত network capture | Request, response, উন্মুক্ত payload ও source location                              | HAR বা Fiddler Everywhere SAZ; native mitmproxy capture-এর জন্য Linux-এ mitmdump; [capture গাইড](docs/web-network-captures.md)    |
 | .NET assembly           | Metadata, CIL instruction, ঘোষিত native dependency এবং build তুলনা                | কিছু লাগে না (শুধু static); [managed-code গাইড](docs/managed-code-analysis.md)                                                       |
 | Android APK             | Manifest ঘোষণা, class, decompile করা method ও reference                           | Linux/macOS/Windows x64-এ headless JADX ও পূর্ণ JDK; [Android গাইড](docs/android-analysis.md)                                     |
 | Android ডিভাইস           | ডিভাইস, package, process, log, dump, screen capture এবং APK/ফাইল আদান-প্রদান         | Caller-এর দেওয়া adb (emulator বা হার্ডওয়্যার); [ADB গাইড](docs/adb-device-analysis.md)                                                |
 | JEB প্রজেক্ট              | Engine-চালিত project unit, artifact digest এবং type/method pseudo-code           | REA_JEB_MCP_URL দিয়ে নির্বাচিত, caller-এর চালু করা একটি MCP-সার্ভিং JEB client; [JEB গাইড](docs/jeb-analysis.md)                       |
 | Android resource        | Decode করা manifest, string table, locale ও সংস্করণের তথ্য                         | Caller-এর দেওয়া Apktool launcher; [resource গাইড](docs/apktool-resource-analysis.md)                                             |
+| Flutter অ্যাপ             | Dart snapshot hash, প্রতিটি ABI-এর library digest এবং engine build-এর উৎস        | কিছু লাগে না (static APK parsing); [Flutter গাইড](docs/flutter-analysis.md)                                                        |
 | Firmware                | Region, extraction-এর ফলাফল এবং native বিশ্লেষণে হস্তান্তর                           | Linux-এ Binwalk / Unblob; [firmware গাইড](docs/firmware-analysis.md)                                                            |
+| রেকর্ড করা packet         | নির্বাচিত field, পুনরাবৃত্ত value, filter এবং decode-as rule                          | Linux: TShark 4.x + prlimit; [capture গাইড](docs/packet-captures.md)                                                            |
+| Packet সারাংশ             | Endpoint, DNS, TLS SNI, protocol বণ্টন এবং HTTP request                          | Caller-এর দেওয়া tshark ও capinfos (Linux-এ যাচাই করা); [pcap গাইড](docs/pcap-analysis.md)                                           |
+| রেকর্ড করা logic signal   | Decoder annotation, sample range এবং diagnostics                                | Linux: sigrok-cli 0.7.2 + prlimit; [signal রেকর্ডিং](docs/signal-recordings.md)                                                 |
 | Package ও resource      | ফাইলের তালিকা, digest, plist, Apple bundle-এর গঠন এবং extract করা resource          | [Artifact ও JavaScript গাইড](docs/javascript-artifact-reconstruction.md), [Apple অ্যাপ্লিকেশন](docs/apple-application-analysis.md) |
 | Process-এর আচরণ         | টার্মিনাল output, interaction, exit ও filesystem পর্যবেক্ষণ এবং run-এর তুলনা           | Native PTY-সহ Linux/macOS; [process capture](docs/process-capture.md)                                                          |
 
@@ -176,7 +181,7 @@ interact করে; প্রতিটি runtime গাইডে এর প্�
 
 Native format ও host সমর্থন provider ভেদে আলাদা। দেখুন
 [Hopper ও Ghidra setup](docs/installation.md#hopper),
-[IDA গাইড](docs/ida-provider.md) এবং
+[IDA গাইড](docs/ida-provider.md) (ঐচ্ছিক native MCP bridge-সহ) এবং
 [পরীক্ষামূলক Windows Ghidra সমর্থন](docs/windows-ghidra-p0.md)।
 Ghidra [16-bit DOS বিশ্লেষণ](docs/ghidra-dos.md)-ও সমর্থন করে।
 বড় বাইনারির জন্য `REA_GHIDRA_STARTUP_TIMEOUT_MS` বা `REA_HOPPER_STARTUP_TIMEOUT_MS`
@@ -315,7 +320,7 @@ Agent ব্যবহার করলে [setup রিফ্রেশ](#rea-আ�
 
 ## Star-এর ইতিহাস
 
-🎉 **110,000 GitHub star — সবাইকে ধন্যবাদ!**
+🎉 **170,000 GitHub star — সবাইকে ধন্যবাদ!**
 
 যাঁরা REA ব্যবহার করছেন, bug রিপোর্ট করছেন, ফিচারের অনুরোধ জানাচ্ছেন, build test করছেন এবং fix দিয়ে অবদান রাখছেন — সবাইকে ধন্যবাদ।
 
