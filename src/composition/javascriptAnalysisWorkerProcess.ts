@@ -1,4 +1,4 @@
-import { moduleKindForJavaScriptReference } from "../application/javascript/JavaScriptArtifactPathResolution.js";
+import { moduleResolutionModeForJavaScriptReference } from "../domain/javascript/javascriptModuleResolutionMode.js";
 import { parseJavaScriptSource } from "../domain/javascript/javascriptSourceParser.js";
 import { analyzeParsedJavaScriptStaticSourceSteps } from "../domain/javascript/javascriptStaticAnalysis.js";
 import {
@@ -36,7 +36,7 @@ const analyze: JavaScriptSourceWorkerAnalyzer = async (
   const receivers = await completeJavaScriptAnalysisSteps(
     classifyParsedJavaScriptOpenReceiversSteps(parsed),
   );
-  const staticImportResolutionMode = moduleKindForJavaScriptReference(
+  const staticImportResolutionMode = moduleResolutionModeForJavaScriptReference(
     file.path,
     "static-import",
   );

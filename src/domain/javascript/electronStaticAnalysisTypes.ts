@@ -1,3 +1,4 @@
+import type { JavaScriptModuleResolutionMode } from "./javascriptModuleResolutionMode.js";
 import type {
   JavaScriptSourceRange,
   JavaScriptStaticPathContext,
@@ -179,7 +180,7 @@ export interface ElectronNativeAddonBindingFinding {
   readonly type_only?: boolean;
   readonly specifier: string;
   readonly binding_kind: "import" | "require" | "re-export";
-  readonly module_kind: "import" | "require";
+  readonly module_kind: JavaScriptModuleResolutionMode;
   /** Exact requested addon member keys; namespace and dynamic access are separate. */
   readonly members: readonly string[];
   /** Omitted in legacy findings; omission means unknown, not false. */

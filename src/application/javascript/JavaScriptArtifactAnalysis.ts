@@ -1,6 +1,6 @@
 import { createHash } from "node:crypto";
 
-import { moduleKindForJavaScriptReference } from "./JavaScriptArtifactPathResolution.js";
+import { moduleResolutionModeForJavaScriptReference } from "../../domain/javascript/javascriptModuleResolutionMode.js";
 import { setImmediate } from "node:timers/promises";
 
 import { resolveJavaScriptSourceMapReferences } from "../../domain/javascript/javascriptSourceMapPaths.js";
@@ -373,7 +373,7 @@ function* analyzeArtifactFileSteps<
   }
   const openReceiverFacts =
     yield* classifyParsedJavaScriptOpenReceiversSteps(parsed);
-  const staticImportResolutionMode = moduleKindForJavaScriptReference(
+  const staticImportResolutionMode = moduleResolutionModeForJavaScriptReference(
     file.path,
     "static-import",
   );

@@ -1,3 +1,4 @@
+import type { JavaScriptModuleResolutionMode } from "./javascriptModuleResolutionMode.js";
 import * as t from "@babel/types";
 
 import {
@@ -42,7 +43,7 @@ interface NativeBindingInput {
 export const inspectElectronNativeNode = (
   node: t.Node,
   context: JavaScriptFindingContext,
-  resolutionMode: "import" | "require" = "import",
+  resolutionMode: JavaScriptModuleResolutionMode = "import",
 ): void => {
   if (t.isImportDeclaration(node) || t.isExportNamedDeclaration(node))
     inspectDeclaration(node, context, resolutionMode);
@@ -57,7 +58,7 @@ export const inspectElectronNativeNode = (
 const inspectTypeImport = (
   node: t.TSImportType,
   context: JavaScriptFindingContext,
-  moduleKind: "import" | "require",
+  moduleKind: JavaScriptModuleResolutionMode,
 ): void => {
   if (
     !t.isStringLiteral(node.source) ||
@@ -81,7 +82,7 @@ const inspectTypeImport = (
 const inspectDeclaration = (
   node: t.ImportDeclaration | t.ExportNamedDeclaration,
   context: JavaScriptFindingContext,
-  moduleKind: "import" | "require",
+  moduleKind: JavaScriptModuleResolutionMode,
 ): void => {
   if (node.source == null || !isNativeSpecifier(node.source.value, moduleKind))
     return;
@@ -135,7 +136,7 @@ const inspectDeclaration = (
 const inspectExportAll = (
   node: t.ExportAllDeclaration,
   context: JavaScriptFindingContext,
-  moduleKind: "import" | "require",
+  moduleKind: JavaScriptModuleResolutionMode,
 ): void => {
   if (
     node.source === undefined ||

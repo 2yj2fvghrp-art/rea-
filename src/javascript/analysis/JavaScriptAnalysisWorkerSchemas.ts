@@ -267,7 +267,7 @@ const electron = z
         ...findingContext,
         specifier: z.string(),
         binding_kind: z.enum(["import", "require", "re-export"]),
-        module_kind: z.enum(["import", "require"]),
+        module_kind: z.enum(["import", "require", "compiler-dependent"]),
         type_only: z.boolean().optional(),
         members: strings,
         namespace_access: z.boolean().optional(),
@@ -481,7 +481,9 @@ const origin = z
   .strictObject({
     specifier: z.string(),
     importedPath: strings,
-    resolutionMode: z.enum(["import", "require"]).optional(),
+    resolutionMode: z
+      .enum(["import", "require", "compiler-dependent"])
+      .optional(),
   })
   .transform(({ resolutionMode, ...rest }) => ({
     ...rest,
@@ -536,7 +538,9 @@ const coverage = z
   });
 const moduleLink = z
   .strictObject({
-    resolutionMode: z.enum(["import", "require"]).optional(),
+    resolutionMode: z
+      .enum(["import", "require", "compiler-dependent"])
+      .optional(),
     kind: z.enum([
       "import",
       "type-import",

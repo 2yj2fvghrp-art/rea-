@@ -68,6 +68,7 @@ export const modeSourceFiles = {
   "cts/recovered.cts": recoveredSource,
   "cts/native-default.cts": nativeDefaultSource("require"),
   "cts/native-default.mts": nativeDefaultSource("import"),
+  "cts/native-default.ts": nativeDefaultSource("require"),
   "cts/native-mixed.mts": nativeMixedSource,
   "cts/native-inline-only.mts": nativeInlineOnlySource,
 };
@@ -145,6 +146,7 @@ export const expectReviewModeEvidence = (
     "cts/native.mts",
     "cts/native-default.cts",
     "cts/native-default.mts",
+    "cts/native-default.ts",
   ])
     expect
       .soft(
@@ -163,6 +165,24 @@ export const expectReviewModeEvidence = (
   expectInlineTypeEvidence(graph);
   expectNativeDefaultEvidence(graph);
   expectRecoveredTypeEvidence(graph);
+  expect(
+    graph.nodes.flatMap(({ observations }) => observations),
+  ).toContainEqual(
+    expect.objectContaining({
+      properties: expect.objectContaining({
+        specifier: "native-mode/addon.node",
+        module_kind: "compiler-dependent",
+        type_only: true,
+        resolved_path: null,
+        requested_members: ["NativeMode"],
+      }),
+      evidence: expect.objectContaining({
+        location: expect.objectContaining({
+          value: expect.objectContaining({ source: "cts/native-default.ts" }),
+        }),
+      }),
+    }),
+  );
   const native = graph.nodes
     .flatMap(({ observations }) => observations)
     .filter(

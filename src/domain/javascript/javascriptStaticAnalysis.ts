@@ -1,3 +1,4 @@
+import type { JavaScriptModuleResolutionMode } from "./javascriptModuleResolutionMode.js";
 import * as t from "@babel/types";
 import { typescriptImportResolutionMode } from "./typescriptImportResolutionMode.js";
 import { collectElectronWrappedCallPaths } from "./electronWrappedCallPaths.js";
@@ -79,7 +80,7 @@ export const analyzeParsedJavaScriptStaticSource = (
   source: string,
   file: ParsedJavaScriptSource,
   openReceiverFacts?: ReadonlyMap<number, JavaScriptOpenReceiverFact>,
-  staticImportResolutionMode: "import" | "require" = "import",
+  staticImportResolutionMode: JavaScriptModuleResolutionMode = "import",
 ): JavaScriptStaticAnalysis =>
   completeSemanticSteps(
     analyzeParsedJavaScriptStaticSourceSteps(
@@ -95,7 +96,7 @@ export function* analyzeParsedJavaScriptStaticSourceSteps(
   source: string,
   file: ParsedJavaScriptSource,
   openReceiverFacts?: ReadonlyMap<number, JavaScriptOpenReceiverFact>,
-  staticImportResolutionMode: "import" | "require" = "import",
+  staticImportResolutionMode: JavaScriptModuleResolutionMode = "import",
 ): Generator<void, JavaScriptStaticAnalysis> {
   const accumulator = createJavaScriptAnalysisAccumulator(source.length);
   const bindings = yield* indexJavaScriptBindingsSteps(file.program);

@@ -138,6 +138,17 @@ it("reuses one real owned analyzer while retaining distinct source identities an
         ).toHaveLength(2);
       }
     }
+    const uncertain = await worker.analyze(
+      source("cts/native-default.ts", modeSourceFiles["cts/native-default.ts"]),
+      100,
+    );
+    if (!uncertain.ok) throw uncertain.error.error;
+    expect(
+      uncertain.value.javascript.electron.native_addon_bindings,
+    ).toMatchObject([{ module_kind: "compiler-dependent", type_only: true }]);
+    expect(uncertain.value.module?.moduleLinks).toMatchObject([
+      { resolutionMode: "compiler-dependent" },
+    ]);
     expect(launches).toHaveLength(1);
   } finally {
     await worker.close();
