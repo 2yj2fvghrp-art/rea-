@@ -313,18 +313,42 @@ class InspectorTests(unittest.TestCase):
         with self.assertRaisesRegex(ps1.InspectionError, "root exceeds"):
             ps1.inspect_disc(self.write("disc.iso", data))
 
-    def test_duplicate_and_version_ambiguous_boot_paths_are_rejected(self):
-        for name, error in [("demo_000.01;1", "duplicate ISO9660 path"),
-                            ("DEMO_000.01;2", "ambiguous versioned")]:
-            data = bytearray(iso_fixture())
-            root_offset = 20 * 2048
-            cursor = root_offset
-            while data[cursor]:
-                cursor += data[cursor]
-            extra = record(name, 23, 4096)
-            data[cursor:cursor + len(extra)] = extra
-            with self.subTest(name=name), self.assertRaisesRegex(ps1.InspectionError, error):
-                ps1.inspect_disc(self.write("disc.iso", data))
+    def test_iso_versions_preserve_explicit_identity_and_bound_fallback(self):
+        cases = [
+            (b"BOOT=cdrom:\\DEMO_000.01;1\n", "DEMO_000.01;2", "DEMO_000.01;1"),
+            (b"BOOT=cdrom:\\DEMO_000.01;2\n", "DEMO_000.01;2", "DEMO_000.01;2"),
+            (b"BOOT=cdrom:\\DEMO_000.01\n", None, "DEMO_000.01;1"),
+            (b"BOOT=cdrom:\\DEMO_000.01\n", "DEMO_000.01;2", "ambiguous versioned"),
+            (b"BOOT=cdrom:\\DEMO_000.01;3\n", "DEMO_000.01;2", "boot executable not found"),
+            (b"BOOT=cdrom:\\DEMO_000.01;1\n", "demo_000.01;1", "duplicate ISO9660 path"),
+        ]
+        for cnf, name, expected in cases:
+            data = bytearray(iso_fixture(cnf=cnf))
+            if name is not None:
+                cursor = 20 * 2048
+                while data[cursor]:
+                    cursor += data[cursor]
+                extra = record(name, 23, 4096)
+                data[cursor:cursor + len(extra)] = extra
+            with self.subTest(cnf=cnf, name=name):
+                source = self.write("disc.iso", data)
+                if ";" in expected:
+                    self.assertEqual(ps1.inspect_disc(source)["boot_path"], expected)
+                else:
+                    with self.assertRaisesRegex(ps1.InspectionError, expected):
+                        ps1.inspect_disc(source)
+
+    def test_cue_numeric_fields_are_bounded_before_conversion(self):
+        self.write("disc.bin", raw_fixture(iso_fixture()))
+        huge = "9" * 5000
+        for directive in [f"TRACK {huge} MODE2/2352", f"INDEX {huge} 00:00:00",
+                          f"INDEX 01 {huge}:00:00", f"INDEX 01 00:{huge}:00",
+                          f"INDEX 01 00:00:{huge}", "TRACK 00 MODE2/2352"]:
+            cue = self.write("disc.cue", (f'FILE "disc.bin" BINARY\nTRACK 01 MODE2/2352\n{directive}\n').encode())
+            with self.subTest(directive=directive[:30]), patch("sys.stderr", new_callable=io.StringIO) as stderr:
+                self.assertEqual(ps1.main([str(cue)]), 2)
+                self.assertIn("invalid CUE", json.loads(stderr.getvalue())["error"])
+                self.assertNotIn("Traceback", stderr.getvalue())
 
     def test_standalone_cli_distinguishes_header_inspection_from_disc_admission(self):
         source = self.write("boot.psx", exe_fixture())

@@ -156,6 +156,17 @@ def parse_exe(data):
             "trailing_bytes": len(data) - BLOCK - length, "warnings": warnings}
 
 
+def cue_number(token, field, maximum, minimum=0):
+    # CUE track/index numbers and MM:SS:FF fields have at most two digits.
+    # Bound the format token before conversion on every supported Python.
+    if len(token) > 2:
+        raise InspectionError(f"invalid CUE {field}: field exceeds two digits")
+    value = int(token)
+    if not minimum <= value <= maximum:
+        raise InspectionError(f"invalid CUE {field}: field is outside its range")
+    return value
+
+
 def parse_cue(path):
     path = Path(path).resolve()
     if path.stat().st_size > CUE_LIMIT:
@@ -176,21 +187,23 @@ def parse_cue(path):
             if not current_file.is_file():
                 raise InspectionError(f"missing CUE companion: {relative}")
             current = None
-        elif (match := re.fullmatch(r"TRACK\s+(\d+)\s+(\S+)", line, re.I)):
+        elif (match := re.fullmatch(r"TRACK\s+([0-9]+)\s+(\S+)", line, re.I)):
             if current_file is None:
                 raise InspectionError("CUE TRACK has no FILE")
-            current = {"number": int(match[1]), "mode": match[2].upper(),
+            current = {"number": cue_number(match[1], "TRACK number", 99, 1), "mode": match[2].upper(),
                        "file": str(current_file), "indexes": {}}
             if current["mode"] not in MODES and current["mode"] != "AUDIO":
                 raise InspectionError(f"unsupported CUE track mode: {current['mode']}")
             tracks.append(current)
-        elif (match := re.fullmatch(r"INDEX\s+(\d+)\s+(\d+):(\d+):(\d+)", line, re.I)):
-            if current is None or int(match[3]) >= 60 or int(match[4]) >= 75:
+        elif (match := re.fullmatch(r"INDEX\s+([0-9]+)\s+([0-9]+):([0-9]+):([0-9]+)", line, re.I)):
+            if current is None:
                 raise InspectionError("invalid CUE INDEX")
-            index = int(match[1])
+            index = cue_number(match[1], "INDEX number", 99)
             if index in current["indexes"]:
                 raise InspectionError("duplicate CUE INDEX")
-            current["indexes"][index] = int(match[2]) * 4500 + int(match[3]) * 75 + int(match[4])
+            current["indexes"][index] = (cue_number(match[2], "INDEX minutes", 99) * 4500
+                                         + cue_number(match[3], "INDEX seconds", 59) * 75
+                                         + cue_number(match[4], "INDEX frames", 74))
         elif line.upper().startswith(("FILE ", "TRACK ", "INDEX ")):
             raise InspectionError("malformed CUE structural directive")
     if not tracks or any(1 not in track["indexes"] for track in tracks):
@@ -359,7 +372,19 @@ def iso_index(reader):
 
 
 def normalize_iso_path(path):
-    return "/".join(re.sub(r";\d+$", "", part).upper() for part in path.replace("\\", "/").lstrip("/").split("/"))
+    return "/".join(part.upper() for part in path.replace("\\", "/").lstrip("/").split("/"))
+
+
+def select_iso_file(files, path):
+    key = normalize_iso_path(path)
+    # An explicit version is an identity, never a request for another version.
+    if key in files or re.search(r";[0-9]+$", key):
+        return files.get(key)
+    candidates = [entry for name, entry in files.items()
+                  if re.sub(r";[0-9]+$", "", name) == key]
+    if len(candidates) > 1:
+        raise InspectionError(f"ambiguous versioned ISO9660 path: {path}")
+    return candidates[0] if candidates else None
 
 
 def inspect_disc(path, boot_out=None, source=None):
@@ -389,9 +414,7 @@ def inspect_disc(path, boot_out=None, source=None):
             raise InspectionError("disc source changed during inspection; discard this run")
         index = iso_index(reader)
         files = {normalize_iso_path(entry["path"]): entry for entry in index["entries"] if not entry["directory"]}
-        if len(files) != sum(not entry["directory"] for entry in index["entries"]):
-            raise InspectionError("ambiguous versioned ISO9660 paths")
-        config = files.get("SYSTEM.CNF")
+        config = select_iso_file(files, "SYSTEM.CNF")
         warnings = []
         cnf = None
         if config:
@@ -409,9 +432,9 @@ def inspect_disc(path, boot_out=None, source=None):
         else:
             boot = "PSX.EXE"
             warnings.append("SYSTEM.CNF absent; using documented PSX.EXE fallback.")
-        if boot not in files:
+        entry = select_iso_file(files, boot)
+        if entry is None:
             raise InspectionError(f"boot executable not found in ISO9660: {boot}")
-        entry = files[boot]
         exe_bytes = reader.extent(entry["lba"], entry["bytes"])
         exe = parse_exe(exe_bytes)
         if any(source_record(source["path"], limit=source["bytes"]) != source for source in sources):

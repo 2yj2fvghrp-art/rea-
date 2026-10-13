@@ -1,6 +1,7 @@
 import { createHash } from "node:crypto";
 import { execFile } from "node:child_process";
 import { promisify } from "node:util";
+import { fileURLToPath } from "node:url";
 import {
   access,
   chmod,
@@ -449,7 +450,10 @@ it("installs a runnable disc helper and detects missing helper bytes", async () 
     [
       "-B",
       "-c",
-      "from pathlib import Path; import sys; from tests.fixtures.ps1.test_inspector import iso_fixture; Path(sys.argv[1]).write_bytes(iso_fixture())",
+      'from pathlib import Path; import runpy, sys; Path(sys.argv[2]).write_bytes(runpy.run_path(sys.argv[1])["iso_fixture"]())',
+      fileURLToPath(
+        new URL("../../fixtures/ps1/test_inspector.py", import.meta.url),
+      ),
       disc,
     ],
     { timeout: 10_000 },
