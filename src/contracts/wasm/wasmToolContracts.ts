@@ -1,3 +1,4 @@
+import { COMPARE_WASM_INTERFACES_CONTRACT } from "./wasmComparisonContracts.js";
 import {
   inspectWasmArtifactInputSchema,
   wasmArtifactSchema,
@@ -45,7 +46,10 @@ export const INSPECT_WASM_ARTIFACT_CONTRACT = {
 } as const satisfies ToolContract;
 
 /** Keep the public catalog in its existing order, using its named contract. */
-export const WASM_TOOL_CONTRACTS = [INSPECT_WASM_ARTIFACT_CONTRACT] as const;
+export const WASM_TOOL_CONTRACTS = [
+  INSPECT_WASM_ARTIFACT_CONTRACT,
+  COMPARE_WASM_INTERFACES_CONTRACT,
+] as const;
 
 /** Bundled in-process component decoder; independent of WABT and binary sessions. */
 export const INSPECT_WASM_COMPONENT_CONTRACT = {
