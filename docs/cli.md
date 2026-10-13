@@ -213,7 +213,7 @@ Import an older source tree to compare with the current artifact:
 ```bash
 rea import-reference-source /absolute/path/to/source
 rea import-reference-source /absolute/path/to/source \
-  --exclude-paths '["vendor/","*.generated","!vendor/keep.ts"]'
+  --exclude-paths '["vendor/","*.generated","!keep.generated"]'
 ```
 
 The import records hashes and metadata for the supplied files, separately
@@ -236,7 +236,9 @@ an import. Omit the option, or pass an empty array, to add no caller exclusions.
 
 A matching rule is recorded as `caller-excluded` with the winning pattern.
 A matched directory is not traversed, so its descendants are omitted rather
-than imported or listed on their own. Caller rules do not replace project
+than imported or listed on their own. Negations cannot restore a file inside
+a skipped directory; `!keep.generated` can restore a file excluded by
+`*.generated` when its parent is still traversed. Caller rules do not replace project
 `.gitignore` rules, default generated-path rules, or declared secret patterns.
 Secret patterns are applied first, so a caller rule does not reclassify a
 declared secret. Selecting a path for exclusion is not a secrecy heuristic.
