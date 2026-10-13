@@ -62,7 +62,13 @@ const expectRootsRemoved = async (roots: string[]) => {
 };
 
 const stopHolder = async (holder: ChildProcess) => {
-  if (holder.exitCode !== null || holder.signalCode !== null) return;
+  // A holder that never started has no pid and emits only "error", never "exit".
+  if (
+    holder.pid === undefined ||
+    holder.exitCode !== null ||
+    holder.signalCode !== null
+  )
+    return;
   const exited = new Promise<void>((resolve) =>
     holder.once("exit", () => resolve()),
   );
@@ -134,6 +140,9 @@ it.runIf(process.platform === "win32")(
     });
     await new Promise<void>((resolve, reject) => {
       holder.stdout?.once("data", () => resolve());
+      holder.once("error", (error) =>
+        reject(new Error("Holder did not start", { cause: error })),
+      );
       holder.once("exit", (code) =>
         reject(
           new Error(`Holder exited before opening the file (${String(code)})`),
