@@ -1563,7 +1563,9 @@ describe("Ghidra PDB coverage", () => {
       for (const observation of [searched.value, health.value]) {
         const limitations = observation.limitations.join("\n");
         if (loaded === true) {
-          expect(limitations).not.toContain("fixture.pdb");
+          expect(limitations).toContain("loaded PDB");
+          expect(limitations).toContain("not an independent PDB identity");
+          expect(limitations).toContain("empty name search does not prove");
         } else {
           expect(limitations).toContain(pdb.file);
           expect(limitations).toContain(pdb.guid);

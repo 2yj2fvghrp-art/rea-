@@ -104,6 +104,8 @@ import ghidra.program.model.pcode.Varnode;
 import ghidra.program.model.pcode.VarnodeAST;
 
 public final class ReaGhidraBridge extends HeadlessScript {
+    // At most 24 KiB after worst-case JSON escaping (six bytes per UTF-16 unit).
+    private static final int PDB_ATTRIBUTE_UTF16_BUDGET = 4096;
     private static final int MAX_HIGH_PCODE_OPS = 3000;
     private static final int MAX_HIGH_PCODE_INPUTS_PER_OP = 64;
     private static final int MAX_HIGH_PCODE_DEF_USE_EDGES = 12000;
@@ -468,11 +470,30 @@ public final class ReaGhidraBridge extends HeadlessScript {
     private JsonObject pdbObservation() {
         Options info = currentProgram.getOptions(ghidra.program.model.listing.Program.PROGRAM_INFO);
         JsonObject pdb = new JsonObject();
-        pdb.addProperty("file", info.getString(PdbParserConstants.PDB_FILE, null));
-        pdb.addProperty("guid", info.getString(PdbParserConstants.PDB_GUID, null));
-        pdb.addProperty("age", info.getString(PdbParserConstants.PDB_AGE, null));
-        pdb.addProperty("signature", info.getString(PdbParserConstants.PDB_SIGNATURE, null));
-        pdb.addProperty("version", info.getString(PdbParserConstants.PDB_VERSION, null));
+        String[] names = {"file", "guid", "age", "signature", "version"};
+        String[] attributes = {
+            PdbParserConstants.PDB_FILE, PdbParserConstants.PDB_GUID,
+            PdbParserConstants.PDB_AGE, PdbParserConstants.PDB_SIGNATURE,
+            PdbParserConstants.PDB_VERSION
+        };
+        int remaining = PDB_ATTRIBUTE_UTF16_BUDGET;
+        JsonArray omitted = new JsonArray();
+        for (int index = 0; index < names.length; index++) {
+            String value = info.getString(attributes[index], null);
+            if (value != null && value.length() > remaining) {
+                omitted.add(names[index]);
+                pdb.add(names[index], JsonNull.INSTANCE);
+            } else {
+                pdb.addProperty(names[index], value);
+                if (value != null) remaining -= value.length();
+            }
+        }
+        if (omitted.size() > 0) {
+            JsonObject limit = new JsonObject();
+            limit.addProperty("utf16_budget", PDB_ATTRIBUTE_UTF16_BUDGET);
+            limit.add("omitted_attributes", omitted);
+            pdb.add("resource_limit", limit);
+        }
         if (info.contains(PdbParserConstants.PDB_LOADED))
             pdb.addProperty("loaded", info.getBoolean(PdbParserConstants.PDB_LOADED, false));
         else

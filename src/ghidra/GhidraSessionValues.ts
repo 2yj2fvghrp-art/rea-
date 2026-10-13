@@ -25,6 +25,13 @@ export const GHIDRA_MUTATING_OPERATIONS: ReadonlySet<string> = new Set([
   ...GHIDRA_NAMING_OPERATIONS,
 ]);
 
+// Shared wire budget: Java bounds the aggregate before serializing the handshake.
+const PDB_ATTRIBUTE_UTF16_BUDGET = 4096;
+const pdbAttributeSchema = z
+  .string()
+  .max(PDB_ATTRIBUTE_UTF16_BUDGET)
+  .nullable();
+
 const capabilitySchema = z.enum(GHIDRA_SESSION_CAPABILITIES);
 
 const sessionInfoSchema = z
@@ -44,14 +51,35 @@ const sessionInfoSchema = z
     /** Program Information attributes; absent load state remains unknown. */
     pdb: z
       .strictObject({
-        file: z.string().nullable(),
-        guid: z.string().nullable(),
+        file: pdbAttributeSchema,
+        guid: pdbAttributeSchema,
         /** Ghidra stores CodeView age as a hexadecimal string. */
-        age: z.string().nullable(),
-        signature: z.string().nullable(),
-        version: z.string().nullable(),
+        age: pdbAttributeSchema,
+        signature: pdbAttributeSchema,
+        version: pdbAttributeSchema,
         loaded: z.boolean().nullable(),
+        resource_limit: z
+          .strictObject({
+            utf16_budget: z.literal(PDB_ATTRIBUTE_UTF16_BUDGET),
+            omitted_attributes: z
+              .array(z.enum(["file", "guid", "age", "signature", "version"]))
+              .min(1)
+              .max(5),
+          })
+          .optional(),
       })
+      .refine(
+        (pdb) =>
+          [
+            pdb.file,
+            pdb.guid,
+            pdb.age,
+            pdb.signature,
+            pdb.version,
+          ].reduce<number>((sum, value) => sum + (value?.length ?? 0), 0) <=
+          PDB_ATTRIBUTE_UTF16_BUDGET,
+        "PDB attributes exceed the aggregate wire budget",
+      )
       .optional(),
     analysis_extensions: z.array(ghidraExtensionResultSchema).optional(),
     analysis_seeds: ghidraSeedReportSchema.optional(),
@@ -88,15 +116,25 @@ export const ghidraPdbLimitations = (
     return [
       "Ghidra did not report PDB attributes; debug-symbol coverage is unknown.",
     ];
+  const limitations: string[] = [];
+  if (pdb.resource_limit !== undefined)
+    limitations.push(
+      `PDB attributes ${pdb.resource_limit.omitted_attributes.join(", ")} were omitted because the handshake's ${pdb.resource_limit.utf16_budget}-UTF-16-unit PDB attribute budget was exhausted. Omitted values remain unknown; they were not truncated or reported as absent.`,
+    );
+  if (pdb.loaded === true)
+    return [
+      ...limitations,
+      "Ghidra reports a loaded PDB; this is not an independent PDB identity or complete symbol/type-coverage attestation. Original names and types may still be missing; an empty name search does not prove a procedure is absent. Use list_procedures and address-based analysis to inspect recovered functions.",
+    ];
   if (
-    pdb.loaded === true ||
     [pdb.file, pdb.guid, pdb.age, pdb.signature, pdb.version].every(
       (value) => value === null,
     )
   )
-    return [];
+    return limitations;
   const state = pdb.loaded === false ? "not loaded" : "load state unknown";
   return [
+    ...limitations,
     `The target references PDB ${pdb.file ?? "(file unknown)"} (GUID ${pdb.guid ?? "unknown"}, age (hex) ${pdb.age ?? "unknown"}, signature ${pdb.signature ?? "unknown"}, version ${pdb.version ?? "unknown"}); Ghidra reports ${state}. Original names and types may be missing; an empty name search does not prove a procedure is absent. Use list_procedures and address-based analysis to inspect recovered functions. REA does not admit a caller-selected PDB companion.`,
   ];
 };

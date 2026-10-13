@@ -49,7 +49,10 @@ the referenced file, GUID, hexadecimal age, legacy signature, version, and
 limitation when a PDB reference is present but Ghidra reports it as not loaded,
 or its load state is unknown. A bridge without this report leaves PDB coverage
 unknown. A reported loaded state is a Ghidra observation, not an independent
-PDB identity or complete symbol-coverage attestation.
+PDB identity or complete symbol-coverage attestation, and retains an inline
+coverage caveat. Handshake PDB strings share a 4096 UTF-16-unit serialization
+budget (at most 24 KiB after JSON escaping); whole attributes that do not fit
+are omitted with an explicit resource limitation, rather than truncated.
 
 Original names and types may be missing even when auto-analysis completes.
 An empty name search does not establish that a function is absent; use
