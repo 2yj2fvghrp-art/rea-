@@ -201,7 +201,7 @@ test("recovers a denied Hopper launch through the same stdio MCP session and CLI
   ).toBe(false);
 });
 
-test.each(["handoff", "not-found"] as const)(
+test.for(["handoff", "not-found"] as const)(
   "preserves an unconfirmed %s handoff and closes only a late bridge with matching run identity",
   { timeout: 60_000 },
   async (launchMode, { workspace }) => {
