@@ -1,5 +1,4 @@
 import { describe, expect, it } from "vitest";
-// @ts-expect-error The verifier library is plain JavaScript without declarations.
 import {
   assertFeatureTrace,
   findMappedNonFunction,
