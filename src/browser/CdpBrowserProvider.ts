@@ -208,6 +208,7 @@ export class CdpBrowserProvider implements BrowserObservationPort {
             "discover_webmcp_tools",
             options,
             discoverWebMcp,
+            ["WebMCP", ...CLEANUP_DOMAINS],
           ),
         ),
       );
@@ -303,6 +304,7 @@ const withTargetSession = async <
   operation: BrowserObservationOperation,
   options: ExecutionOptions,
   work: (session: CdpTargetOperationSession<Input>) => Promise<Output>,
+  cleanupDomains: readonly string[] = CLEANUP_DOMAINS,
 ): Promise<Output> => {
   const endpoint = await openCdpEndpoint(
     input.cdp_endpoint,
@@ -341,7 +343,7 @@ const withTargetSession = async <
     if (targetSession !== undefined)
       await closeCdpTargetSession(
         targetSession,
-        CLEANUP_DOMAINS,
+        cleanupDomains,
         options.signal,
       );
     // An unadopted browser socket is closed here; closing is idempotent.
