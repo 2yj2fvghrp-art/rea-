@@ -92,6 +92,11 @@ export interface JavaScriptSemanticAnalysisState {
     JavaScriptSemanticModuleLink,
     JavaScriptSemanticBindingState
   >;
+  /** Default expressions capture values at their source evaluation sites. */
+  readonly defaultExportExpressions: WeakMap<
+    JavaScriptSemanticModuleLink,
+    t.Node
+  >;
   /** Initializer expressions whose write can be skipped by enclosing control flow. */
   readonly conditionallySkippedExpressions: WeakSet<t.Node>;
   /** Unbound identifier writes retain their source sites for capture ordering. */

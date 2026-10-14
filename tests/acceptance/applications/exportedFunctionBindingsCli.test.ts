@@ -46,6 +46,83 @@ afterAll(async () => {
   }
 });
 
+describe("identifier default exports through stdio MCP and CLI", () => {
+  it.each(["current", "(current)"])(
+    "retains the stable callable exported as %s",
+    async (expression) => {
+      const fixture = await analyzeVersions(
+        (count) =>
+          `const current = () => ({ kind: "result", count: ${String(count)} });
+           export default ${expression};`,
+        "default",
+      );
+      await expectRuntimeExports(fixture, (count) => ({
+        kind: "result",
+        count,
+      }));
+      for (const evidence of [fixture.input.left, fixture.input.right])
+        expectExportedCallableBinding(evidence, "current");
+      const comparison = await compareThroughMcp(fixture.input);
+      expectCountChange(comparison);
+      await expectCliAnalysisParity(fixture);
+      expect(await compareThroughCli(fixture)).toEqual(comparison);
+    },
+  );
+
+  it.each([
+    "export default current; var current = VALUE;",
+    "const captured = current; export default captured; var current = VALUE;",
+    "export default current; { var current = VALUE; }",
+    "const captured = current; export default captured; { var current = VALUE; }",
+  ])(
+    "does not replace a default snapshot with a later initializer: %s",
+    async (template) => {
+      const fixture = await analyzeVersions(
+        (count) =>
+          template.replace(
+            "VALUE",
+            `() => ({ kind: "result", count: ${String(count)} })`,
+          ),
+        "default",
+      );
+      await expectRuntimeExports(fixture, () => undefined);
+      expectUncertainComparison(await compareThroughMcp(fixture.input));
+      for (const evidence of [fixture.input.left, fixture.input.right])
+        expectUnresolvedExportBinding(evidence, "default");
+    },
+  );
+
+  it("retains a default snapshot of a hoisted function declaration", async () => {
+    const fixture = await analyzeVersions(
+      (count) => `export default current;
+                  function current() { return { kind: "result", count: ${String(count)} }; }`,
+      "default",
+    );
+    await expectRuntimeExports(fixture, (count) => ({ kind: "result", count }));
+    expectCountChange(await compareThroughMcp(fixture.input));
+  });
+
+  it.each(["before", "after"])(
+    "keeps a binding reassigned %s the default expression uncertain",
+    async (order) => {
+      const fixture = await analyzeVersions((count) => {
+        const replacement = `current = () => ({ count: ${String(count)} });`;
+        return `let current = () => ({ count: 0 });
+                  ${order === "before" ? replacement : ""}
+                  export default current;
+                  ${order === "after" ? replacement : ""}`;
+      }, "default");
+      await expectRuntimeExports(fixture, (count) => ({
+        count: order === "before" ? count : 0,
+      }));
+      const comparison = await compareThroughMcp(fixture.input);
+      expectUncertainComparison(comparison);
+      for (const evidence of [fixture.input.left, fixture.input.right])
+        expectUnresolvedExportBinding(evidence, "default");
+    },
+  );
+});
+
 describe("exported function binding resolution through stdio MCP and CLI", () => {
   it.each([
     {
