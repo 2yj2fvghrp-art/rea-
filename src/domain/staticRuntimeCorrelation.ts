@@ -11,7 +11,13 @@ import {
   assertComparisonFindingLinks,
 } from "./comparisonSourceEvidence.js";
 import { evidenceSchema, parseEvidence, type Evidence } from "./evidence.js";
-import { functionComparisonResultSchema } from "./functionComparisonSchemas.js";
+import { functionComparisonFindingLinks } from "./functionComparisonResults.js";
+import {
+  functionComparisonResultSchema,
+  FUNCTION_DIMENSION_NAMES,
+  NORMALIZED_VIEW_DIMENSIONS,
+  isNormalizedViewDimension,
+} from "./functionComparisonSchemas.js";
 import {
   PROCESS_PROVIDER,
   isProcessEvidenceProvider,
@@ -26,14 +32,8 @@ import { prefixedDigestSchema } from "./../domain/digests.js";
 
 const evidenceIdSchema = prefixedDigestSchema("ev");
 const functionDimensionSchema = z.enum([
-  "identity",
-  "pseudocode",
-  "assembly",
-  "comments",
-  "calls",
-  "references",
-  "strings_names",
-  "cfg",
+  ...FUNCTION_DIMENSION_NAMES,
+  ...NORMALIZED_VIEW_DIMENSIONS,
 ]);
 const runtimeDimensionSchema = z.enum(PROCESS_COMPARISON_DIMENSIONS);
 const expectedPatternSchema = z.enum([
@@ -299,12 +299,21 @@ const selectStatic = (
     const result = functionComparisonResultSchema.parse(
       evidence.normalized_result,
     );
-    const matches = result.dimensions.filter(
-      ({ dimension }) => dimension === selector.dimension,
-    );
+    const normalized = isNormalizedViewDimension(selector.dimension);
+    const matches = normalized
+      ? (result.normalized_views?.views ?? []).filter(
+          ({ dimension }) => dimension === selector.dimension,
+        )
+      : result.dimensions.filter(
+          ({ dimension }) => dimension === selector.dimension,
+        );
     const match = matches.at(0);
     if (matches.length !== 1 || match === undefined)
-      throw new TypeError("Function selector must resolve exactly once");
+      throw new TypeError(
+        normalized
+          ? "Function selector requires the requested normalized view"
+          : "Function selector must resolve exactly once",
+      );
     return {
       status: match.status,
       conclusion_kind: match.conclusion_kind,
@@ -363,7 +372,7 @@ const parseStatic = (input: unknown): Evidence => {
     );
     assertComparisonFindingLinks(
       evidence,
-      result.dimensions.flatMap(({ evidence_links: links }) => links),
+      functionComparisonFindingLinks(result),
     );
   }
   return evidence;

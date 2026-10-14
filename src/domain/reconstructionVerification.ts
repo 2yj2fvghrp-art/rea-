@@ -13,7 +13,11 @@ import {
 } from "./comparisonSourceEvidence.js";
 import { parseEvidence, type Evidence } from "./evidence.js";
 import { parseEvidenceBundle } from "./evidenceBundle.js";
-import { functionComparisonResultSchema } from "./functionComparisonSchemas.js";
+import { functionComparisonFindingLinks } from "./functionComparisonResults.js";
+import {
+  functionComparisonResultSchema,
+  isNormalizedViewDimension,
+} from "./functionComparisonSchemas.js";
 import {
   PROCESS_PROVIDER,
   isProcessEvidenceProvider,
@@ -147,8 +151,7 @@ const evaluateClaim = (
     return source;
   });
   const functionSourceFacts = readValidatedSourceFacts(claim, sources);
-  const observation = comparisonObservation(claim, comparison);
-  const observed = observation.status;
+  const observation = observedStatus(claim, comparison);
   const limitations = [
     ...authorityLimitations(claim, sources, sides),
     ...sourceCallCoverageLimitations(
@@ -164,14 +167,14 @@ const evaluateClaim = (
     claim.dimension,
   );
   const relevantUnknowns = relatedUnknowns;
-  const status = classify(observed, limitations, relevantUnknowns);
+  const status = classify(observation.status, limitations, relevantUnknowns);
   const displayedUnknowns = relevantUnknowns;
   return reconstructionClaimResultSchema.parse({
     claim_id: claim.claim_id,
     kind: claim.kind,
     dimension: claim.dimension,
     status,
-    observed_status: observed,
+    observed_status: observation.status,
     comparison_evidence_id: comparison.evidence_id,
     left_evidence_ids: sides.left,
     right_evidence_ids: sides.right,
@@ -244,7 +247,7 @@ const validateComparisonIdentity = (claim: Claim, evidence: Evidence): void => {
     throw new TypeError("Comparison Evidence identity or authority disagrees");
 };
 
-const comparisonObservation = (
+const observedStatus = (
   claim: Claim,
   evidence: Evidence,
 ): {
@@ -269,7 +272,7 @@ const comparisonObservation = (
     );
     assertComparisonFindingLinks(
       evidence,
-      result.dimensions.flatMap(({ evidence_links }) => evidence_links),
+      functionComparisonFindingLinks(result),
     );
     if (claim.dimension === "overall")
       return {
@@ -289,12 +292,19 @@ const comparisonObservation = (
                 dimension.status === "changed",
             )),
       };
-    const dimension = result.dimensions.find(
-      (item) => item.dimension === claim.dimension,
-    );
-    if (dimension === undefined)
-      throw new TypeError("Function comparison dimension missing");
-    return { status: dimension.status, limitations: dimension.limitations };
+    const normalized = isNormalizedViewDimension(claim.dimension);
+    const view = normalized
+      ? result.normalized_views?.views.find(
+          (item) => item.dimension === claim.dimension,
+        )
+      : result.dimensions.find((item) => item.dimension === claim.dimension);
+    if (view === undefined)
+      throw new TypeError(
+        normalized
+          ? "Function comparison normalized view was not requested"
+          : "Function comparison dimension missing",
+      );
+    return { status: view.status, limitations: view.limitations };
   }
   const result = artifactComparisonResultSchema.parse(
     evidence.normalized_result,

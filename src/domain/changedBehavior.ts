@@ -12,6 +12,7 @@ import {
 } from "./comparisonSourceEvidence.js";
 import { evidenceSchema, parseEvidence, type Evidence } from "./evidence.js";
 import { functionComparisonResultSchema } from "./functionComparisonSchemas.js";
+import { functionComparisonFindingLinks } from "./functionComparisonResults.js";
 import {
   PROCESS_PROVIDER,
   isProcessEvidenceProvider,
@@ -265,7 +266,7 @@ const parseResult = (
     );
     assertComparisonFindingLinks(
       evidence,
-      result.dimensions.flatMap(({ evidence_links: links }) => links),
+      functionComparisonFindingLinks(result),
     );
     return { operation, evidence, result };
   }
@@ -326,7 +327,10 @@ const functionFindings = (
   >,
 ): Finding[] => {
   const { evidence, result } = comparison;
-  return result.dimensions.flatMap((dimension) =>
+  return [
+    ...result.dimensions,
+    ...(result.normalized_views?.views ?? []),
+  ].flatMap((dimension) =>
     dimension.status === "unchanged"
       ? []
       : [
