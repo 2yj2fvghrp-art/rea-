@@ -16,9 +16,23 @@ const main = async (): Promise<void> => {
   const requestPath = process.argv[2];
   if (requestPath === undefined)
     throw new Error("Owned SQLite worker request path missing.");
-  const request = requestSchema.parse(
-    JSON.parse(await readFile(requestPath, "utf8")),
-  );
+  let rawRequest: string;
+  try {
+    rawRequest = await readFile(requestPath, "utf8");
+  } catch (error) {
+    throw new Error(
+      `Cannot read SQLite worker request: ${error instanceof Error ? error.message : String(error)}`,
+    );
+  }
+  let parsed: unknown;
+  try {
+    parsed = JSON.parse(rawRequest);
+  } catch (error) {
+    throw new Error(
+      `Invalid JSON in SQLite worker request: ${error instanceof Error ? error.message : String(error)}`,
+    );
+  }
+  const request = requestSchema.parse(parsed);
   let reply: unknown;
   try {
     reply = {

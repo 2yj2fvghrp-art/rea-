@@ -1,9 +1,11 @@
 /** Decode BOM-aware XML plist text with fatal byte validation. */
 export const decodeXmlPlistText = (bytes: Uint8Array): string => {
+  if (!(bytes instanceof Uint8Array))
+    throw new TypeError("decodeXmlPlistText requires a Uint8Array input");
   const encoding =
-    bytes[0] === 0xff && bytes[1] === 0xfe
+    bytes.length >= 2 && bytes[0] === 0xff && bytes[1] === 0xfe
       ? "utf-16le"
-      : bytes[0] === 0xfe && bytes[1] === 0xff
+      : bytes.length >= 2 && bytes[0] === 0xfe && bytes[1] === 0xff
         ? "utf-16be"
         : "utf-8";
   const text = new TextDecoder(encoding, { fatal: true }).decode(bytes);

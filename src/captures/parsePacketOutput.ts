@@ -7,7 +7,15 @@ const producerSchema = z.array(
   z.object({ _source: z.object({ layers: packetFieldsSchema }) }),
 );
 export const parsePacketOutput = (text: string, fields: readonly string[]) => {
-  const decoded: unknown = JSON.parse(text);
+  let decoded: unknown;
+  try {
+    decoded = JSON.parse(text);
+  } catch (cause: unknown) {
+    throw new AnalysisOutputError(
+      "inspect_packet_capture",
+      `TShark returned invalid JSON: ${cause instanceof Error ? cause.message : String(cause)}`,
+    );
+  }
   const packets = producerSchema
     .parse(decoded)
     .map((packet) => packet._source.layers);

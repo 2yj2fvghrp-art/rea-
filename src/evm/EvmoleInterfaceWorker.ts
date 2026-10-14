@@ -24,9 +24,23 @@ const main = async (): Promise<void> => {
   const requestPath = process.argv[2];
   if (requestPath === undefined)
     throw new Error("Owned worker request path missing.");
-  const request = requestSchema.parse(
-    JSON.parse(await readFile(requestPath, "utf8")),
-  );
+  let rawRequest: string;
+  try {
+    rawRequest = await readFile(requestPath, "utf8");
+  } catch (error) {
+    throw new Error(
+      `Cannot read EVM worker request: ${error instanceof Error ? error.message : String(error)}`,
+    );
+  }
+  let parsed: unknown;
+  try {
+    parsed = JSON.parse(rawRequest);
+  } catch (error) {
+    throw new Error(
+      `Invalid JSON in EVM worker request: ${error instanceof Error ? error.message : String(error)}`,
+    );
+  }
+  const request = requestSchema.parse(parsed);
   let reply: unknown;
   try {
     const bytes = decodeEvmBytecodeCarrier(
@@ -38,13 +52,13 @@ const main = async (): Promise<void> => {
         "Container marker EF00 is outside the verified flat-bytecode interface profile.",
       );
     const modulePath = import.meta.resolve("evmole/no_tla");
+    const pkgJson = await readFile(
+      new URL("../package.json", modulePath),
+      "utf8",
+    );
     const metadata = z
       .object({ version: z.literal("0.9.3") })
-      .parse(
-        JSON.parse(
-          await readFile(new URL("../package.json", modulePath), "utf8"),
-        ),
-      );
+      .parse(JSON.parse(pkgJson));
     const engine = await import("evmole/no_tla");
     engine.initSync({
       module: await readFile(

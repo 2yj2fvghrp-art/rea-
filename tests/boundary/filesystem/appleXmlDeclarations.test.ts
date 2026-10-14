@@ -8,6 +8,7 @@ import { expect, it } from "vitest";
 
 import { analyzeInterfaceBuilderBundle } from "../../../src/artifacts/apple/InterfaceBuilderAnalysis.js";
 import { inspectBundleKeyedArchive } from "../../../src/artifacts/apple/KeyedArchiveReader.js";
+import { decodeXmlPlistText } from "../../../src/domain/propertyListXmlText.js";
 import { createTestTempDirectory } from "../../fixtures/temporaryDirectory.js";
 
 const archive = build({
@@ -104,3 +105,14 @@ it.each(["REA-UNSUPPORTED", "ISO-8859-1"])(
     expect(result.graph.truncated).toBe(true);
   },
 );
+
+it("validates input types and gracefully handles short buffers in decodeXmlPlistText", () => {
+  expect(() => decodeXmlPlistText(undefined as unknown as Uint8Array)).toThrow(
+    TypeError,
+  );
+  expect(() =>
+    decodeXmlPlistText("not-bytes" as unknown as Uint8Array),
+  ).toThrow(TypeError);
+  expect(decodeXmlPlistText(new Uint8Array(0))).toBe("");
+  expect(decodeXmlPlistText(new Uint8Array([65]))).toBe("A");
+});
