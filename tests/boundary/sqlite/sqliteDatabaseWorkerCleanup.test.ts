@@ -39,6 +39,9 @@ it.each(["rows", "inventory", "schema"] as const)(
     let rootCleanupAllowed = false;
     let processAttempts = 0;
     let rootAttempts = 0;
+    const cleanupDiagnostics = {
+      unverified: [{ pid: 123456, diagnostic: "Worker identity unavailable" }],
+    };
     const roots: PrivateRuntimeRoot[] = [];
     const provider = new SqliteDatabaseProvider(
       process.env,
@@ -58,6 +61,7 @@ it.each(["rows", "inventory", "schema"] as const)(
               return {
                 cleaned: false,
                 reason: "Worker cleanup confirmation denied",
+                ...cleanupDiagnostics,
               };
             return (
               launched.cleanup?.() ??
@@ -109,6 +113,7 @@ it.each(["rows", "inventory", "schema"] as const)(
       details: {
         diagnostics: {
           reason: "Worker cleanup confirmation denied",
+          ...cleanupDiagnostics,
           previous_error: null,
         },
         partial_observation: {
@@ -186,11 +191,13 @@ it.each(["rows", "inventory", "schema"] as const)(
     if (blocked.ok)
       throw new Error("Unconfirmed cleanup must block acquisition");
     expect(blocked.error.partialObservation).toEqual(partial);
+    expect(blocked.error.diagnostics).toMatchObject(cleanupDiagnostics);
     expect(roots).toHaveLength(1);
     expect(processAttempts).toBe(2);
     await expect(provider.close()).rejects.toMatchObject({
       cleanupIncomplete: true,
       partialObservation: partial,
+      diagnostics: cleanupDiagnostics,
     });
     expect(rootAttempts).toBe(0);
     processCleanupAllowed = true;
