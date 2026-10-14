@@ -35,6 +35,22 @@ describe("managed projection admission", () => {
       ManagedReaderFailure,
     );
   });
+
+  it("charges an admitted record once inside its containing projection", () => {
+    const budget = new ManagedDecodeBudget();
+    const record = admitManagedProjection(
+      { name: "a".repeat(40 * 1024 * 1024) },
+      budget,
+    );
+
+    expect(() =>
+      admitManagedProjection({ records: [record] }, budget),
+    ).not.toThrow();
+    // A second occurrence serializes again, so it pays again.
+    expect(() =>
+      admitManagedProjection({ records: [record, record] }, budget),
+    ).toThrow(ManagedReaderFailure);
+  });
 });
 
 describe("managed decoding bounds", () => {
