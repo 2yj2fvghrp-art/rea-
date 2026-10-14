@@ -13,6 +13,7 @@ import {
 } from "../domain/analysisErrorCore.js";
 import {
   sqliteDatabaseSchema,
+  sqliteRowSelectionSchema,
   type InspectSqliteDatabaseInput,
 } from "../domain/sqlite/sqliteDatabase.js";
 import { readStableArtifact } from "../artifacts/readStableArtifact.js";
@@ -33,7 +34,11 @@ const {
 } = sqliteDatabaseSchema.shape;
 const inspectionSchema = z.strictObject(inspectionShape);
 const replySchema = z.discriminatedUnion("ok", [
-  z.strictObject({ ok: z.literal(true), inspection: inspectionSchema }),
+  z.strictObject({
+    ok: z.literal(true),
+    inspection: inspectionSchema,
+    row_selection: sqliteRowSelectionSchema.nullable(),
+  }),
   z.strictObject({
     ok: z.literal(false),
     reason: z.enum([
@@ -113,7 +118,7 @@ export const executeSqliteDatabaseWorker = async (request: {
   readonly signal?: AbortSignal;
   readonly captured: (output: AnalysisCapturedOutput) => void;
   readonly retainCleanup: OwnedCommandCleanupRetainer;
-}): Promise<z.output<typeof inspectionSchema>> => {
+}): Promise<Extract<z.output<typeof replySchema>, { ok: true }>> => {
   const requestPath = join(request.root, "request.json");
   const replyPath = join(request.root, "reply.json");
   await writeFile(
@@ -179,5 +184,5 @@ export const executeSqliteDatabaseWorker = async (request: {
     );
   }
   if (!reply.ok) throw rejectedReply(reply, capturedOutput);
-  return reply.inspection;
+  return reply;
 };

@@ -6,7 +6,10 @@ import { expect, it as nativeTest, onTestFinished } from "vitest";
 import { z } from "zod";
 import { SqliteDatabaseService } from "../../../src/application/sqlite/SqliteDatabaseService.js";
 import { projectAnalysisError } from "../../../src/domain/analysisErrorProjection.js";
-import { sqliteDatabaseSchema } from "../../../src/domain/sqlite/sqliteDatabase.js";
+import {
+  sqliteDatabaseSchema,
+  sqliteRowSelectionSchema,
+} from "../../../src/domain/sqlite/sqliteDatabase.js";
 import { PrivateRuntimeRoot } from "../../../src/process/PrivateRuntimeRoot.js";
 import { spawnOwnedProviderProcess } from "../../../src/process/ProviderProcess.js";
 import { cleanupOwnedProcessGroup } from "../../../src/process/ProcessOwnership.js";
@@ -32,6 +35,7 @@ const {
 const replySchema = z.object({
   ok: z.literal(true),
   inspection: z.strictObject(inspectionShape),
+  row_selection: sqliteRowSelectionSchema.nullable(),
 });
 
 it.each([
@@ -43,6 +47,14 @@ it.each([
   { mismatch: "schema-index", cleanup: "worker" },
   { mismatch: "schema-trigger", cleanup: "snapshot" },
   { mismatch: "schema-views", cleanup: "worker" },
+  { mismatch: "all-columns", cleanup: "snapshot" },
+  { mismatch: "inventory-columns", cleanup: "worker" },
+  { mismatch: "schema-virtual", cleanup: "snapshot" },
+  { mismatch: "schema-shadow", cleanup: "worker" },
+  { mismatch: "schema-unknown", cleanup: "snapshot" },
+  { mismatch: "inventory-virtual", cleanup: "worker" },
+  { mismatch: "row-selection", cleanup: "snapshot" },
+  { mismatch: "missing-row-selection", cleanup: "worker" },
 ] as const)(
   "rejects a shape-valid $mismatch mismatch with $cleanup cleanup before retaining Evidence",
   async ({ mismatch, cleanup }) => {
@@ -79,6 +91,35 @@ it.each([
                   break;
                 case "columns":
                   reply.inspection.rows.columns = ["integer_value"];
+                  break;
+                case "all-columns":
+                case "inventory-columns":
+                  reply.inspection.rows.columns[0] = "unselected-column";
+                  break;
+                case "schema-virtual":
+                case "schema-shadow":
+                case "schema-unknown":
+                case "inventory-virtual":
+                  reply.inspection.schema.tables =
+                    reply.inspection.schema.tables.map((table) => ({
+                      ...table,
+                      kind:
+                        table.name !== "records"
+                          ? table.kind
+                          : mismatch === "schema-shadow"
+                            ? "shadow"
+                            : mismatch === "schema-unknown"
+                              ? "unknown"
+                              : "virtual",
+                    }));
+                  break;
+                case "row-selection":
+                  if (reply.row_selection === null)
+                    throw new Error("Worker did not retain column facts");
+                  reply.row_selection.table = "another-table";
+                  break;
+                case "missing-row-selection":
+                  Reflect.deleteProperty(reply, "row_selection");
                   break;
                 case "row-limit":
                   reply.inspection.rows.row_limit = 3;
@@ -160,7 +201,12 @@ it.each([
     const result = await service.inspect({
       path: database.path,
       table: "records",
-      columns: ["id"],
+      ...(mismatch === "all-columns" || mismatch === "inventory-columns"
+        ? {}
+        : { columns: ["id"] }),
+      ...(mismatch.startsWith("inventory-")
+        ? { schema_scope: "inventory" }
+        : {}),
       row_limit: 2,
     });
     if (result.ok) throw new Error("Changed selection must not succeed");

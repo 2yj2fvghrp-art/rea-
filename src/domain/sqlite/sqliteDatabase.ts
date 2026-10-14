@@ -215,6 +215,24 @@ export type InspectSqliteDatabaseInput = z.infer<
 export type SqliteDatabase = z.infer<typeof sqliteDatabaseSchema>;
 export type SqliteValue = z.infer<typeof sqliteValueSchema>;
 
+export const sqliteRowSelectionSchema = z.strictObject({
+  table: z.string(),
+  visible_columns: z.array(z.string()).min(1),
+});
+export type SqliteRowSelection = z.infer<typeof sqliteRowSelectionSchema>;
+
+export const sqliteVisibleColumnNames = (
+  columns: SqliteDatabase["schema"]["tables"][number]["columns"],
+): string[] =>
+  columns.filter(({ hidden }) => hidden !== 1).map(({ name }) => name);
+
+const sameColumns = (
+  left: readonly string[],
+  right: readonly string[],
+): boolean =>
+  left.length === right.length &&
+  left.every((name, index) => name === right[index]);
+
 /** Preserve explicit caller selections while omitting absent optional values from JSON. */
 export const sqliteInspectionParameters = (
   input: InspectSqliteDatabaseInput,
@@ -239,19 +257,25 @@ export const matchesSelectedSqliteDatabase = (
   report: SqliteDatabase,
   input: InspectSqliteDatabaseInput,
   subject: EvidenceSubjectTarget,
+  rowSelection?: SqliteRowSelection | null,
 ): boolean => {
+  const selection = sqliteRowSelectionSchema
+    .nullable()
+    .optional()
+    .safeParse(rowSelection);
+  if (!selection.success) return false;
   const selectedTable =
     input.table === undefined
       ? undefined
       : report.schema.tables.find(({ name }) => name === input.table);
-  const selectedColumns =
-    input.columns ??
-    (selectedTable?.kind === "table" &&
-    selectedTable.columns_completeness === "complete"
-      ? selectedTable.columns
-          .filter(({ hidden }) => hidden !== 1)
-          .map(({ name }) => name)
-      : undefined);
+  const visibleColumns =
+    selectedTable?.columns_completeness === "complete"
+      ? sqliteVisibleColumnNames(selectedTable.columns)
+      : report.schema.scope === "inventory"
+        ? selection.data?.visible_columns
+        : undefined;
+  const selectedColumns = input.columns ?? visibleColumns;
+  const availableColumns = new Set(visibleColumns);
   return (
     report.artifact.path === input.path &&
     subject.path === input.path &&
@@ -268,14 +292,19 @@ export const matchesSelectedSqliteDatabase = (
         ) &&
         report.schema.views.length === 0)) &&
     (input.table === undefined
-      ? report.rows === null
-      : selectedColumns !== undefined &&
+      ? report.rows === null &&
+        (selection.data === null || selection.data === undefined)
+      : selectedTable?.kind === "table" &&
+        visibleColumns !== undefined &&
+        selectedColumns !== undefined &&
+        (selection.data === undefined ||
+          (selection.data !== null &&
+            selection.data.table === input.table &&
+            sameColumns(selection.data.visible_columns, visibleColumns))) &&
+        selectedColumns.every((name) => availableColumns.has(name)) &&
         report.rows?.table === input.table &&
         report.rows.row_limit ===
           (input.row_limit ?? SQLITE_ROW_LIMIT_DEFAULT) &&
-        report.rows.columns.length === selectedColumns.length &&
-        report.rows.columns.every(
-          (name, index) => name === selectedColumns[index],
-        ))
+        sameColumns(report.rows.columns, selectedColumns))
   );
 };

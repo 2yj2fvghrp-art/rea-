@@ -3,7 +3,10 @@ import {
   type AnalysisExecution,
   type ExecutionOptions,
 } from "../application/AnalysisProvider.js";
-import type { SqliteDatabasePort } from "../application/sqlite/SqliteDatabasePort.js";
+import type {
+  SqliteDatabaseExecution,
+  SqliteDatabasePort,
+} from "../application/sqlite/SqliteDatabasePort.js";
 import { ArtifactResourceScope } from "../artifacts/ArtifactResourceScope.js";
 import { ArtifactReaderFailure } from "../artifacts/ArtifactReader.js";
 import type {
@@ -27,6 +30,7 @@ import {
   SQLITE_PROVIDER_IDENTITY,
   sqliteInspectionParameters,
   matchesSelectedSqliteDatabase,
+  type SqliteRowSelection,
 } from "../domain/sqlite/sqliteDatabase.js";
 import { isAbsolute } from "node:path";
 import { PrivateRuntimeRoot } from "../process/PrivateRuntimeRoot.js";
@@ -42,7 +46,7 @@ import {
 } from "./SqliteDatabaseWorkerExecution.js";
 
 const operation = "inspect_sqlite_database";
-type SqliteOutcome = Result<AnalysisExecution, AnalysisError>;
+type SqliteOutcome = Result<SqliteDatabaseExecution, AnalysisError>;
 type SqliteRuntimeRoot = Pick<PrivateRuntimeRoot, "path" | "close">;
 interface PendingSnapshotCleanup {
   readonly input: InspectSqliteDatabaseInput;
@@ -221,7 +225,7 @@ export class SqliteDatabaseProvider implements SqliteDatabasePort {
       | undefined;
     let retainedOutput: AnalysisCapturedOutput | undefined;
     let phase = "configuration";
-    let result: Result<AnalysisExecution, AnalysisError>;
+    let result: SqliteOutcome;
     try {
       if (options?.signal?.aborted) throw new AnalysisCancelledError(operation);
       validateSqliteInput(input);
@@ -238,7 +242,7 @@ export class SqliteDatabaseProvider implements SqliteDatabasePort {
         options?.signal,
       );
       phase = "worker";
-      const inspection = await executeSqliteDatabaseWorker({
+      const reply = await executeSqliteDatabaseWorker({
         input,
         root: root.path,
         snapshotPath: snapshot.snapshotPath,
@@ -256,7 +260,7 @@ export class SqliteDatabaseProvider implements SqliteDatabasePort {
       const validated = sqliteDatabaseSchema.safeParse({
         artifact: snapshot.artifact,
         wal: snapshot.wal,
-        ...inspection,
+        ...reply.inspection,
       });
       if (!validated.success)
         throw new AnalysisOutputError(
@@ -266,13 +270,18 @@ export class SqliteDatabaseProvider implements SqliteDatabasePort {
             ? undefined
             : { capturedOutput: retainedOutput },
         );
-      const observation = createSqliteObservation(validated.data, input.path);
+      const observation = createSqliteObservation(
+        validated.data,
+        input.path,
+        reply.row_selection,
+      );
       if (
         observation.subject === null ||
         !matchesSelectedSqliteDatabase(
           validated.data,
           input,
           observation.subject,
+          observation.rowSelection,
         )
       )
         throw new AnalysisOutputError(
@@ -356,26 +365,33 @@ const selectedFailure = (
 const createSqliteObservation = (
   report: ReturnType<typeof sqliteDatabaseSchema.parse>,
   path: string,
-): AnalysisExecution => {
+  rowSelection: SqliteRowSelection | null,
+): SqliteDatabaseExecution => {
   const locations: AnalysisExecution["locations"][number][] = [
     { kind: "artifact-path", path },
   ];
   if (report.wal !== null)
     locations.push({ kind: "artifact-path", path: report.wal.path });
-  return createAnalysisExecution(
-    report,
-    { ...SQLITE_PROVIDER_IDENTITY, version: `SQLite ${report.engine.version}` },
-    {
-      rawResult: null,
-      subject: { path, format: "file", sha256: report.artifact.sha256 },
-      locations,
-      limitations: report.limitations,
-    },
-  );
+  return {
+    ...createAnalysisExecution(
+      report,
+      {
+        ...SQLITE_PROVIDER_IDENTITY,
+        version: `SQLite ${report.engine.version}`,
+      },
+      {
+        rawResult: null,
+        subject: { path, format: "file", sha256: report.artifact.sha256 },
+        locations,
+        limitations: report.limitations,
+      },
+    ),
+    rowSelection,
+  };
 };
 const cleanupSqliteRoot = async (
   root: Pick<PrivateRuntimeRoot, "path" | "close">,
-  result: Result<AnalysisExecution, AnalysisError>,
+  result: SqliteOutcome,
   input: InspectSqliteDatabaseInput,
   output?: AnalysisCapturedOutput,
 ): Promise<Result<null, AnalysisError>> => {

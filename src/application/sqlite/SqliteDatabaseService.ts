@@ -60,7 +60,12 @@ export class SqliteDatabaseService {
     if (
       !report.success ||
       execution.subject === null ||
-      !matchesSelectedSqliteDatabase(report.data, input.data, execution.subject)
+      !matchesSelectedSqliteDatabase(
+        report.data,
+        input.data,
+        execution.subject,
+        execution.rowSelection,
+      )
     )
       return err(
         new AnalysisOutputError(

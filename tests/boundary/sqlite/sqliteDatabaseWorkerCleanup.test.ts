@@ -5,6 +5,7 @@ import { fileURLToPath } from "node:url";
 import { z } from "zod";
 import { expect, it as nativeTest, onTestFinished } from "vitest";
 import { projectAnalysisError } from "../../../src/domain/analysisErrorProjection.js";
+import { sqliteRowSelectionSchema } from "../../../src/domain/sqlite/sqliteDatabase.js";
 import { cleanupOwnedProcessGroup } from "../../../src/process/ProcessOwnership.js";
 import { PrivateRuntimeRoot } from "../../../src/process/PrivateRuntimeRoot.js";
 import { spawnOwnedProviderProcess } from "../../../src/process/ProviderProcess.js";
@@ -23,7 +24,7 @@ const workerPath = fileURLToPath(
   new URL("../../../dist/sqlite/SqliteDatabaseWorker.js", import.meta.url),
 );
 
-it.each(["rows", "schema"] as const)(
+it.each(["rows", "inventory", "schema"] as const)(
   "retains completed worker %s while retrying process cleanup before snapshot cleanup",
   async (mode) => {
     const workspace = await createTestWorkspace("rea-sqlite-worker-evidence-");
@@ -31,7 +32,7 @@ it.each(["rows", "schema"] as const)(
       workspace.root,
       mode === "schema",
     );
-    if (mode === "rows") database.close();
+    if (mode !== "schema") database.close();
     const original = await readFile(database.path);
     const wal = mode === "schema" ? await readFile(database.walPath) : null;
     let processCleanupAllowed = false;
@@ -92,7 +93,13 @@ it.each(["rows", "schema"] as const)(
       path: database.path,
       ...(mode === "rows"
         ? { table: "records", columns: ["id"], row_limit: 2 }
-        : { schema_scope: "database" as const }),
+        : mode === "inventory"
+          ? {
+              table: "records",
+              schema_scope: "inventory" as const,
+              row_limit: 2,
+            }
+          : { schema_scope: "database" as const }),
     };
     const first = await provider.inspect(input);
     if (first.ok) throw new Error("Unconfirmed cleanup must fail");
@@ -130,18 +137,46 @@ it.each(["rows", "schema"] as const)(
             rows:
               mode === "schema"
                 ? null
-                : {
-                    returned_rows: 2,
-                    columns: ["id"],
-                    values: [
-                      [{ type: "integer", value: "1" }],
-                      [{ type: "integer", value: "2" }],
-                    ],
-                  },
+                : mode === "inventory"
+                  ? {
+                      returned_rows: 2,
+                      columns: [
+                        "id",
+                        "integer_value",
+                        "blob_value",
+                        "real_value",
+                        "nullable_value",
+                        "text_value",
+                        "generated_value",
+                      ],
+                    }
+                  : {
+                      returned_rows: 2,
+                      columns: ["id"],
+                      values: [
+                        [{ type: "integer", value: "1" }],
+                        [{ type: "integer", value: "2" }],
+                      ],
+                    },
           },
         },
       },
     });
+    if (mode === "inventory") {
+      expect(partial?.normalized_result).toMatchObject({
+        schema: {
+          scope: "inventory",
+          tables: expect.arrayContaining([
+            expect.objectContaining({
+              name: "records",
+              columns: [],
+              columns_completeness: "not_requested",
+            }),
+          ]),
+        },
+      });
+      expect(partial?.normalized_result).not.toHaveProperty("row_selection");
+    }
     expect(processAttempts).toBe(1);
     expect(rootAttempts).toBe(0);
     const root = roots[0];
@@ -228,6 +263,7 @@ it.each([
               .object({
                 ok: z.literal(true),
                 inspection: z.record(z.string(), z.unknown()),
+                row_selection: sqliteRowSelectionSchema.nullable(),
               })
               .parse(JSON.parse(await readFile(replyPath, "utf8")));
             await writeFile(
