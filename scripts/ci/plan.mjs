@@ -175,6 +175,8 @@ if (tier === "reused") {
         file.startsWith(".github/ISSUE_TEMPLATE/")
       ) {
         selected.docs = true;
+        // Authored documentation code also belongs to the static checkers.
+        selected.code ||= /^docs\/.*\.(?:[cm]?[jt]s|[jt]sx)$/su.test(file);
         selected.website ||= matchesAny(file, SCOPES.website);
         // Authored docs copied into a shipped artifact also own package checks.
         const packaged =
