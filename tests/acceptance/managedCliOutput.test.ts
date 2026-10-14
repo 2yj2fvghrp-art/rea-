@@ -3,7 +3,10 @@ import { join } from "node:path";
 
 import { expect } from "vitest";
 
-import { buildManagedPeFixture } from "../../src/dotnet/ManagedPe.fixture.js";
+import {
+  buildManagedMemberPointerFixture,
+  buildManagedPeFixture,
+} from "../../src/dotnet/ManagedPe.fixture.js";
 import { createTestTempDirectory } from "../fixtures/temporaryDirectory.js";
 import { cliTest } from "../support/cli/cliFixture.js";
 
@@ -338,5 +341,34 @@ cliTest(
         },
       });
     }
+  },
+);
+
+cliTest(
+  "managed CLI exposes constructor-decoded custom attribute arguments",
+  async ({ cli }) => {
+    const root = await createTestTempDirectory("rea-managed-arguments-cli-");
+    const path = join(root, "attribute.dll");
+    await writeFile(
+      path,
+      buildManagedMemberPointerFixture({ attributeMemberRef: true }),
+    );
+    const result = await cli.run({
+      arguments: ["inspect-managed-artifact", path, "--json"],
+    });
+    expect(result.exitCode).toBe(0);
+    expect(result.json).toMatchObject({
+      normalized_result: {
+        attributes: [
+          {
+            constructor_token: "0x0a000001",
+            arguments: {
+              status: "decoded",
+              fixed: [{ type: "string", value: "fixture", blob_offset: 2 }],
+            },
+          },
+        ],
+      },
+    });
   },
 );

@@ -1145,6 +1145,11 @@ export const buildManagedMemberPointerFixture = (
     readonly fieldPointers?: readonly number[] | null;
     readonly methodPointers?: readonly number[] | null;
     readonly streamName?: "#~" | "#-";
+    readonly attributeValue?: Buffer;
+    readonly constructorSignature?: Buffer;
+    readonly attributeMemberRef?: boolean;
+    readonly typeReferenceName?: string;
+    readonly enumUnderlyingType?: number;
   } = {},
 ): Buffer => {
   const fieldPointers =
@@ -1160,19 +1165,27 @@ export const buildManagedMemberPointerFixture = (
     const assemblyName = strings.add("Fixture.MemberPointers");
     const namespace = strings.add("Fixture");
     const typeNames = ["<Module>", "A", "B"].map((name) => strings.add(name));
-    const fieldNames = ["firstField", "secondField"].map((name) =>
-      strings.add(name),
-    );
+    const fieldNames = [
+      "firstField",
+      options.enumUnderlyingType === undefined ? "secondField" : "value__",
+    ].map((name) => strings.add(name));
     const constructorName = strings.add(".ctor");
-    const attributeName = strings.add("Attribute");
+    const attributeName = strings.add(
+      options.typeReferenceName ??
+        (options.enumUnderlyingType === undefined ? "Attribute" : "Enum"),
+    );
     const systemNamespace = strings.add("System");
     const runtimeName = strings.add("System.Runtime");
-    const fieldSignature = blobs.add(Buffer.from([0x06, 0x08]));
+    const fieldSignature = blobs.add(
+      Buffer.from([0x06, options.enumUnderlyingType ?? 0x08]),
+    );
     const constructorSignature = blobs.add(
-      Buffer.from([0x20, 0x01, 0x01, 0x0e]),
+      options.constructorSignature ?? Buffer.from([0x20, 0x01, 0x01, 0x0e]),
     );
     const baseConstructorSignature = blobs.add(Buffer.from([0x20, 0, 0x01]));
-    const attributeValue = blobs.add(fixedStringAttributeBlob("fixture"));
+    const attributeValue = blobs.add(
+      options.attributeValue ?? fixedStringAttributeBlob("fixture"),
+    );
     const rows = new Map<number, readonly Buffer[]>([
       [0, [moduleRow(moduleName, 2, 2)]],
       // ResolutionScope selects AssemblyRef 1, which contains System.Attribute.
@@ -1224,7 +1237,9 @@ export const buildManagedMemberPointerFixture = (
         [
           memberRefRow({
             name: constructorName,
-            signature: baseConstructorSignature,
+            signature: options.attributeMemberRef
+              ? constructorSignature
+              : baseConstructorSignature,
             stringSize: 2,
             blobSize: 2,
             parentSize: 2,
@@ -1237,7 +1252,10 @@ export const buildManagedMemberPointerFixture = (
         [
           customAttributeRow({
             value: attributeValue,
-            options: { customAttributeTypeRaw: (1 << 3) | 2 },
+            options: {
+              customAttributeTypeRaw:
+                (1 << 3) | (options.attributeMemberRef ? 3 : 2),
+            },
             parentIndexSize: 2,
             typeIndexSize: 2,
             blobSize: 2,

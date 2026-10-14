@@ -324,16 +324,30 @@ const malformedSignature = (detail: string, offset: number): never => {
   throw managedFailure("invalid-blob", "signature", detail, offset);
 };
 
+/** Format coordinates retained by the signature owner, independent of display. */
+export interface ManagedSignatureType {
+  readonly element: number;
+  readonly operand?: number;
+  readonly children?: readonly ManagedSignatureType[];
+}
+
 // Pending work while decoding one Type. Signatures nest arbitrarily deep, so
 // decoding keeps an explicit stack instead of recursing.
 type TypeContinuation =
-  | { readonly kind: "suffix"; readonly suffix: "*" | "&" | "[]" }
+  | {
+      readonly kind: "suffix";
+      readonly suffix: "*" | "&" | "[]";
+      readonly element: number;
+    }
   | { readonly kind: "modifiers"; readonly modifiers: string[] }
   | { readonly kind: "array" }
   | {
       readonly kind: "list";
       remaining: number;
       readonly items: string[];
+      readonly shapes: ManagedSignatureType[];
+      readonly element: number;
+      readonly operand?: number;
       // Function pointer items are a RetType then Params; generic
       // arguments are Types.
       readonly signatureItems: boolean;
@@ -508,7 +522,11 @@ const readTypeSignature = (
   offset: number,
   base: SignaturePosition,
   layout?: ManagedMetadataLayout,
-): { readonly value: string; readonly next: number } => {
+): {
+  readonly value: string;
+  readonly shape: ManagedSignatureType;
+  readonly next: number;
+} => {
   const stack: TypeContinuation[] = [];
   let cursor = offset;
   for (;;) {
@@ -516,6 +534,7 @@ const readTypeSignature = (
     const kind = blob[cursor];
     if (kind === undefined)
       return malformedSignature("truncated type signature", cursor);
+    let shape: ManagedSignatureType = { element: kind };
     const positions = POSITION_ELEMENTS.get(kind);
     if (
       positions !== undefined &&
@@ -528,10 +547,11 @@ const readTypeSignature = (
     const named = ELEMENT_TYPES.get(kind);
     if (named !== undefined) {
       value = named;
+      shape = { element: kind };
       cursor += 1;
     } else if (kind === 0x0f || kind === 0x10 || kind === 0x1d) {
       const suffix = kind === 0x0f ? "*" : kind === 0x10 ? "&" : "[]";
-      stack.push({ kind: "suffix", suffix });
+      stack.push({ kind: "suffix", suffix, element: kind });
       cursor += 1;
     } else if (kind === 0x1f || kind === 0x20) {
       const token = readTypeOperand(blob, cursor + 1, layout);
@@ -545,13 +565,16 @@ const readTypeSignature = (
     } else if (kind === 0x11 || kind === 0x12) {
       const token = readTypeOperand(blob, cursor + 1, layout);
       value = `${kind === 0x11 ? "valuetype" : "class"}:${String(token.value)}`;
+      shape = { element: kind, operand: token.value };
       cursor = token.next;
     } else if (kind === 0x1e || kind === 0x13) {
       const variable = readCompressed(blob, cursor + 1);
       value = `${kind === 0x1e ? "mvar" : "var"}:${String(variable.value)}`;
+      shape = { element: kind, operand: variable.value };
       cursor = variable.next;
     } else if (kind === 0x16) {
       value = "typedbyref";
+      shape = { element: kind };
       cursor += 1;
     } else if (kind === 0x14) {
       stack.push({ kind: "array" });
@@ -575,6 +598,9 @@ const readTypeSignature = (
         kind: "list",
         remaining: argumentCount.value,
         items: [],
+        shapes: [],
+        element: kind,
+        operand: token.value,
         signatureItems: false,
         render: (items) => `${head}<${items.join(",")}>`,
       });
@@ -594,6 +620,8 @@ const readTypeSignature = (
         kind: "list",
         remaining: header.parameterCount + 1,
         items: [],
+        shapes: [],
+        element: kind,
         signatureItems: true,
         render: ([returnType, ...parameters]) =>
           `fnptr[${head}](${parameters.join(",")})->${returnType ?? ""}`,
@@ -609,19 +637,30 @@ const readTypeSignature = (
     }
     while (value !== undefined) {
       const top = stack.pop();
-      if (top === undefined) return { value, next: cursor };
-      if (top.kind === "suffix") value += top.suffix;
-      else if (top.kind === "modifiers")
+      if (top === undefined) return { value, shape: shape, next: cursor };
+      if (top.kind === "suffix") {
+        value += top.suffix;
+        shape = { element: top.element, children: [shape] };
+      } else if (top.kind === "modifiers") {
         value = `${value} ${top.modifiers.join(" ")}`;
-      else if (top.kind === "array") {
-        const shape = arrayShape(blob, cursor);
-        value += shape.value;
-        cursor = shape.next;
+        shape = { element: 0x1f, children: [shape] };
+      } else if (top.kind === "array") {
+        const dimensions = arrayShape(blob, cursor);
+        value += dimensions.value;
+        cursor = dimensions.next;
+        shape = { element: 0x14, children: [shape] };
       } else {
         top.items.push(value);
+        top.shapes.push(shape);
         top.remaining -= 1;
-        if (top.remaining === 0) value = top.render(top.items);
-        else {
+        if (top.remaining === 0) {
+          value = top.render(top.items);
+          shape = {
+            element: top.element,
+            ...(top.operand === undefined ? {} : { operand: top.operand }),
+            children: top.shapes,
+          };
+        } else {
           value = undefined;
           stack.push(top);
         }
@@ -711,6 +750,30 @@ export const specSignature = (
   }
 };
 
+export const fieldSignatureType = (
+  blob: Buffer,
+  layout?: ManagedMetadataLayout,
+) => {
+  if (blob[0] !== 0x06) malformedSignature("not a field signature", 0);
+  return readTypeSignature(blob, 1, "field", layout);
+};
+
+export const methodSignatureTypes = (
+  blob: Buffer,
+  layout?: ManagedMetadataLayout,
+) => {
+  const header = readMethodSignatureHeader(blob, 0, "member");
+  const result = readTypeSignature(blob, header.next, "return", layout);
+  let offset = result.next;
+  const parameters: ReturnType<typeof readTypeSignature>[] = [];
+  for (let index = 0; index < header.parameterCount; index++) {
+    const parameter = readTypeSignature(blob, offset, "parameter", layout);
+    parameters.push(parameter);
+    offset = parameter.next;
+  }
+  return { header, result, parameters, next: offset };
+};
+
 type DecodedSignature = Omit<ManagedSignature, "raw_length" | "raw_sha256">;
 
 /**
@@ -725,7 +788,7 @@ const decodeSignature = (blob: Buffer): DecodedSignature => {
     // FieldSig (II.23.2.4) is exactly FIELD; a flagged FIELD header is not a
     // method header either, so it is malformed below.
     if (first === 0x06) {
-      const fieldType = readTypeSignature(blob, 1, "field");
+      const fieldType = fieldSignatureType(blob);
       return {
         kind: "field",
         parse_status: fieldType.next === blob.length ? "decoded" : "partial",
@@ -739,15 +802,9 @@ const decodeSignature = (blob: Buffer): DecodedSignature => {
           fieldType.next === blob.length ? null : "Trailing signature data",
       };
     }
-    const header = readMethodSignatureHeader(blob, 0, "member");
-    const returnType = readTypeSignature(blob, header.next, "return");
-    let offset = returnType.next;
-    const parameters: string[] = [];
-    for (let index = 0; index < header.parameterCount; index += 1) {
-      const parameter = readTypeSignature(blob, offset, "parameter");
-      parameters.push(parameter.value);
-      offset = parameter.next;
-    }
+    const parsed = methodSignatureTypes(blob);
+    const { header, result: returnType, next: offset } = parsed;
+    const parameters = parsed.parameters.map(({ value }) => value);
     return {
       kind: "method",
       parse_status: offset === blob.length ? "decoded" : "partial",
