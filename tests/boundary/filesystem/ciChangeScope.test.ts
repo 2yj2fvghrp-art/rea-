@@ -659,7 +659,13 @@ it.each([
   ],
   [
     "bridge/ghidra/Example.java",
-    { code: true, runtime: true, package: false, apple: false },
+    {
+      code: true,
+      runtime: true,
+      ghidra_bridge: true,
+      package: false,
+      apple: false,
+    },
   ],
   [
     "src/native/AppleExample.ts",
@@ -836,6 +842,7 @@ it.each([
   ["web_runtime", "real-web-runtime"],
   ["web_source_map", "real-web-source-map"],
   ["nativeaot", "nativeaot-fixtures"],
+  ["ghidra_bridge", "ghidra-bridge-sources"],
   ["website", "website-check"],
 ])(
   "routes %s through the selector without a duplicate PR trigger",
