@@ -21,18 +21,14 @@ export const signatureIdentity = ({
     : `resolved:${resolved_sha256}`;
 
 /**
- * Whether an observation carries resolved signature digests: false only when
- * it has signatures and none has one, as in Evidence recorded before them.
+ * The producer attests examination independently of whether it could resolve
+ * any operands. A current inventory of only unresolved types is not legacy.
  */
-export const resolvesSignatures = (
+export const hasSignatureResolution = (
   result: ManagedMemberInspection,
-): boolean => {
-  const members = [...result.methods, ...result.fields];
-  return (
-    members.length === 0 ||
-    members.some(({ signature }) => signature.resolved_sha256 !== null)
-  );
-};
+): boolean =>
+  result.signature_resolution !== null ||
+  (result.methods.length === 0 && result.fields.length === 0);
 
 const withoutResolution = <Member extends Method | Field>(
   members: readonly Member[],
@@ -51,7 +47,10 @@ export const comparableSides = (
   left: ManagedMemberComparisonSide,
   right: ManagedMemberComparisonSide,
 ): readonly [ManagedMemberComparisonSide, ManagedMemberComparisonSide] => {
-  if (resolvesSignatures(left.result) && resolvesSignatures(right.result))
+  if (
+    hasSignatureResolution(left.result) &&
+    hasSignatureResolution(right.result)
+  )
     return [left, right];
   const raw = (side: ManagedMemberComparisonSide) => ({
     ...side,

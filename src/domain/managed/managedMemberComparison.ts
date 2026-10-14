@@ -18,7 +18,7 @@ import {
   buildMethodItems,
 } from "./managedMemberComparisonItems.js";
 import { keyMembers, sha256 } from "./managedMemberComparisonMatch.js";
-import { resolvesSignatures } from "./managedMemberSignatureIdentity.js";
+import { hasSignatureResolution } from "./managedMemberSignatureIdentity.js";
 import { digestSchema } from "../digests.js";
 import { prefixedDigestSchema } from "../digests.js";
 
@@ -232,8 +232,9 @@ export const compareManagedMembers = (
     rightComplete: right.result.metadata.status === "complete",
     leftSelection: selectedTypes(left.result),
     rightSelection: selectedTypes(right.result),
-    resolvedSignatures:
-      resolvesSignatures(left.result) && resolvesSignatures(right.result),
+    signatureResolutionExamined:
+      hasSignatureResolution(left.result) &&
+      hasSignatureResolution(right.result),
   };
   const methodItems = buildMethodItems(methodMatches, itemContext);
   const fieldItems = buildFieldItems(fieldMatches, itemContext);

@@ -2,88 +2,23 @@ import { createHash } from "node:crypto";
 
 import { managedDecodeBudget } from "./ManagedDecodeBudget.js";
 import type { ManagedParseIssue } from "../domain/managed/managedArtifact.js";
-import type { SignatureTypeName } from "./ManagedMemberInspectorCore.js";
-import {
-  metadataRowCursor,
-  readMetadataString,
-} from "./ManagedMetadataHeaps.js";
+import type {
+  parseTypes,
+  SignatureTypeName,
+} from "./ManagedMemberInspectorCore.js";
+import { metadataToken } from "./ManagedMetadataHeaps.js";
+import type { ManagedTypeReferenceLookup } from "./ManagedTypeReferences.js";
 import type { ManagedMetadataLayout } from "./ManagedMetadataLayout.js";
-import { readManagedValue } from "./ManagedReaderFailure.js";
+import { managedFailure, readManagedValue } from "./ManagedReaderFailure.js";
 
 const TYPE_REF = 1;
 const TYPE_DEF = 2;
-const NESTED_CLASS = 41;
-/** ResolutionScope tag of a TypeRef that names a nested type's enclosing TypeRef. */
-const ENCLOSING_TYPE_REF = 3;
-
 /** One type's own namespace and name, and its enclosing type's row if nested. */
 interface TypeLink {
   readonly namespace: string;
   readonly name: string;
   readonly enclosingRow: number | null;
 }
-
-/** Each nested TypeDef row's enclosing row, from the NestedClass table. */
-const enclosingTypeDefs = (
-  bytes: Buffer,
-  layout: ManagedMetadataLayout,
-): ReadonlyMap<number, number> => {
-  const enclosing = new Map<number, number>();
-  const rows = layout.table(NESTED_CLASS)?.rowCount ?? 0;
-  for (let row = 1; row <= rows; row += 1) {
-    const cursor = metadataRowCursor(bytes, layout, NESTED_CLASS, row);
-    const nested = cursor.readIndex(layout.tableIndexSize(TYPE_DEF));
-    enclosing.set(nested, cursor.readIndex(layout.tableIndexSize(TYPE_DEF)));
-  }
-  return enclosing;
-};
-
-/**
- * Read a TypeDef or TypeRef row's namespace and name; a failure to read a row
- * in its table is retained in `issues`.
- */
-const readTypeLink = (
-  bytes: Buffer,
-  layout: ManagedMetadataLayout,
-  issues: ManagedParseIssue[],
-  {
-    table,
-    row,
-    enclosing,
-  }: {
-    readonly table: typeof TYPE_REF | typeof TYPE_DEF;
-    readonly row: number;
-    /** The enclosing type's row, from the row and its ResolutionScope. */
-    readonly enclosing: (row: number, scope: number) => number | null;
-  },
-): TypeLink | null => {
-  // Member signature operands are not validated against their tables, so an
-  // operand past its table only goes unnamed; a row that is there but cannot
-  // be read is malformed metadata.
-  if (row < 1 || row > (layout.table(table)?.rowCount ?? 0)) return null;
-  return (
-    readManagedValue(() => {
-      const cursor = metadataRowCursor(bytes, layout, table, row);
-      const scope =
-        table === TYPE_REF
-          ? cursor.readIndex(layout.codedIndexSize("ResolutionScope"))
-          : cursor.readUInt32();
-      const name = readMetadataString(
-        bytes,
-        layout,
-        cursor.readIndex(layout.stringIndexSize),
-        layout.strings.size,
-      );
-      const namespace = readMetadataString(
-        bytes,
-        layout,
-        cursor.readIndex(layout.stringIndexSize),
-        layout.strings.size,
-      );
-      return { namespace, name, enclosingRow: enclosing(row, scope) };
-    }, issues) ?? null
-  );
-};
 
 /**
  * Deepest type nesting REA names, counting the outermost type as 1. Real
@@ -199,7 +134,7 @@ export const nestedTypeDigests = (
  * Name signature type operands independently of their metadata rows: a TypeDef
  * or TypeRef by namespace and name, after its enclosing types for a nested
  * type, as in `Outer/Inner`. A TypeDef and a TypeRef with the same name are
- * the same type, and a TypeRef's resolution scope assembly is not part of its
+ * the same nominal name, and a TypeRef's resolution scope assembly is not part of its
  * name, so a type forwarded between assemblies keeps its name. A TypeSpec, an
  * unreadable row, cyclic nesting, or nesting deeper than the cap has no name,
  * so its signature has no resolved digest; an unreadable row's failure is
@@ -210,31 +145,40 @@ export const signatureTypeNames = (
   bytes: Buffer,
   layout: ManagedMetadataLayout,
   issues: ManagedParseIssue[],
+  parsedTypes: Pick<ReturnType<typeof parseTypes>, "types" | "nesting">,
+  reference: ManagedTypeReferenceLookup,
 ): SignatureTypeName => {
-  let enclosingDefs: ReadonlyMap<number, number> | undefined;
   const retain = () => managedDecodeBudget(layout).reserve(128, null);
-  const definitions = nestedTypeDigests(
-    (row) =>
-      readTypeLink(bytes, layout, issues, {
-        table: TYPE_DEF,
-        row,
-        enclosing: (nested) => {
-          enclosingDefs ??= enclosingTypeDefs(bytes, layout);
-          return enclosingDefs.get(nested) ?? null;
-        },
-      }),
-    retain,
-  );
-  const references = nestedTypeDigests(
-    (row) =>
-      readTypeLink(bytes, layout, issues, {
-        table: TYPE_REF,
-        row,
-        enclosing: (_row, scope) =>
-          (scope & 3) === ENCLOSING_TYPE_REF ? scope >>> 2 : null,
-      }),
-    retain,
-  );
+  managedDecodeBudget(layout).reserve(parsedTypes.types.length * 128, null);
+  const types = new Map<string, (typeof parsedTypes.types)[number]>();
+  for (const type of parsedTypes.types) types.set(type.token, type);
+  const definitions = nestedTypeDigests((row) => {
+    if (!parsedTypes.nesting.complete) return null;
+    const type = types.get(metadataToken(TYPE_DEF, row));
+    if (
+      type === undefined &&
+      (row < 1 || row > (layout.table(TYPE_DEF)?.rowCount ?? 0))
+    ) {
+      readManagedValue(() => {
+        throw managedFailure(
+          "invalid-row",
+          `metadata.signature.type:${TYPE_DEF}:${row}`,
+          `Signature references an unavailable TypeDef row ${row}`,
+        );
+      }, issues);
+      return null;
+    }
+    if (type === undefined) return null;
+    return {
+      namespace: type.namespace,
+      name: type.name,
+      enclosingRow: parsedTypes.nesting.enclosing.get(row) ?? null,
+    };
+  }, retain);
+  const references = nestedTypeDigests((row) => {
+    const value = reference(row);
+    return value?.scopeValid === true ? value : null;
+  }, retain);
   const digests = new Map<number, Buffer | null>();
   return (codedIndex) => {
     let digest = digests.get(codedIndex);

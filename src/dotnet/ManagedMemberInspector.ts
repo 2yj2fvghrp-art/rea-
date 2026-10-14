@@ -31,6 +31,7 @@ import {
 import { edgeTargets } from "./ManagedMethodSpecs.js";
 import { signatureTypeNames } from "./ManagedSignatureTypeNames.js";
 import { typeNameLookup } from "./ManagedTypeNames.js";
+import { managedTypeReferences } from "./ManagedTypeReferences.js";
 import { parseUserStrings } from "./ManagedUserStrings.js";
 import {
   edges,
@@ -72,6 +73,7 @@ const unavailable = (
         requires_mvid: null,
       },
       types: [],
+      signature_resolution: "type-names-v1",
       exported_types: null,
       user_strings: null,
       fields: [],
@@ -198,7 +200,14 @@ export const inspectManagedMembersBytes = (
     appendManagedParseIssues(issues, parsedTypes.issues);
     const exportedTypes = parseExportedTypes(bytes, layout);
     appendManagedParseIssues(issues, exportedTypes.issues);
-    const signatureTypeName = signatureTypeNames(bytes, layout, issues);
+    const typeReferences = managedTypeReferences(bytes, layout, issues);
+    const signatureTypeName = signatureTypeNames(
+      bytes,
+      layout,
+      issues,
+      parsedTypes,
+      typeReferences,
+    );
     const fields = parseFields(bytes, layout, ranges, {
       signatureTypeName,
       selected,
@@ -206,7 +215,7 @@ export const inspectManagedMembersBytes = (
     const memberRefs = parseMemberRefs(
       bytes,
       layout,
-      typeNameLookup(bytes, layout, ranges, issues),
+      typeNameLookup(bytes, layout, ranges, issues, typeReferences),
       signatureTypeName,
     );
     appendManagedParseIssues(issues, memberRefs.issues);
@@ -274,6 +283,7 @@ export const inspectManagedMembersBytes = (
             selected === null
               ? parsedTypes.types
               : parsedTypes.types.filter((type) => selected.has(type.token)),
+          signature_resolution: "type-names-v1",
           exported_types: exportedTypes.exportedTypes,
           fields: fields.fields,
           methods: methods.methods,

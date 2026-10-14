@@ -264,9 +264,11 @@ replaced by a digest of that type's namespace and name, hashed as separate
 values so `A` + `B.C` differs from `A.B` + `C`, after its enclosing types for a
 nested type (`Outer/Inner`). The defining assembly is not part of the name:
 a TypeDef and a TypeRef with the same namespace and name compare as the
-same type, and a TypeRef's ResolutionScope assembly is ignored, so a type
+same nominal name, and a TypeRef's ResolutionScope assembly is ignored, so a type
 forwarded from one assembly to another still pairs. Two different types with
-the same full name in different assemblies therefore also compare equal.
+the same full name in different assemblies therefore have equal name digests.
+Comparison reports this scope limitation inline; it does not establish CLR
+type identity or runtime binding equivalence.
 Nesting deeper than 64 levels is not named, and such a signature compares by
 its raw digest. Comparison keys keep resolved and raw digests apart, so a raw
 digest never pairs with an equal resolved one.
@@ -274,20 +276,26 @@ Raw signature bytes name types by metadata row, and rows are build-local, so
 the same signature usually has different raw bytes in two builds. A signature
 that names no types resolves to its raw digest. When an operand cannot be
 resolved, such as a TypeSpec, or when REA could not parse the signature, the
-raw digest stands in. A TypeDef or TypeRef row that is in its table but cannot
-be read is reported as a coverage issue; an operand past its table is not,
-since member signature operands are not validated. When either observation was recorded before this field
-existed, both sides compare raw digests, which pair only where type rows agree,
+raw digest stands in. Missing or unreadable TypeDef and TypeRef operands are
+reported as coverage issues. Invalid NestedClass rows retain their failure
+reasons and withhold TypeDef signature identities; type names and nesting are
+parsed once by their shared owner. Each current inspection records
+`signature_resolution: "type-names-v1"`, even when none of its operands can be
+resolved. Historical Evidence defaults this attestation to `null`. When either
+observation predates resolution, both sides compare raw digests, which pair only where type rows agree,
 and the comparison reports that limitation. The signature is exact whether or
 not REA decoded it, so undecoded signatures pair by that tuple too, but they
 never enter structural rounds. An unmatched member is therefore reported as
 `unknown`, not added or removed, when its own signature was not decoded or when
 the other side has an unpaired member, one-sided or ambiguous, with the same
 declared type and name whose signature was not decoded. When both observations
-carry resolved digests, a decoded signature that still compares by its raw
+attest type-name resolution, a decoded signature that still compares by its raw
 digest is treated the same way: an unmatched member with one, or beside an
 unpaired same-named member with one, is `unknown`, because its raw bytes name
-types by build-local row.
+types by build-local row. A matched unresolved signature also remains unknown
+unless another observed dimension establishes a change; identical row bytes
+can reference different TypeSpec contents. Its resolution limitation is retained
+even when another dimension changes.
 
 For a matched method, an unavailable or partial body makes body-shape facets
 unknown while preserving observed signature differences. For complete bodies,

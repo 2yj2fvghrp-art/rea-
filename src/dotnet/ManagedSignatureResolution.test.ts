@@ -18,6 +18,7 @@ import {
 } from "./ManagedPe.fixture.js";
 import { readManagedPeLayout } from "./ManagedPeReader.js";
 import { signatureTypeNames } from "./ManagedSignatureTypeNames.js";
+import { managedTypeReferences } from "./ManagedTypeReferences.js";
 
 // A top-level type's name digest, as ManagedSignatureTypeNames forms it.
 const nameDigest = (name: string): Buffer => {
@@ -121,7 +122,16 @@ describe("resolved member signature digests", () => {
     const layout = metadataLayout(bytes);
     const budget = new ManagedDecodeBudget();
     attachManagedDecodeBudget(layout, budget);
-    const typeName = signatureTypeNames(bytes, layout, []);
+    const typeName = signatureTypeNames(
+      bytes,
+      layout,
+      [],
+      {
+        types: [],
+        nesting: { enclosing: new Map(), complete: true },
+      },
+      managedTypeReferences(bytes, layout, []),
+    );
     const uri = (2 << 2) | 1;
 
     expect(typeName(uri)).toEqual(nameDigest("System.Uri"));
@@ -202,13 +212,67 @@ describe("type operand names", () => {
     ]);
   });
 
-  it("keeps coverage complete for an operand row outside its table", () => {
-    // Member signature operands are not validated against their tables.
+  it("retains an operand outside its type table as incomplete coverage", () => {
     const inspection = fieldOf({
       fieldSignature: Buffer.from([0x06, 0x12, (9 << 2) | 1]),
     });
 
     expect(inspection.fields[0]?.signature.resolved_sha256).toBeNull();
-    expect(inspection.coverage.state).toBe("complete");
+    expect(inspection.coverage.state).toBe("partial");
+    expect(inspection.coverage.issues).toEqual([
+      expect.objectContaining({ code: "invalid-row" }),
+    ]);
   });
+
+  it("preserves readable TypeRef names while withholding an invalid scope's signature identity", () => {
+    const inspection = fieldOf({
+      typeRefScopeRaw: (99 << 2) | 2,
+      fieldSignature: Buffer.from([0x06, 0x12, (1 << 2) | 1]),
+      memberRefParentRaw: (1 << 3) | 1,
+    });
+    expect(inspection.fields[0]?.signature.resolved_sha256).toBeNull();
+    expect(inspection.member_refs[0]?.parent_name).toBe(
+      "System.Runtime.Versioning.TargetFrameworkAttribute",
+    );
+    expect(inspection.coverage.state).toBe("partial");
+    expect(inspection.coverage.issues).toEqual([
+      expect.objectContaining({
+        code: "invalid-row",
+        scope: "metadata.TypeRef:0x01000001",
+      }),
+    ]);
+  });
+
+  it.each([
+    {
+      rows: [
+        [1, 2],
+        [1, 2],
+      ],
+    },
+    {
+      rows: [
+        [1, 2],
+        [1, 3],
+      ],
+    },
+    { rows: [[1, 1]] },
+    { rows: [[1, 0]] },
+    { rows: [[0, 2]] },
+    { rows: [[1, 4]] },
+  ] as const)(
+    "withholds TypeDef identity for invalid nesting $rows",
+    ({ rows }) => {
+      const inspection = fieldOf({
+        additionalEmptyTypes: 2,
+        nestedTypes: rows,
+        fieldSignature: Buffer.from([0x06, 0x12, 1 << 2]),
+      });
+      expect(inspection.fields[0]?.signature.resolved_sha256).toBeNull();
+      expect(inspection.coverage.state).toBe("partial");
+      expect(inspection.coverage.issues).toEqual([
+        expect.objectContaining({ code: "invalid-row" }),
+      ]);
+    },
+  );
 });

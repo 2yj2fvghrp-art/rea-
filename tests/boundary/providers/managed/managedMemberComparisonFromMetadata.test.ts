@@ -1767,6 +1767,7 @@ describe("managed member comparison of resolved signatures", () => {
       });
     const recorded = managedMemberInspectionSchema.parse({
       ...left.result,
+      signature_resolution: undefined,
       methods: withoutResolution(left.result.methods),
       fields: withoutResolution(left.result.fields),
       member_refs: withoutResolution(left.result.member_refs),
@@ -1785,7 +1786,7 @@ describe("managed member comparison of resolved signatures", () => {
       expect.objectContaining({ status: "unchanged" }),
     ]);
     expect(result.limitations).toContain(
-      "At least one managed member observation has no resolved signature digests, so signatures compare by raw bytes, which name types by build-local metadata row.",
+      "At least one managed member observation does not attest signature type-name resolution, so signatures compare by raw bytes, which name types by build-local metadata row.",
     );
   });
 });
@@ -1901,6 +1902,45 @@ describe("managed member comparison of unresolved signatures", () => {
   const methodLimitations = (result: ReturnType<typeof compareBuilds>) =>
     result.methods.map(({ status, limitations }) => [status, limitations]);
 
+  it("does not establish unchanged signatures from identical unresolved row bytes", () => {
+    const result = compareBuilds(unresolvedAt(1), {
+      ...unresolvedAt(1),
+      typeSpecSignatures: [...typeSpecs].reverse(),
+    });
+    expect(methodLimitations(result)).toEqual([
+      ["unknown", [expect.stringMatching(/^signature-not-resolved:/u)]],
+    ]);
+  });
+
+  it("retains a known CIL change beside an unresolved signature", () => {
+    const result = compareBuilds(unresolvedAt(1), {
+      ...unresolvedAt(1),
+      ilBody: Buffer.from([0x0a, 0x17, 0x2a]),
+    });
+    expect(methodLimitations(result)).toEqual([
+      ["changed", [expect.stringMatching(/^signature-not-resolved:/u)]],
+    ]);
+    expect(result.methods[0]?.dimensions).toContain("cil");
+  });
+
+  it("retains unknown signatures when every member has an unresolved operand", () => {
+    const at = (row: number) => ({
+      ...unresolvedAt(row),
+      fieldSignature: Buffer.from([0x06, 0x12, (row << 2) | 2]),
+    });
+    const result = compareBuilds(at(1), at(2));
+    expect(
+      [...result.methods, ...result.fields].map(({ status }) => status),
+    ).toEqual(["unknown", "unknown", "unknown", "unknown"]);
+    expect(result.limitations).not.toEqual(
+      expect.arrayContaining([
+        expect.stringContaining(
+          "does not attest signature type-name resolution",
+        ),
+      ]),
+    );
+  });
+
   it("keeps an unmatched unresolved method unknown in a resolved comparison", () => {
     for (const result of [
       compareBuilds(unresolvedAt(1), unresolvedAt(2)),
@@ -1962,7 +2002,7 @@ describe("managed member comparison limitations for resolved signatures", () => 
     const result = compareManagedMembers(empty, empty);
 
     expect(result.limitations).not.toContain(
-      "At least one managed member observation has no resolved signature digests, so signatures compare by raw bytes, which name types by build-local metadata row.",
+      "At least one managed member observation does not attest signature type-name resolution, so signatures compare by raw bytes, which name types by build-local metadata row.",
     );
   });
 });

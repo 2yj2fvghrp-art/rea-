@@ -10,6 +10,10 @@ import type {
   ManagedParseIssue,
 } from "../domain/managed/managedArtifact.js";
 import { managedDecodeBudget } from "./ManagedDecodeBudget.js";
+import {
+  readManagedTypeNesting,
+  type ManagedTypeNesting,
+} from "./ManagedTypeNesting.js";
 import type {
   ManagedMetadataLayout,
   MetadataTableLayout,
@@ -169,12 +173,14 @@ export const parseTypes = (
 ): {
   readonly types: readonly ManagedType[];
   readonly issues: readonly ManagedParseIssue[];
+  readonly nesting: ManagedTypeNesting;
 } => {
   const typeTable = layout.table(2);
   const fields = memberListTable(layout, 4);
   const methods = memberListTable(layout, 6);
   const items: ManagedType[] = [];
   const issues: ManagedParseIssue[] = [];
+  const nesting = readManagedTypeNesting(bytes, layout, issues);
   for (let row = 1; row <= (typeTable?.rowCount ?? 0); row += 1) {
     readManagedValue(() => {
       const cursor = metadataRowCursor(bytes, layout, 2, row);
@@ -247,7 +253,7 @@ export const parseTypes = (
       });
     }, issues);
   }
-  return { types: items, issues };
+  return { types: items, issues, nesting };
 };
 
 export const readCompressed = (
