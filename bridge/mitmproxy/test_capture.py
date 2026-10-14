@@ -165,6 +165,46 @@ class TransportUserinfoTests(unittest.TestCase):
     def test_file_urls_keep_path_text(self):
         self.assertEqual(capture.without_userinfo("file:///a@b"), "file:///a@b")
 
+    def test_file_urls_reject_userinfo_and_keep_their_source(self):
+        # WHATWG rejects an "@" in a file host, so nothing parses as credentials.
+        self.assertEqual(
+            capture.without_userinfo("file://user:pass@host/x"), "file://user:pass@host/x"
+        )
+        for value in [b"\\\\user:pass@host/x", b"/\\user:pass@host/x", b"//user:pass@host/x"]:
+            with self.subTest(value=value):
+                text, sidecar, redactions = location(value, b"file")
+                self.assertEqual(text, value.decode("ascii"))
+                self.assertEqual(sidecar["state"], "retained")
+                self.assertEqual(redactions, [])
+
+    def test_rejected_special_hosts_keep_their_source(self):
+        # A rejected host or port fails the whole URL, so it has no userinfo.
+        for value in [
+            "https:user@%",
+            "https://user@",
+            "https://user:pass@h^st/x",
+            "https://user@ho st/x",
+            "https://user@host:99999/x",
+            "https://user@host:12a",
+            "https://user@[::1",
+        ]:
+            with self.subTest(value=value):
+                self.assertEqual(capture.without_userinfo(value), value)
+        text, sidecar, redactions = location(b"https://user:pass@h^st/x", b"https")
+        self.assertEqual(text, "https://user:pass@h^st/x")
+        self.assertEqual(sidecar["state"], "retained")
+        self.assertEqual(redactions, [])
+
+    def test_accepted_special_hosts_still_remove_userinfo(self):
+        for value, expected in [
+            ("https:user@%41", "https:%41"),
+            ("https://user@[::1]:8443/x", "https://[::1]:8443/x"),
+            ("https://user@host:/x", "https://host:/x"),
+            ("wss://user:pass@host:65535", "wss://host:65535"),
+        ]:
+            with self.subTest(value=value):
+                self.assertEqual(capture.without_userinfo(value), expected)
+
     def test_non_special_schemes_keep_backslashes_in_the_authority(self):
         self.assertEqual(capture.without_userinfo("foo://a\\b@host/x"), "foo://host/x")
         self.assertEqual(capture.without_userinfo(b"//a\\b@host"), b"//a\\b@host")

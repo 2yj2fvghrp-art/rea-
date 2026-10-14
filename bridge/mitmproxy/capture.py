@@ -11,6 +11,7 @@ import math
 import re
 import resource
 from pathlib import Path
+from urllib.parse import unquote_to_bytes
 
 from mitmproxy import ctx, version
 from mitmproxy.io import tnetstring
@@ -46,6 +47,7 @@ SCHEME_PREFIX = r"^[\x00-\x20]*([a-z][a-z0-9+.-]*):"
 NETWORK_PREFIX = r"^[\x00-\x20]*[/\\]{2}"
 URL_IGNORABLE_CONTROLS = "\t\n\r"
 URL_CONTROL_TRANSLATION = {ord(char): None for char in URL_IGNORABLE_CONTROLS}
+FORBIDDEN_DOMAIN_CODE_POINTS = {chr(code) for code in range(0x21)} | set("#%/:<>?@[\\]^|\x7f")
 
 
 def authority_start(text, base_scheme=None):
@@ -54,11 +56,14 @@ def authority_start(text, base_scheme=None):
     Follows WHATWG URL parsing as src/domain/recordedTransportUrl.ts does:
     special schemes (and scheme-relative references) skip every leading "/"
     or "\\" before the authority, so `https://\\user:pass@host` still has
-    userinfo. File URLs carry no userinfo and keep their "//" boundary.
+    userinfo. File URLs never carry userinfo: an "@" in a file host makes
+    WHATWG reject the whole URL, so there are no credentials to remove.
     """
     scheme = re.match(SCHEME_PREFIX, text, flags=re.I)
     name = scheme.group(1).lower() if scheme is not None else None
-    if name is not None and name in SPECIAL_SCHEMES and name != "file":
+    if name == "file" or (name is None and base_scheme == "file"):
+        return None
+    if name is not None and name in SPECIAL_SCHEMES:
         # A same-scheme Location without two slash-equivalent separators is
         # relative to the recorded request, so its @ belongs to the path.
         following = text[scheme.end():scheme.end() + 2]
@@ -69,7 +74,7 @@ def authority_start(text, base_scheme=None):
         if scheme is not None:
             if text[scheme.end():scheme.end() + 2] != "//":
                 return None
-            return scheme.end() + 2, name in SPECIAL_SCHEMES
+            return scheme.end() + 2, False
         # A non-special base treats backslashes as authority data and only
         # recognizes two forward slashes as a network reference.
         if base_scheme is not None and base_scheme not in SPECIAL_SCHEMES:
@@ -79,11 +84,33 @@ def authority_start(text, base_scheme=None):
         if prefix is None:
             return None
         start = prefix.end()
-        if base_scheme == "file":
-            return start, True
     while start < len(text) and text[start] in "/\\":
         start += 1
     return start, True
+
+
+def special_host_parses(host_port):
+    """Whether WHATWG could accept a special authority's host and port.
+
+    A rejected host fails the whole URL, so it has no credentials to remove.
+    This mirrors the forbidden-code-point, empty-host and port rules; IDNA,
+    IPv4 range and IPv6 syntax failures are not modeled and still redact.
+    """
+    if host_port.startswith("["):
+        host_end = host_port.find("]") + 1
+        if host_end == 0:
+            return False
+    else:
+        colon = host_port.find(":")
+        host_end = len(host_port) if colon < 0 else colon
+        host = unquote_to_bytes(host_port[:host_end]).decode("utf-8", errors="replace")
+        if host == "" or any(char in FORBIDDEN_DOMAIN_CODE_POINTS for char in host):
+            return False
+    port = host_port[host_end:]
+    if port == "":
+        return True
+    digits = port[1:]
+    return port[0] == ":" and (digits == "" or (digits.isascii() and digits.isdigit() and int(digits) <= 65535))
 
 
 def without_userinfo(value, base_scheme=None):
@@ -106,7 +133,7 @@ def without_userinfo(value, base_scheme=None):
     while end < len(parsed_text) and parsed_text[end] not in terminators:
         end += 1
     at = parsed_text.rfind("@", start, end)
-    if at < start:
+    if at < start or (special and not special_host_parses(parsed_text[at + 1 : end])):
         return value
     parsed_offset = 0
     raw_start = 0
