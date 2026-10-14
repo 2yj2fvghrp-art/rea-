@@ -298,13 +298,14 @@ ordinary setup command. Get started is the primary action; a second link goes
 straight to the first interactive example. Short Showcases and Blog descriptions
 below those actions keep both reading paths available. The introduction and
 setup retain the original equal-width desktop columns. The setup-guide link
-starts on its own line. A short definition and three steps explain the workflow before the
-dinosaur and Calculator cases. The detailed manual/agent comparison is folded,
+starts on its own line. A full-width definition and three steps explain the
+workflow, followed by a short transition into the dinosaur and Calculator
+cases. The detailed manual/agent comparison is folded,
 as are each example's investigation flow and verification details. Plain
 paragraphs introduce the cases without repeating goal and purpose panels.
 Three case-study previews lead to further investigations. The closing sections
-offer a guided first task, target-specific guides and FAQ, Discord and issue
-links.
+offer a guided first task and target-specific guides. FAQ, Discord and issue
+links each have their own line explaining their purpose.
 Every content page's header and footer link GitHub, Discord and X.
 A right-side table of contents stays visible at widths of 1440px and above.
 On narrower screens it becomes a sticky, native disclosure; selecting a link
@@ -322,10 +323,11 @@ readable when JavaScript is disabled.
 The original-instruction panel stays expanded when the comparison is opened,
 including on mobile; its native disclosure can still be closed manually.
 Dinosaur is the first example; Calculator follows as the native example.
-Each introduces the inspected behavior before showing the demo. A labeled
-finding explains what REA returned, and the optional flow distinguishes REA’s
-inspection from the agent’s interpretation and implementation.
-Its game precedes the prompt and code on small screens. Calculator’s excerpt
+Each introduces the goal, then follows three named steps: ask a question,
+find the rule, and try a reconstruction. The question and plain-language finding
+are on the left, with the demo on the right; mobile keeps that reading order.
+Code excerpts and source details join the optional investigation flow and checks
+in each disclosure. Calculator’s excerpt
 comes from an installed model DLL; Microsoft’s public implementation supplies
 names and a crosscheck. Its controls apply the percentage rule to generic inputs.
 The target guides end with an optional larger-project disclosure, preserving

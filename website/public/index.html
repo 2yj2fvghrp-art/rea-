@@ -310,12 +310,12 @@
         <div class="container">
           <div class="section-heading">
             <h2>How it works</h2>
-            <p class="lede">
-              Reverse engineering means learning how software works by
-              inspecting the program itself. With REA, your agent can follow the
-              code, explain a feature and help you rebuild it.
-            </p>
           </div>
+          <p class="lede">
+            Reverse engineering means learning how software works by inspecting
+            the program itself. With REA, your agent can follow the code,
+            explain a feature and help you rebuild it.
+          </p>
           <ol class="home-workflow" id="how-rea-helps">
             <li>
               <h3>Ask about one feature</h3>
@@ -561,97 +561,27 @@
 
       <section class="section" id="dinosaur">
         <div class="container">
+          <p class="home-examples-intro">
+            Let’s try two examples: change a game’s speed, then rebuild
+            Calculator’s % button.
+          </p>
           <div class="section-heading">
             <p class="eyebrow">Example 01 · Chrome’s dinosaur game</p>
             <h2>Why does the dinosaur get faster?</h2>
           </div>
           <p class="lede">
-            We inspected the game's speed rule, then rebuilt it with a slider.
-            Play the result and choose your own pace.
+            The game gets faster as you run. To rebuild it with a speed control,
+            we first need to find out how the speed changes.
           </p>
           <div class="home-example-grid dino-example-grid">
-            <figure class="dino-demo" data-dino-demo>
-              <p class="figure-title">Play the reconstruction</p>
-              <div class="dino-stage">
-                <svg
-                  class="dino-fallback"
-                  viewBox="0 0 600 180"
-                  role="img"
-                  aria-label="A small dinosaur running toward a cactus. Recovered speed: starts at 6, increases by 0.001 per update while below 13."
-                >
-                  <path
-                    d="M0 150H600 M55 113v-30h17V65h27v24H85v17H72v16H62v13h-7v-22m-5-8v-8h-8v-9h-6v22h19m14 15v15h8v-7h-4v-8 M420 150v-48h10v48m-10-15h-12v-22h7v15h5m10-4h12v-22h-7v15h-5"
-                    fill="currentColor"
-                  />
-                  <text
-                    x="300"
-                    y="65"
-                    text-anchor="middle"
-                    fill="currentColor"
-                    font-size="18"
-                  >
-                    6 → 10 → 13
-                  </text>
-                </svg>
-                <canvas
-                  width="600"
-                  height="180"
-                  tabindex="0"
-                  aria-label="Dinosaur mini-game. Use the Jump button or press Space while the game is focused."
-                  hidden
-                ></canvas>
-              </div>
-              <div class="dino-controls" hidden>
-                <div class="dino-buttons">
-                  <button class="button" type="button" data-dino-start>
-                    Play
-                  </button>
-                  <button type="button" data-dino-jump>Jump ↑</button>
-                  <button type="button" data-dino-reset>Restart</button>
-                </div>
-                <label class="dino-speed-label"
-                  >Speed <output data-dino-speed>6.0</output
-                  ><input
-                    type="range"
-                    min="2"
-                    max="18"
-                    step="0.1"
-                    value="6"
-                    data-dino-slider
-                /></label>
-                <label class="dino-auto-label"
-                  ><input type="checkbox" data-dino-auto checked /> Use the
-                  recovered acceleration rule</label
-                >
-              </div>
-              <p class="dino-status" data-dino-status role="status">
-                Original rule: start at 6, then increase toward 13.
-              </p>
-              <figcaption>
-                Move the slider to set your own speed. Space or Jump clears a
-                cactus.
-              </figcaption>
-              <noscript
-                ><p class="caption">
-                  Enable JavaScript to play the reconstruction. The code and
-                  explanation above remain readable.
-                </p></noscript
-              >
-            </figure>
-            <div>
-              <div class="rea-finding">
-                <p class="finding-label">REA returned</p>
-                <p>
-                  The running script contains the speed settings and update
-                  function. The agent uses them to recover the acceleration.
-                </p>
-              </div>
+            <div class="home-case-story">
+              <h3>1. Ask about the speed</h3>
               <div class="agent-terminal home-analysis-terminal">
                 <div class="terminal-header">
                   <span class="terminal-title"
                     ><span class="terminal-dots" aria-hidden="true"
                       ><i></i><i></i><i></i></span
-                    >Example prompt · Dinosaur game</span
+                    >Example question · Dinosaur game</span
                   >
                   <button
                     class="copy-button"
@@ -671,27 +601,86 @@
                   ><span class="terminal-cursor" aria-hidden="true"></span>
                 </p>
               </div>
-              <p class="caption">
-                Inspected target:
-                <a href="https://wayou.github.io/t-rex-runner/"
-                  >wayou’s Chromium-derived browser edition</a
-                >.
+              <h3>2. Find the speed rule</h3>
+              <p>
+                REA lets the agent read the game’s running code. The speed
+                starts at 6 and increases a little each update while it is below
+                13.
               </p>
-              <div class="code-block">
-                <div class="code-header">
-                  <span
-                    >REA · loaded <span translate="no">index.js</span> ·
-                    selected lines</span
+            </div>
+            <div class="home-case-result">
+              <h3>3. Play the result</h3>
+              <p>
+                We rebuilt that rule in the mini-game below and added a speed
+                slider. Press Play, then choose your own speed.
+              </p>
+              <figure class="dino-demo" data-dino-demo>
+                <div class="dino-stage">
+                  <svg
+                    class="dino-fallback"
+                    viewBox="0 0 600 180"
+                    role="img"
+                    aria-label="A small dinosaur running toward a cactus. Recovered speed: starts at 6, increases by 0.001 per update while below 13."
+                  >
+                    <path
+                      d="M0 150H600 M55 113v-30h17V65h27v24H85v17H72v16H62v13h-7v-22m-5-8v-8h-8v-9h-6v22h19m14 15v15h8v-7h-4v-8 M420 150v-48h10v48m-10-15h-12v-22h7v15h5m10-4h12v-22h-7v15h-5"
+                      fill="currentColor"
+                    />
+                    <text
+                      x="300"
+                      y="65"
+                      text-anchor="middle"
+                      fill="currentColor"
+                      font-size="18"
+                    >
+                      6 → 10 → 13
+                    </text>
+                  </svg>
+                  <canvas
+                    width="600"
+                    height="180"
+                    tabindex="0"
+                    aria-label="Dinosaur mini-game. Use the Jump button or press Space while the game is focused."
+                    hidden
+                  ></canvas>
+                </div>
+                <div class="dino-controls" hidden>
+                  <div class="dino-buttons">
+                    <button class="button" type="button" data-dino-start>
+                      Play
+                    </button>
+                    <button type="button" data-dino-jump>Jump ↑</button>
+                    <button type="button" data-dino-reset>Restart</button>
+                  </div>
+                  <label class="dino-speed-label"
+                    >Speed <output data-dino-speed>6.0</output
+                    ><input
+                      type="range"
+                      min="2"
+                      max="18"
+                      step="0.1"
+                      value="6"
+                      data-dino-slider
+                  /></label>
+                  <label class="dino-auto-label"
+                    ><input type="checkbox" data-dino-auto checked /> Use the
+                    recovered acceleration rule</label
                   >
                 </div>
-                <pre><code>if (this.currentSpeed &lt; this.config.MAX_SPEED) {
-  <span class="code-key">this.currentSpeed += this.config.ACCELERATION;</span>
-}</code></pre>
-              </div>
-              <p class="dino-rule">
-                Start at 6. Add 0.001 each update without a collision, while
-                speed is below 13.
-              </p>
+                <p class="dino-status" data-dino-status role="status">
+                  Original rule: start at 6, then increase toward 13.
+                </p>
+                <figcaption>
+                  Move the slider to set your own speed. Space or Jump clears a
+                  cactus.
+                </figcaption>
+                <noscript
+                  ><p class="caption">
+                    Enable JavaScript to play. You can still read the rule and
+                    open the source code below.
+                  </p></noscript
+                >
+              </figure>
               <a class="text-link" href="examples/dino-lab/"
                 >Open the speed lab →</a
               >
@@ -701,6 +690,27 @@
             <summary>
               See the script, checks and how to try the analysis
             </summary>
+            <p class="caption">
+              Inspected target:
+              <a href="https://wayou.github.io/t-rex-runner/"
+                >wayou’s Chromium-derived browser edition</a
+              >.
+            </p>
+            <div class="code-block">
+              <div class="code-header">
+                <span
+                  >REA · loaded <span translate="no">index.js</span> · selected
+                  lines</span
+                >
+              </div>
+              <pre><code>if (this.currentSpeed &lt; this.config.MAX_SPEED) {
+  <span class="code-key">this.currentSpeed += this.config.ACCELERATION;</span>
+}</code></pre>
+            </div>
+            <p class="dino-rule">
+              Start at 6. Add 0.001 each update without a collision, while speed
+              is below 13.
+            </p>
             <figure class="workflow-figure dino-loop">
               <p class="figure-title">What each part does</p>
               <ol class="flow-steps">
@@ -782,90 +792,20 @@ SPEED: 6</code></pre>
           <div class="section-heading">
             <p class="eyebrow">Example 02 · Windows Calculator</p>
             <h2>Rebuild Calculator’s % button.</h2>
-            <p class="lede">
-              The % button behaves differently after + and ×. We inspected the
-              installed app to recover both rules. Try them below.
-            </p>
           </div>
+          <p class="lede">
+            The % button does different things after + and ×. Let’s find both
+            rules and try them in a small calculator.
+          </p>
           <div class="home-example-grid">
-            <figure class="percent-figure" data-percent-demo>
-              <p class="figure-title">Try the calculation</p>
-              <div
-                class="percent-operation"
-                role="group"
-                aria-label="Choose the calculation"
-                hidden
-              >
-                <button
-                  type="button"
-                  data-percent-operation="add"
-                  aria-pressed="true"
-                >
-                  <span translate="no">200 + 10%</span>
-                </button>
-                <button
-                  type="button"
-                  data-percent-operation="multiply"
-                  aria-pressed="false"
-                >
-                  <span translate="no">200 × 10%</span>
-                </button>
-              </div>
-              <div class="percent-display">
-                <span class="percent-expression" data-percent-expression
-                  >200 +</span
-                >
-                <strong data-percent-display>20</strong>
-              </div>
-              <div class="percent-controls" hidden>
-                <button
-                  type="button"
-                  class="percent-key"
-                  data-percent-key="percent"
-                >
-                  %
-                </button>
-                <button
-                  type="button"
-                  class="percent-key"
-                  data-percent-key="equals"
-                  disabled
-                >
-                  =
-                </button>
-                <button
-                  type="button"
-                  class="percent-reset"
-                  data-percent-key="reset"
-                >
-                  Reset
-                </button>
-              </div>
-              <p class="percent-status" data-percent-status role="status">
-                10% of 200 = 20. Then 200 + 20 = 220.
-              </p>
-              <figcaption>
-                Interactive illustration of the inspected percentage rule.
-              </figcaption>
-            </figure>
-            <div class="percent-explanation">
-              <div class="rea-finding">
-                <p class="finding-label">REA returned</p>
-                <p>
-                  One branch divides by 100. The other also multiplies by the
-                  first number. The agent uses both to recreate the % button.
-                </p>
-              </div>
-              <p>
-                For this example, <code>previous = 200</code> and
-                <code>current = 10</code>.
-              </p>
+            <div class="home-case-story">
+              <h3>1. Ask about the % button</h3>
               <div class="agent-terminal">
                 <div class="terminal-header">
                   <span class="terminal-title"
                     ><span class="terminal-dots" aria-hidden="true"
                       ><i></i><i></i><i></i></span
-                    >Example prompt · Rebuild the % button</span
+                    >Example question · Calculator</span
                   >
                   <button
                     class="copy-button"
@@ -885,16 +825,11 @@ SPEED: 6</code></pre>
                   ><span class="terminal-cursor" aria-hidden="true"></span>
                 </p>
               </div>
-              <div class="code-block">
-                <div class="code-header">
-                  <span>Readable summary of the % handler</span>
-                </div>
-                <pre><code>if (operation == multiply || operation == divide) {
-  percent = current / 100;
-} else {
-  <span class="code-key">percent = current * previous / 100;</span>
-}</code></pre>
-              </div>
+              <h3>2. Find both rules</h3>
+              <p>
+                REA helps the agent read the code behind the % button. It
+                applies two different rules:
+              </p>
               <dl class="percent-rules">
                 <div>
                   <dt>With +</dt>
@@ -911,9 +846,89 @@ SPEED: 6</code></pre>
                 </div>
               </dl>
             </div>
+            <div class="home-case-result">
+              <h3>3. Try the % button</h3>
+              <p>
+                We recreated both rules below. Choose + or ×, press %, then
+                press =.
+              </p>
+              <figure class="percent-figure" data-percent-demo>
+                <div
+                  class="percent-operation"
+                  role="group"
+                  aria-label="Choose the calculation"
+                  hidden
+                >
+                  <button
+                    type="button"
+                    data-percent-operation="add"
+                    aria-pressed="true"
+                  >
+                    <span translate="no">200 + 10%</span>
+                  </button>
+                  <button
+                    type="button"
+                    data-percent-operation="multiply"
+                    aria-pressed="false"
+                  >
+                    <span translate="no">200 × 10%</span>
+                  </button>
+                </div>
+                <div class="percent-display">
+                  <span class="percent-expression" data-percent-expression
+                    >200 +</span
+                  >
+                  <strong data-percent-display>20</strong>
+                </div>
+                <div class="percent-controls" hidden>
+                  <button
+                    type="button"
+                    class="percent-key"
+                    data-percent-key="percent"
+                  >
+                    %
+                  </button>
+                  <button
+                    type="button"
+                    class="percent-key"
+                    data-percent-key="equals"
+                    disabled
+                  >
+                    =
+                  </button>
+                  <button
+                    type="button"
+                    class="percent-reset"
+                    data-percent-key="reset"
+                  >
+                    Reset
+                  </button>
+                </div>
+                <p class="percent-status" data-percent-status role="status">
+                  10% of 200 = 20. Then 200 + 20 = 220.
+                </p>
+                <figcaption>
+                  Interactive illustration of the inspected percentage rule.
+                </figcaption>
+              </figure>
+            </div>
           </div>
           <details class="home-evidence-details">
             <summary>See the real code and how the answer was checked</summary>
+            <p>
+              For this example, <code>previous = 200</code> and
+              <code>current = 10</code>.
+            </p>
+            <div class="code-block">
+              <div class="code-header">
+                <span>Readable summary of the % handler</span>
+              </div>
+              <pre><code>if (operation == multiply || operation == divide) {
+  percent = current / 100;
+} else {
+  <span class="code-key">percent = current * previous / 100;</span>
+}</code></pre>
+            </div>
             <figure class="workflow-figure calculator-trace">
               <p class="figure-title">
                 From the installed app to a working % button
@@ -1162,15 +1177,21 @@ SPEED: 6</code></pre>
         <div class="container">
           <div>
             <h2>Any questions?</h2>
-            <p>
-              <a href="faq/">Read the FAQ</a>,
-              <a href="https://discord.gg/GkcryMnJDM">chat with us on Discord</a
-              >, or
-              <a href="https://github.com/morluto/rea/issues/new/choose"
-                >open a GitHub issue</a
-              >
-              for bugs and feature requests.
-            </p>
+            <div class="home-help-links">
+              <p>
+                <a href="faq/">Read the FAQ</a> — setup and common questions.
+              </p>
+              <p>
+                <a href="https://discord.gg/GkcryMnJDM">Join Discord</a> — get
+                help and discuss your investigations.
+              </p>
+              <p>
+                <a href="https://github.com/morluto/rea/issues/new/choose"
+                  >GitHub issues</a
+                >
+                — report a bug or request a feature.
+              </p>
+            </div>
           </div>
         </div>
       </section>

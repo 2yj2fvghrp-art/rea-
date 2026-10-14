@@ -1845,22 +1845,28 @@ pre code {
 .home-page #analysis-guides {
   scroll-margin-top: 5rem;
 }
-.finding-label {
-  margin-bottom: 0.45rem;
-  font-size: 0.8rem;
-  font-weight: 600;
+.home-examples-intro {
+  margin-bottom: 2rem;
   color: var(--muted);
+  font-size: 1.05rem;
 }
-.rea-finding {
-  margin-bottom: 1.4rem;
+.home-case-story > h3,
+.home-case-result > h3 {
+  font-size: 1.15rem;
 }
-.rea-finding > :last-child {
-  margin: 0;
+.home-case-story > h3:not(:first-child) {
+  margin-top: 1.75rem;
+}
+.home-case-story > p,
+.home-case-result > p {
+  color: var(--muted);
   font-size: 0.95rem;
-  color: var(--muted);
 }
-.rea-finding strong {
-  color: var(--ink);
+.home-help-links p {
+  margin-bottom: 0;
+}
+.home-help-links p + p {
+  margin-top: 0.9rem;
 }
 .home-role-comparison {
   display: grid;
@@ -2212,12 +2218,6 @@ pre code {
   margin-top: 0.8rem;
   color: var(--muted);
   font-size: 0.8rem;
-}
-.percent-explanation h3 {
-  font-size: 1.2rem;
-}
-.percent-explanation > p {
-  color: var(--muted);
 }
 .percent-rules {
   margin-bottom: 0;
