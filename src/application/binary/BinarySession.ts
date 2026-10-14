@@ -275,16 +275,18 @@ export class BinarySession
       "signal" | "snapshot" | "beforeOpen"
     >,
   ): Promise<Result<BinaryTarget, AnalysisError>> {
-    if (this.#externalMutationCleanupFailure?.cleanupIncomplete === true)
-      return err(this.#externalMutationCleanupFailure);
     if (isAborted(options.signal))
       return err(new AnalysisCancelledError("open_binary"));
+    // Retry retained owners first: a successful retry resolves the stored
+    // failure, so the guard below must observe the post-retry state.
     if (options.beforeOpen !== undefined) {
       const prepared = await options.beforeOpen();
       if (!prepared.ok) return prepared;
       if (isAborted(options.signal))
         return err(new AnalysisCancelledError("open_binary"));
     }
+    if (this.#externalMutationCleanupFailure?.cleanupIncomplete === true)
+      return err(this.#externalMutationCleanupFailure);
     const resolved = await resolve();
     if (!resolved.ok) return resolved;
     const { target, route, sameTarget } = resolved.value;
