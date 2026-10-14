@@ -61,6 +61,36 @@ describe("JavaScript semantic analysis: calls 1", () => {
     expect(ir.frontiers).toEqual([]);
   });
 
+  it("evaluates computed method keys in the enclosing callable", () => {
+    const ir = analyzeJavaScriptSemantics(`
+      function outer() {
+        const name = "m";
+        const pick = () => "n";
+        const obj = { [name]() { return 1; }, [pick()]() { return name; } };
+        class C { [name]() { return 2; } }
+      }
+    `);
+
+    const outer = onlyCallable(ir, "outer");
+    const pickCall = ir.callSites.find(
+      ({ calleeCallableIds }) => calleeCallableIds.length === 1,
+    );
+    expect(pickCall).toMatchObject({
+      callerCallableId: outer.callableId,
+      resolution: "exact",
+    });
+    // Only the method body that reads `name` captures it; the computed keys
+    // are evaluated outside every method environment.
+    expect(
+      ir.closureCaptures.map(({ callableId, bindingId }) => ({
+        owner: ir.callables.find(
+          (callable) => callable.callableId === callableId,
+        )?.kind,
+        binding: bindingById(ir, bindingId)?.name,
+      })),
+    ).toEqual([{ owner: "method", binding: "name" }]);
+  });
+
   it("recovers explicit Promise ownership, chains, aggregation, and awaits", () => {
     const ir = analyzeJavaScriptSemantics(`
       async function run(value) {

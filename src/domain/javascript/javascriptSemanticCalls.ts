@@ -86,8 +86,22 @@ export const collectJavaScriptSemanticCalls = (
     ancestors: [],
   };
   const callableStack: JavaScriptSemanticCallable[] = [];
+  const suspendedMethods = new Map<t.Node, JavaScriptSemanticCallable>();
   traverseJavaScriptAst(program, {
     enter: (node, parent) => {
+      // A computed method key is evaluated before entering the method's
+      // parameter and body environments, so it belongs to the enclosing
+      // callable rather than the method.
+      if (
+        parent !== null &&
+        (t.isObjectMethod(parent) || t.isClassMethod(parent)) &&
+        parent.computed &&
+        parent.key === node &&
+        callableStack.at(-1)?.callableId === semanticCallableIdForNode(parent)
+      ) {
+        const method = callableStack.pop();
+        if (method !== undefined) suspendedMethods.set(node, method);
+      }
       const callableId = semanticCallableIdForNode(node);
       const callable =
         callableId === null ? undefined : callableById.get(callableId);
@@ -112,6 +126,11 @@ export const collectJavaScriptSemanticCalls = (
         callableStack.at(-1)?.callableId === callableId
       )
         callableStack.pop();
+      const method = suspendedMethods.get(node);
+      if (method !== undefined) {
+        suspendedMethods.delete(node);
+        callableStack.push(method);
+      }
     },
   });
   return {
