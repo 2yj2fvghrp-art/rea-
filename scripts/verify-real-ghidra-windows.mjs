@@ -4,6 +4,7 @@ import { access, readFile } from "node:fs/promises";
 import { isAbsolute, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
 
+import { parseConfig } from "../dist/config/parseConfig.js";
 import { resolveGhidraAnalysisProfile } from "../dist/ghidra/GhidraAnalysisProfile.js";
 import { GhidraClient } from "../dist/ghidra/GhidraClient.js";
 import {
@@ -47,6 +48,8 @@ if (
 )
   throw new Error("Windows Ghidra must not advertise database mutation");
 const installDir = process.env.GHIDRA_INSTALL_DIR;
+const configuration = parseConfig(process.env);
+if (!configuration.ok) throw configuration.error;
 if (installDir === undefined || !isAbsolute(installDir))
   throw new Error(
     "Set GHIDRA_INSTALL_DIR to the absolute root of Ghidra 12.1.4.",
@@ -116,6 +119,7 @@ const client = new GhidraClient({
   transport: "authenticated-loopback-tcp",
   providerVersion: SUPPORTED_GHIDRA_VERSION,
   profileDigest: profile.value.profile.digest,
+  startupTimeoutMs: configuration.value.ghidraStartupTimeoutMs,
 });
 
 let coordinates;
