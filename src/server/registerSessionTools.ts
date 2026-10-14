@@ -155,6 +155,12 @@ export interface LifecycleToolRegistration {
   readonly androidAnalysisAvailability: (
     signal: AbortSignal,
   ) => Promise<ProviderAvailability>;
+  readonly adbAnalysisAvailability?: (
+    signal: AbortSignal,
+  ) => Promise<ProviderAvailability>;
+  readonly apktoolAnalysisAvailability?: (
+    signal: AbortSignal,
+  ) => Promise<ProviderAvailability>;
   readonly closeProcessResources: () => Promise<Result<null, AnalysisError>>;
   readonly retryReverseEngineeringCleanup?: (
     operation: string,
@@ -172,6 +178,8 @@ const registerLifecycleTools = (
     startedAt,
     availabilityPolicy,
     androidAnalysisAvailability,
+    adbAnalysisAvailability,
+    apktoolAnalysisAvailability,
   } = registration;
   registerOpenLifecycleTool(registration, artifactResources);
   registerCloseLifecycleTool(registration);
@@ -182,6 +190,12 @@ const registerLifecycleTools = (
     startedAt,
     availabilityPolicy,
     androidAnalysisAvailability,
+    ...(adbAnalysisAvailability === undefined
+      ? {}
+      : { adbAnalysisAvailability }),
+    ...(apktoolAnalysisAvailability === undefined
+      ? {}
+      : { apktoolAnalysisAvailability }),
   });
 };
 
@@ -256,6 +270,12 @@ export interface SessionToolOptions {
   readonly startedAt?: string;
   readonly availabilityPolicy?: () => AvailabilityPolicy;
   readonly androidAnalysisAvailability?: (
+    signal: AbortSignal,
+  ) => Promise<ProviderAvailability>;
+  readonly adbAnalysisAvailability?: (
+    signal: AbortSignal,
+  ) => Promise<ProviderAvailability>;
+  readonly apktoolAnalysisAvailability?: (
     signal: AbortSignal,
   ) => Promise<ProviderAvailability>;
 }
@@ -343,6 +363,12 @@ export const registerSessionTools = (
             retryReverseEngineeringCleanup:
               options.retryReverseEngineeringCleanup,
           }),
+      ...(options.adbAnalysisAvailability === undefined
+        ? {}
+        : { adbAnalysisAvailability: options.adbAnalysisAvailability }),
+      ...(options.apktoolAnalysisAvailability === undefined
+        ? {}
+        : { apktoolAnalysisAvailability: options.apktoolAnalysisAvailability }),
       closeProcessResources: async () => {
         try {
           await processResources.retryCleanup();

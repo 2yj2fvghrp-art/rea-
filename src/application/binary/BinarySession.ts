@@ -952,6 +952,7 @@ export class BinarySession
         runId,
         nativeSourceAdmitted: false,
       };
+      this.#clearRuntimeAvailability();
       return ok(null);
     }
     const closed = await this.#retireClient(client, previous.route.identity.id);
