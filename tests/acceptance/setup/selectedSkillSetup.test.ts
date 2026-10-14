@@ -8,12 +8,75 @@ import {
   symlink,
   writeFile,
 } from "node:fs/promises";
-import { join, relative, resolve } from "node:path";
+import { dirname, join, relative, resolve } from "node:path";
 
 import { expect } from "vitest";
 
 import { createTestTempDirectory } from "../../fixtures/temporaryDirectory.js";
 import { cliTest } from "../../support/cli/cliFixture.js";
+
+cliTest.for(["root", "references"] as const)(
+  "rejects a linked skill %s during planning before configuring a client",
+  async (kind, { cli }) => {
+    const directory = await createTestTempDirectory("rea-skill-preflight-");
+    const selected = join(
+      directory,
+      ".claude/skills/reverse-engineer-anything",
+    );
+    const managed = join(directory, "user-managed");
+    const source = resolve("skills/reverse-engineer-anything");
+    await mkdir(kind === "root" ? dirname(selected) : selected, {
+      recursive: true,
+    });
+    await cp(kind === "root" ? source : join(source, "references"), managed, {
+      recursive: true,
+    });
+    if (kind === "references")
+      await cp(join(source, "SKILL.md"), join(selected, "SKILL.md"));
+    const link = kind === "root" ? selected : join(selected, "references");
+    await symlink(
+      managed,
+      link,
+      process.platform === "win32" ? "junction" : "dir",
+    );
+    const run = (arguments_: readonly string[]) =>
+      cli.run({
+        arguments: [...arguments_, "--json"],
+        cwd: directory,
+        environment: { USERPROFILE: directory },
+      });
+    const preview = await run([
+      "setup",
+      "--client",
+      "claude_code",
+      "--dry-run",
+    ]);
+    const applied = await run(["setup", "--client", "claude_code", "--yes"]);
+    await expect(access(join(directory, ".claude.json"))).rejects.toMatchObject(
+      {
+        code: "ENOENT",
+      },
+    );
+    for (const result of [preview, applied]) {
+      expect(result.exitCode, result.stdout).toBe(1);
+      expect(result.json).toMatchObject({
+        status: "needs_human",
+        code: "skill_install_failed",
+        appliedActions: [],
+      });
+      expect(result.stdout).toContain(link);
+      expect(result.stdout).toContain("--skill=false");
+    }
+    const doctor = await run(["doctor", "--client", "claude_code", "--skill"]);
+    expect(doctor.exitCode, doctor.stdout).toBe(1);
+    expect(doctor.json).toMatchObject({
+      healthy: false,
+      identity: { skill: { state: "unmanaged" } },
+    });
+    expect(doctor.stdout).toContain(link);
+    expect((await lstat(link)).isSymbolicLink()).toBe(true);
+  },
+);
 
 cliTest(
   "setup refuses a linked skill while allowing registration-only setup",
@@ -58,7 +121,7 @@ cliTest(
     expect(doctor.exitCode, doctor.stdout).toBe(1);
     expect(doctor.json).toMatchObject({
       healthy: false,
-      identity: { skill: { state: "missing" } },
+      identity: { skill: { state: "unmanaged" } },
     });
     const registration = await run([
       "setup",
@@ -73,6 +136,52 @@ cliTest(
     expect((await lstat(selected)).isSymbolicLink()).toBe(true);
     expect((await readdir(managed)).sort()).toEqual(["SKILL.md", "references"]);
     expect(await readFile(join(managed, "SKILL.md"), "utf8")).toBe(original);
+  },
+);
+
+cliTest(
+  "uninstall reports retained references and preserves their ownership manifest",
+  async ({ cli }) => {
+    const directory = await createTestTempDirectory("rea-skill-retained-cli-");
+    const selected = join(
+      directory,
+      ".claude/skills/reverse-engineer-anything",
+    );
+    const managed = join(directory, "user-managed-references");
+    const source = resolve("skills/reverse-engineer-anything");
+    await mkdir(selected, { recursive: true });
+    await cp(join(source, "SKILL.md"), join(selected, "SKILL.md"));
+    await cp(join(source, "references"), managed, { recursive: true });
+    await symlink(
+      managed,
+      join(selected, "references"),
+      process.platform === "win32" ? "junction" : "dir",
+    );
+    const before = await readFile(join(managed, "native-and-artifacts.md"));
+    const result = await cli.run({
+      arguments: ["uninstall", "--json"],
+      cwd: directory,
+      environment: { USERPROFILE: directory },
+    });
+    expect(result.exitCode, result.stdout).toBe(0);
+    expect(result.json).toMatchObject({
+      items: expect.arrayContaining([
+        expect.objectContaining({
+          name: "skill",
+          status: "retained",
+          detail: expect.stringContaining("retained"),
+        }),
+      ]),
+    });
+    expect(await readFile(join(selected, "SKILL.md"))).toEqual(
+      await readFile(join(source, "SKILL.md")),
+    );
+    expect(await readFile(join(managed, "native-and-artifacts.md"))).toEqual(
+      before,
+    );
+    expect((await lstat(join(selected, "references"))).isSymbolicLink()).toBe(
+      true,
+    );
   },
 );
 

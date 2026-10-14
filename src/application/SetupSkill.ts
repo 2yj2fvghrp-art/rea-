@@ -178,6 +178,14 @@ export interface InstalledSkillIdentity {
   readonly version: string | null;
   readonly toolCount: number | null;
   readonly canonical: boolean;
+  readonly issues?: readonly SkillPathIssue[];
+}
+
+/** Known management blockers and unresolved filesystem observations. */
+export interface SkillPathIssue {
+  readonly path: string;
+  readonly kind: "symbolic_link" | "not_directory" | "unreadable";
+  readonly detail: string;
 }
 
 /** Resolve the skill roots required by a client selection, or all owned roots. */
@@ -209,8 +217,10 @@ export const existingSkillDestinations = async (
     platform,
   )) {
     try {
-      const root = await lstat(destination.path);
-      if (root.isSymbolicLink() || !root.isDirectory()) continue;
+      const issues = await skillDirectoryIssues([destination]);
+      if (issues.some(({ kind }) => kind === "unreadable"))
+        throw skillDirectoryFailure(issues);
+      if (issues.length > 0) continue;
       const manifest = join(destination.path, "SKILL.md");
       const content = await readSkillFile(manifest, resources);
       if (isManagedSkillManifest(content)) existing.push(destination);
@@ -242,28 +252,76 @@ const readOptionalSkillState = async (
   }
 };
 
-/** Skill directories have the same no-follow ownership rule as uninstall. */
-const requireRegularSkillDirectories = async (root: string): Promise<void> => {
-  for (const path of [root, join(root, "references")]) {
-    try {
-      const directory = await lstat(path);
-      if (directory.isSymbolicLink())
-        throw Object.assign(
-          new Error(
-            "Skill directory is a symbolic link. Use a regular directory or run setup with --skill=false.",
-          ),
-          { path },
-        );
-      if (!directory.isDirectory())
-        throw Object.assign(new Error("Skill path is not a directory."), {
-          path,
-        });
-    } catch (cause: unknown) {
-      if (cause instanceof Error && "code" in cause && cause.code === "ENOENT")
-        continue;
-      throw cause;
-    }
+const inspectSkillDirectory = async (
+  path: string,
+): Promise<Result<void, SkillPathIssue>> => {
+  try {
+    const directory = await lstat(path);
+    if (directory.isSymbolicLink())
+      return err({
+        path,
+        kind: "symbolic_link",
+        detail: "Skill directory is a symbolic link.",
+      });
+    if (!directory.isDirectory())
+      return err({
+        path,
+        kind: "not_directory",
+        detail: "Skill path is not a directory.",
+      });
+    return ok(undefined);
+  } catch (cause: unknown) {
+    if (cause instanceof Error && "code" in cause && cause.code === "ENOENT")
+      return ok(undefined);
+    return err({
+      path,
+      kind: "unreadable",
+      detail: cause instanceof Error ? cause.message : String(cause),
+    });
   }
+};
+
+const skillDirectoryIssues = async (
+  destinations: readonly SkillDestination[],
+): Promise<readonly SkillPathIssue[]> => {
+  const issues: SkillPathIssue[] = [];
+  for (const { path } of destinations) {
+    const root = await inspectSkillDirectory(path);
+    if (!root.ok) {
+      issues.push(root.error);
+      continue;
+    }
+    const references = await inspectSkillDirectory(join(path, "references"));
+    if (!references.ok) issues.push(references.error);
+  }
+  return issues;
+};
+
+const skillDirectoryFailure = (
+  issues: readonly SkillPathIssue[],
+): SetupSkillInstallError =>
+  new SetupSkillInstallError({
+    path: issues[0]?.path ?? "skill bundle",
+    stage: "prepare",
+    reason: `${issues.map(({ path, detail }) => `${detail} (${path})`).join(" ")} Use a regular skill directory, or run setup with --skill=false to configure the client without installing the skill`,
+    rollbackFailures: [],
+    recoveryBackupPaths: [],
+    cause: issues,
+  });
+
+/** Validate only final selected roots; permission to install is separate from freshness. */
+export const validateCanonicalSkillDirectories = async (
+  home: string,
+  clientIds: readonly string[],
+  environment: Readonly<NodeJS.ProcessEnv> = {},
+  platform: NodeJS.Platform = process.platform,
+): Promise<Result<void, SetupSkillInstallError>> => {
+  const issues = await skillDirectoryIssues(
+    skillDestinations(home, clientIds, environment, platform),
+  );
+  return issues.length === 0
+    ? ok(undefined)
+    : err(skillDirectoryFailure(issues));
 };
 
 const canonicalSkillFiles = async (
@@ -279,8 +337,13 @@ const canonicalSkillFiles = async (
     environment,
     platform,
   );
-  for (const { path: root } of destinations)
-    await requireRegularSkillDirectories(root);
+  const admission = await validateCanonicalSkillDirectories(
+    home,
+    clientIds,
+    environment,
+    platform,
+  );
+  if (!admission.ok) throw admission.error;
   return Promise.all(
     destinations.flatMap(({ path: root }) =>
       MANAGED_SKILL_FILES.map(async (relativePath) => {
@@ -295,29 +358,51 @@ const canonicalSkillFiles = async (
   );
 };
 
-const canonicalSkillNeedsInstallByReading = async (
+interface SkillInspectionFailure {
+  readonly issues: readonly SkillPathIssue[];
+  readonly cause: unknown;
+}
+
+const inspectCanonicalSkillAlignment = async (
   home: string,
   clientIds: readonly string[],
   environment: Readonly<NodeJS.ProcessEnv>,
   platform: NodeJS.Platform,
   resources?: ArtifactResourceScope,
-): Promise<boolean> => {
+): Promise<Result<boolean, SkillInspectionFailure>> => {
+  const issues = await skillDirectoryIssues(
+    skillDestinations(home, clientIds, environment, platform),
+  );
+  if (issues.length > 0) return err({ issues, cause: issues });
   for (const { path: root } of skillDestinations(
     home,
     clientIds,
     environment,
     platform,
   )) {
-    await requireRegularSkillDirectories(root);
     for (const relativePath of MANAGED_SKILL_FILES) {
       const destination = join(root, relativePath);
       const content = await canonicalSkillContent(relativePath);
-      const original = await readOptionalSkillState(destination, resources);
+      let original: SkillFileState | undefined;
+      try {
+        original = await readOptionalSkillState(destination, resources);
+      } catch (cause: unknown) {
+        return err({
+          issues: [
+            {
+              path: destination,
+              kind: "unreadable",
+              detail: causeReason(cause),
+            },
+          ],
+          cause,
+        });
+      }
       if (original?.bytes.equals(Buffer.from(content, "utf8")) !== true)
-        return true;
+        return ok(false);
     }
   }
-  return false;
+  return ok(true);
 };
 
 /** Report whether setup would change any file in the managed REA skill bundle. */
@@ -329,20 +414,27 @@ export const canonicalSkillNeedsInstall = async (
   resources?: ArtifactResourceScope,
 ): Promise<boolean> => {
   try {
-    return await canonicalSkillNeedsInstallByReading(
+    const inspection = await inspectCanonicalSkillAlignment(
       home,
       clientIds,
       environment,
       platform,
       resources,
     );
+    if (
+      !inspection.ok &&
+      (inspection.error.cause instanceof RegularFileCleanupFailure ||
+        inspection.error.cause instanceof ArtifactReaderFailure)
+    )
+      throw inspection.error.cause;
+    return !inspection.ok || !inspection.value;
   } catch (cause: unknown) {
     if (
       cause instanceof RegularFileCleanupFailure ||
       cause instanceof ArtifactReaderFailure
     )
       throw cause;
-    // Unreadable skill state fails open to install so setup can repair it.
+    // A copy needs attention; selected-root admission decides whether it may be installed.
     void cause;
     return true;
   }
@@ -464,6 +556,8 @@ export const installCanonicalSkill = async (
     }
     return ok("installed");
   } catch (cause: unknown) {
+    if (stage === "prepare" && cause instanceof SetupSkillInstallError)
+      return err(cause);
     failingPath = causePath(cause) ?? failingPath;
     const rollbackFailures = await restoreSkillFiles(attempted, operations);
     return err(
@@ -497,10 +591,12 @@ export const readInstalledSkillIdentity = async (
     environment,
     platform,
   );
+  const issues = [...(await skillDirectoryIssues(destinations))];
+  if (issues.length > 0)
+    return { canonical: false, version: null, toolCount: null, issues };
   let content: string | undefined;
   for (const destination of destinations) {
     try {
-      await requireRegularSkillDirectories(destination.path);
       content = await readSkillFile(
         join(destination.path, "SKILL.md"),
         resources,
@@ -512,28 +608,38 @@ export const readInstalledSkillIdentity = async (
         cause instanceof ArtifactReaderFailure
       )
         throw cause;
-      // Another selected copy may provide metadata; canonical validation below
-      // still marks missing or unreadable copies as stale.
+      if (
+        !(cause instanceof Error && "code" in cause && cause.code === "ENOENT")
+      )
+        issues.push({
+          path: join(destination.path, "SKILL.md"),
+          kind: "unreadable",
+          detail: cause instanceof Error ? cause.message : String(cause),
+        });
+      // Another selected copy may provide metadata; retain unresolved read facts.
     }
   }
-  if (content === undefined) return undefined;
+  if (content === undefined)
+    return issues.length === 0
+      ? undefined
+      : { canonical: false, version: null, toolCount: null, issues };
   const toolCount = /^\s{2}tool_count:\s*(\d+)\s*$/mu.exec(content)?.[1];
-  let canonical: boolean;
-  try {
-    canonical = !(await canonicalSkillNeedsInstall(
-      home,
-      clientIds,
-      environment,
-      platform,
-      resources,
-    ));
-  } catch (cause: unknown) {
-    if (!(cause instanceof ArtifactReaderFailure)) throw cause;
-    canonical = false;
+  const inspection = await inspectCanonicalSkillAlignment(
+    home,
+    clientIds,
+    environment,
+    platform,
+    resources,
+  );
+  if (!inspection.ok) {
+    if (inspection.error.cause instanceof RegularFileCleanupFailure)
+      throw inspection.error.cause;
+    issues.push(...inspection.error.issues);
   }
   return {
-    canonical,
+    canonical: inspection.ok && inspection.value,
     version: /^\s{2}version:\s*"([^"]+)"\s*$/mu.exec(content)?.[1] ?? null,
     toolCount: toolCount === undefined ? null : Number.parseInt(toolCount, 10),
+    ...(issues.length === 0 ? {} : { issues }),
   };
 };

@@ -7,6 +7,7 @@ import {
   mkdir,
   readFile,
   readdir,
+  rename,
   rm,
   stat,
   symlink,
@@ -19,7 +20,9 @@ import { createTestTempDirectory } from "../../fixtures/temporaryDirectory.js";
 
 import {
   canonicalSkillNeedsInstall,
+  existingSkillDestinations,
   installCanonicalSkill,
+  readInstalledSkillIdentity,
   skillDestinations,
   type SkillInstallFileOperations,
 } from "../../../src/application/SetupSkill.js";
@@ -127,6 +130,63 @@ describe("skill recovery byte preservation", () => {
 });
 
 describe("skill directory admission", () => {
+  it("excludes a linked references directory from update maintenance", async () => {
+    const directory = await createTestTempDirectory(
+      "rea-skill-linked-maintenance-",
+    );
+    const installed = await installCanonicalSkill(directory, ["claude_code"]);
+    expect(installed.ok).toBe(true);
+    const [selected] = skillDestinations(directory, ["claude_code"]);
+    if (selected === undefined) throw new Error("Missing skill destination");
+    const references = join(selected.path, "references");
+    const retained = join(directory, "retained-references");
+    await rename(references, retained);
+    await symlink(
+      retained,
+      references,
+      process.platform === "win32" ? "junction" : "dir",
+    );
+    expect(await existingSkillDestinations(directory)).toEqual([]);
+    expect((await lstat(references)).isSymbolicLink()).toBe(true);
+    await access(join(retained, "native-and-artifacts.md"));
+  });
+
+  it.skipIf(process.platform === "win32" || process.getuid?.() === 0)(
+    "retains an unreadable reference as unknown rather than a content mismatch",
+    async () => {
+      const directory = await createTestTempDirectory(
+        "rea-skill-unreadable-reference-",
+      );
+      expect((await installCanonicalSkill(directory, ["claude_code"])).ok).toBe(
+        true,
+      );
+      const [selected] = skillDestinations(directory, ["claude_code"]);
+      if (selected === undefined) throw new Error("Missing skill destination");
+      const reference = join(
+        selected.path,
+        "references/connection-and-recovery.md",
+      );
+      await chmod(reference, 0o000);
+      try {
+        expect(
+          await readInstalledSkillIdentity(directory, ["claude_code"]),
+        ).toMatchObject({
+          canonical: false,
+          version: PRODUCT_IDENTITY.skillVersion,
+          issues: [
+            expect.objectContaining({
+              path: reference,
+              kind: "unreadable",
+              detail: expect.stringContaining("EACCES"),
+            }),
+          ],
+        });
+      } finally {
+        await chmod(reference, 0o600);
+      }
+    },
+  );
+
   it.each(["root", "references"] as const)(
     "refuses a linked skill %s before changing any selected destination",
     async (linkedDirectory) => {
