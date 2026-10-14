@@ -324,7 +324,8 @@ describe("guided prompt completion from multi-substep inspections", () => {
       ARTIFACT_COMPARISON_EXAMPLE.right.normalized_result,
     );
     const firstSubstep = validInspection.substeps[0];
-    if (!firstSubstep) throw new Error("expected at least one substep in fixture");
+    if (!firstSubstep)
+      throw new Error("expected at least one substep in fixture");
     const malformedSubstep = {
       ...firstSubstep,
       evidence: {
