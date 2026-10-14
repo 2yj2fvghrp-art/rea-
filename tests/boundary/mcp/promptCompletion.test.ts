@@ -270,6 +270,101 @@ describe("guided prompt completion from complete inventories", () => {
   });
 });
 
+describe("guided prompt completion from multi-substep inspections", () => {
+  it("offers identifiers from every retained inventory substep", async () => {
+    const session = createTestBinarySession(() => client([]));
+    const inventories = [
+      ARTIFACT_COMPARISON_EXAMPLE.left,
+      ARTIFACT_COMPARISON_EXAMPLE.right,
+    ].map((input) =>
+      artifactInventoryResultSchema.parse(input.normalized_result),
+    );
+    const inspections = [
+      ARTIFACT_COMPARISON_EXAMPLE.left,
+      ARTIFACT_COMPARISON_EXAMPLE.right,
+    ].map((input) => createArtifactInspection(input));
+    const inspection = {
+      ...inspections[0],
+      substeps: inspections.flatMap((item) => item.substeps),
+      evidence_links: inspections.flatMap((item) => item.evidence_links),
+    };
+    const inspectionEvidence = createEvidence(undefined, fixtureProvider, {
+      operation: "inspect_artifact",
+      parameters: {},
+      result: jsonValueSchema.parse(inspection),
+      confidence: "observed",
+      authority: "shipped-artifact",
+      evidenceLinks: inspection.evidence_links,
+    });
+    expect(session.recordEvidence(inspectionEvidence).ok).toBe(true);
+    const completion = createPromptCompletionSource(session, session);
+
+    expect(await completion.complete("manifest", "agm_")).toEqual(
+      inventories.map((inventory) => inventory.manifest.manifest_id).sort(),
+    );
+    expect(await completion.complete("occurrence", "occ_")).toEqual(
+      [
+        ...new Set(
+          inventories.flatMap((inventory) =>
+            inventory.occurrences.map(({ occurrence_id }) => occurrence_id),
+          ),
+        ),
+      ].sort(),
+    );
+
+    await session.close();
+  });
+
+  it("skips malformed inventory substeps without hiding later valid identifiers", async () => {
+    const session = createTestBinarySession(() => client([]));
+    const validInspection = createArtifactInspection(
+      ARTIFACT_COMPARISON_EXAMPLE.right,
+    );
+    const validInventory = artifactInventoryResultSchema.parse(
+      ARTIFACT_COMPARISON_EXAMPLE.right.normalized_result,
+    );
+    const firstSubstep = validInspection.substeps[0];
+    if (!firstSubstep)
+      throw new Error("expected at least one substep in fixture");
+    const malformedSubstep = {
+      ...firstSubstep,
+      evidence: {
+        ...firstSubstep.evidence,
+        normalized_result: { not: "an inventory" },
+      },
+    };
+    const inspection = {
+      ...validInspection,
+      substeps: [malformedSubstep, ...validInspection.substeps],
+      evidence_links: [
+        ...validInspection.evidence_links,
+        ...validInspection.evidence_links,
+      ],
+    };
+    const inspectionEvidence = createEvidence(undefined, fixtureProvider, {
+      operation: "inspect_artifact",
+      parameters: {},
+      result: jsonValueSchema.parse(inspection),
+      confidence: "observed",
+      authority: "shipped-artifact",
+      evidenceLinks: inspection.evidence_links,
+    });
+    expect(session.recordEvidence(inspectionEvidence).ok).toBe(true);
+    const completion = createPromptCompletionSource(session, session);
+
+    expect(await completion.complete("manifest", "agm_")).toEqual([
+      validInventory.manifest.manifest_id,
+    ]);
+    expect(await completion.complete("occurrence", "occ_")).toEqual(
+      validInventory.occurrences
+        .map(({ occurrence_id }) => occurrence_id)
+        .sort(),
+    );
+
+    await session.close();
+  });
+});
+
 const fixtureProvider = { id: "fixture", name: "Fixture", version: "1" };
 const fixtureEnvironment = {
   id: "fixture-linux",
