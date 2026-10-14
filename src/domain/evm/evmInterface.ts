@@ -145,6 +145,7 @@ export const evmInterfaceSchema = z
         (compiler.status !== "concrete" &&
           (value.bytecode.hex !== null ||
             value.bytecode.sha256 !== null ||
+            value.bytecode.metadata !== null ||
             value.functions.length !== 0))
       )
         context.addIssue({

@@ -141,6 +141,20 @@ export const solcArtifactSchema = z
     const hasPlaceholders = value.placeholders.length > 0;
     if ((value.status === "unlinked") !== hasPlaceholders)
       issue("Placeholder presence differs from compiler object status");
+    const metadata = value.metadata;
+    const metadataAbsent = metadata.parse_status === "absent";
+    if (
+      (metadata.raw === null) !== metadataAbsent ||
+      (metadata.source_range === null) !== metadataAbsent ||
+      (metadata.parse_status !== "valid" &&
+        (metadata.compiler_version !== null || metadata.settings_json !== null))
+    )
+      context.addIssue({
+        code: "custom",
+        path: ["metadata"],
+        message:
+          "Compiler metadata status requires retained source and consistent parsed fact availability.",
+      });
   })
   .superRefine((value, context) => {
     const issue = (message: string) =>

@@ -5,6 +5,7 @@ import {
   inspectEvmInterfaceInputSchema,
   type EvmInterface,
 } from "../domain/evm/evmInterface.js";
+import { solcArtifactSchema } from "../domain/evm/solcArtifact.js";
 import { selectSolcArtifact } from "../domain/evm/solcArtifactSelection.js";
 import {
   projectAnalysisView,
@@ -272,5 +273,60 @@ it("rejects placeholder facts with no source compiler object", () => {
     length: 20,
     value: `__$${"a".repeat(34)}$__`,
   });
+  expect(projectAnalysisView(parent, { kind: "summary" }).ok).toBe(false);
+});
+
+it.each([undefined, `__$${"a".repeat(34)}$__`])(
+  "rejects terminal metadata without decoded compiler bytes: %s",
+  (object) => {
+    const parent = compilerParent(object);
+    const report = parent.normalizedResult as EvmInterface;
+    report.bytecode.metadata = {
+      profile: "terminal-cbor-scalars-v1",
+      status: "unavailable",
+      bytecode_offset: null,
+      cbor_bytes: null,
+      entries: [],
+      compiler_version: null,
+      diagnostic: "No plausible terminal CBOR map was identified.",
+    };
+    expect(projectAnalysisView(parent, { kind: "summary" }).ok).toBe(false);
+  },
+);
+
+it.each([
+  "missing-raw",
+  "missing-range",
+  "valid-without-source",
+  "absent-with-source",
+  "absent-with-version",
+  "absent-with-settings",
+  "malformed-with-version",
+  "resource-limited-with-settings",
+])("rejects contradictory compiler metadata: %s", (problem) => {
+  const parent = compilerParent("6001");
+  const report = parent.normalizedResult as EvmInterface;
+  const compiler = report.compiler_artifact;
+  if (compiler === undefined) throw new Error("Compiler artifact missing");
+  const metadata = compiler.metadata;
+  if (problem === "missing-raw") metadata.raw = null;
+  else if (problem === "missing-range") metadata.source_range = null;
+  else if (problem === "valid-without-source") {
+    metadata.raw = null;
+    metadata.source_range = null;
+  } else if (problem === "absent-with-source") metadata.parse_status = "absent";
+  else if (problem.startsWith("absent")) {
+    metadata.parse_status = "absent";
+    metadata.raw = null;
+    metadata.source_range = null;
+    if (problem === "absent-with-version") metadata.settings_json = null;
+    else metadata.compiler_version = null;
+  } else {
+    metadata.parse_status =
+      problem === "malformed-with-version" ? "malformed" : "resource-limited";
+    if (problem === "malformed-with-version") metadata.settings_json = null;
+    else metadata.compiler_version = null;
+  }
+  expect(solcArtifactSchema.safeParse(compiler).success).toBe(false);
   expect(projectAnalysisView(parent, { kind: "summary" }).ok).toBe(false);
 });
