@@ -73,7 +73,18 @@ import { comparePngScreenshots } from "./PngVisualDiff.js";
 
 import { CDP_BROWSER_PROVIDER_IDENTITY } from "./providerIdentities.js";
 import { compareUnicodeCodePoints } from "../domain/unicodeCodePointOrder.js";
-const CLEANUP_DOMAINS = ["Network", "Debugger", "Runtime", "Page"] as const;
+// Domains the browser observation flows may enable on a target session.
+// Shutdown is best-effort per domain (see closeCdpTargetSession): targets that
+// never enabled one, such as WebMCP outside discover_webmcp_tools, reject the
+// disable command and the rejection is swallowed before detach.
+// Exported for tests that guard the teardown wiring against this list.
+export const CLEANUP_DOMAINS = [
+  "Network",
+  "Debugger",
+  "Runtime",
+  "Page",
+  "WebMCP",
+] as const;
 
 /** Passive browser observation through a selected user-owned CDP endpoint. */
 export class CdpBrowserProvider implements BrowserObservationPort {
