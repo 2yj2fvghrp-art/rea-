@@ -6,6 +6,7 @@ import { describe, expect, it } from "vitest";
 
 import { createTestTempDirectory } from "../../../tests/fixtures/temporaryDirectory.js";
 import { encodeNibArchiveFixture } from "./NibArchive.fixture.js";
+import type { analyzeInterfaceBuilderBundle } from "./InterfaceBuilderAnalysis.js";
 import { ArtifactReaderFailure } from "../ArtifactReader.js";
 import {
   analyzeAppleAssetCatalogs,
@@ -205,4 +206,73 @@ it("keeps recognized image fields on NIBArchive controls out of resource joins",
     runAssetUtil: () => Promise.resolve(JSON.stringify([{ Name: "Toolbar" }])),
   });
   expect(result.resource_key_matches).toEqual([]);
+});
+
+describe("Apple asset catalog and Interface Builder concurrency", () => {
+  const catalogBundle = async () => {
+    const bundle = await createTestTempDirectory("rea-asset-catalog-ib-");
+    const resources = join(bundle, "Contents", "Resources");
+    await mkdir(resources, { recursive: true });
+    await writeFile(join(resources, "Assets.car"), "catalog");
+    return bundle;
+  };
+  const emptyGraph = {
+    graph: { nodes: [], truncated: false },
+  } as unknown as Awaited<ReturnType<typeof analyzeInterfaceBuilderBundle>>;
+
+  it("runs the Interface Builder analysis while catalogs are inspected", async () => {
+    let interfaceBuilderStarted = false;
+    let startedBeforeCatalog: boolean | undefined;
+    await analyzeAppleAssetCatalogs({
+      environment: {},
+      bundlePath: await catalogBundle(),
+      targetSha256: "a".repeat(64),
+      analyzeInterfaceBuilder: async () => {
+        interfaceBuilderStarted = true;
+        return emptyGraph;
+      },
+      runAssetUtil: async () => {
+        startedBeforeCatalog = interfaceBuilderStarted;
+        return "[]";
+      },
+    });
+    expect(startedBeforeCatalog).toBe(true);
+  });
+
+  it("cancels the Interface Builder analysis and reports a catalog failure", async () => {
+    let cancelled = false;
+    let settled = false;
+    const rejected = await analyzeAppleAssetCatalogs({
+      environment: {},
+      bundlePath: await catalogBundle(),
+      targetSha256: "a".repeat(64),
+      analyzeInterfaceBuilder: ({ signal }) =>
+        new Promise((_, reject) => {
+          signal?.addEventListener("abort", () => {
+            cancelled = true;
+            setImmediate(() => {
+              settled = true;
+              reject(new Error("interface builder cancelled"));
+            });
+          });
+        }),
+      runAssetUtil: () => Promise.reject(new Error("assetutil failed")),
+    }).catch((cause: unknown) => cause);
+    expect(rejected).toMatchObject({ message: "assetutil failed" });
+    expect(cancelled).toBe(true);
+    expect(settled).toBe(true);
+  });
+
+  it("reports an Interface Builder failure once catalogs are inspected", async () => {
+    await expect(
+      analyzeAppleAssetCatalogs({
+        environment: {},
+        bundlePath: await catalogBundle(),
+        targetSha256: "a".repeat(64),
+        analyzeInterfaceBuilder: () =>
+          Promise.reject(new Error("interface builder failed")),
+        runAssetUtil: () => Promise.resolve("[]"),
+      }),
+    ).rejects.toThrow("interface builder failed");
+  });
 });
