@@ -623,7 +623,8 @@ it.each([false, true])(
     try {
       await expect(reader.close()).rejects.toBe(closeFailure);
       await reader.close();
-      expect(attempts).toBe(temporaryPyz ? 3 : 2);
+      // Spooled PYZ images close after listing, so only the source owner remains.
+      expect(attempts).toBe(2);
       expect(owners[0]).toBe(owners[1]);
     } finally {
       close.mockRestore();
@@ -991,4 +992,115 @@ it("uses known PYZ magic for separate CArchive scripts when the marshal table st
     snapshot,
   );
   expect(await readFile(join(output, "hello"))).toEqual(derived(script));
+});
+
+it("rejects duplicate CArchive member names before projecting PYZ children", async () => {
+  const image = pyzArchive({
+    magic: PYTHON_39_MAGIC,
+    modules: [{ name: "child", typeCode: 0, body: Buffer.from("child") }],
+  });
+  const path = await writeArchive(
+    "duplicate-names",
+    cArchiveExecutable({
+      layout: "2.1",
+      pythonVersion: 309,
+      members: [
+        { name: "PYZ.pyz", typeCode: "z", payload: image, compress: false },
+        {
+          name: "PYZ.pyz",
+          typeCode: "x",
+          payload: Buffer.alloc(0),
+          compress: false,
+        },
+      ],
+    }),
+  );
+  await expect(scanCanonicalArtifactInventory(path)).rejects.toMatchObject({
+    reason: "integrity",
+    message: "Duplicate CArchive member name: PYZ.pyz",
+  });
+});
+
+it("closes each spooled PYZ image after listing and reopens it for a requested module", async () => {
+  const bodies = [0, 1, 2].map((index) => Buffer.from(`module ${index}`));
+  const path = await writeArchive(
+    "spooled-pyz",
+    cArchiveExecutable({
+      layout: "2.1",
+      pythonVersion: 309,
+      members: bodies.map((body, index) => ({
+        name: `PYZ-${index}.pyz`,
+        typeCode: "z" as const,
+        payload: pyzArchive({
+          magic: PYTHON_39_MAGIC,
+          modules: [{ name: "child", typeCode: 0, body }],
+        }),
+        compress: true,
+      })),
+    }),
+  );
+  const close = vi.spyOn(OwnedFileHandle.prototype, "close");
+  const reader = new PyInstallerArtifactReader(path);
+  try {
+    const iterator = reader.entries()[Symbol.asyncIterator]();
+    const first = await iterator.next();
+    // Every spooled image is closed once its table is read, before any entry is yielded.
+    expect(close.mock.calls.length).toBe(bodies.length);
+    const entries = first.done === true ? [] : [first.value];
+    for (
+      let next = await iterator.next();
+      next.done !== true;
+      next = await iterator.next()
+    )
+      entries.push(next.value);
+    const selected = entries.find(
+      (entry) => entry.path === "PYZ-1.pyz/child.pyc",
+    );
+    if (selected === undefined) throw new Error("Missing PYZ child");
+    expect(await buffer(await reader.open(selected))).toEqual(
+      derived(bodies[1] as Buffer),
+    );
+  } finally {
+    close.mockRestore();
+    await reader.close();
+  }
+});
+
+it("retains a spooled PYZ owner whose close fails after listing", async () => {
+  const path = await writeArchive(
+    "spool-close-owner",
+    cArchiveExecutable({
+      layout: "2.1",
+      pythonVersion: 309,
+      members: [
+        {
+          name: "PYZ.pyz",
+          typeCode: "z",
+          payload: pyzArchive({ magic: PYTHON_39_MAGIC, modules: [] }),
+          compress: true,
+        },
+      ],
+    }),
+  );
+  const originalClose = OwnedFileHandle.prototype.close;
+  const owners: OwnedFileHandle[] = [];
+  const closeFailure = new Error("spool close failed");
+  const close = vi
+    .spyOn(OwnedFileHandle.prototype, "close")
+    .mockImplementation(async function (this: OwnedFileHandle) {
+      owners.push(this);
+      if (owners.length === 1) throw closeFailure;
+      await originalClose.call(this);
+    });
+  const reader = new PyInstallerArtifactReader(path);
+  try {
+    await expect(reader.entries()[Symbol.asyncIterator]().next()).rejects.toBe(
+      closeFailure,
+    );
+    await reader.close();
+    expect(owners.filter((owner) => owner === owners[0])).toHaveLength(2);
+  } finally {
+    close.mockRestore();
+    await reader.close().catch(() => undefined);
+  }
 });

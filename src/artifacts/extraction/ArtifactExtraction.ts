@@ -469,12 +469,16 @@ const pathContainsPyInstallerArchive = async (
       (await owner.handle.stat()).size,
     );
   } catch (cause: unknown) {
-    // Keep the detection failure primary; a failed close stays retained.
-    await resourceScope.release({
+    const cleanup = await resourceScope.release({
       kind: "file-handle",
       resource,
       handle: owner,
     });
+    if (cleanup.kind === "failed")
+      throw ArtifactReaderFailure.withCleanup(
+        cause,
+        ArtifactReaderFailure.cleanupObservation(cleanup.cause, resource),
+      );
     throw cause;
   }
   const cleanup = await resourceScope.release({

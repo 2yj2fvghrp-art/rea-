@@ -68,7 +68,9 @@ export class PyInstallerArtifactReader implements ArtifactReader {
   #charged = 0;
   #facts: readonly string[] = [];
   #temporaryRoot: string | undefined;
+  #temporarySerial = 0;
   readonly #temporaryHandles = new Set<OwnedFileHandle>();
+  readonly #spooledPyz = new Map<FileHandle, string>();
   readonly #members = new Map<string, PyInstallerMember>();
   readonly #openedPyzSizes = new Map<string, number>();
 
@@ -150,6 +152,7 @@ export class PyInstallerArtifactReader implements ArtifactReader {
     this.#loaded = undefined;
     this.#members.clear();
     this.#openedPyzSizes.clear();
+    this.#spooledPyz.clear();
   }
 
   async #load(signal?: AbortSignal): Promise<LoadedArchive> {
@@ -166,6 +169,7 @@ export class PyInstallerArtifactReader implements ArtifactReader {
     const toc = await this.#toc(handle, cookie);
     for (const entry of toc) this.#charge(entry.uncompressedSize);
     assertMemberRanges(toc, cookie.tocOffset);
+    assertUniqueMemberNames(toc);
     const images = await this.#pyzImages(handle, cookie, toc, signal);
     const magic = firstPythonMagic(images);
     const encrypted = archiveUsesEncryption(toc);
@@ -232,15 +236,19 @@ export class PyInstallerArtifactReader implements ArtifactReader {
     cookie: PyInstallerCookie,
     toc: readonly CArchiveEntry[],
     signal: AbortSignal | undefined,
-  ): Promise<ReadonlyMap<string, PyzImage>> {
-    const images = new Map<string, PyzImage>();
+  ): Promise<ReadonlyMap<CArchiveEntry, PyzImage>> {
+    const images = new Map<CArchiveEntry, PyzImage>();
     for (const entry of toc) {
       if (entry.typeCode !== "z") continue;
       abortIfNeeded(signal);
-      const source =
+      const spooled =
         entry.compressionFlag === 0
-          ? { handle, start: cookie.archiveStart + entry.offset }
+          ? undefined
           : await this.#spoolPyz(handle, cookie.archiveStart, entry, signal);
+      const source = spooled ?? {
+        handle,
+        start: cookie.archiveStart + entry.offset,
+      };
       const parsed = await readPyzArchive(
         source.handle,
         source.start,
@@ -248,7 +256,16 @@ export class PyInstallerArtifactReader implements ArtifactReader {
         signal,
       );
       if (!parsed.ok) throw failure(parsed.error);
-      images.set(entry.name, { archive: parsed.value, ...source });
+      if (spooled !== undefined) {
+        await spooled.owner.close();
+        this.#temporaryHandles.delete(spooled.owner);
+        this.#spooledPyz.set(spooled.handle, spooled.path);
+      }
+      images.set(entry, {
+        archive: parsed.value,
+        handle: source.handle,
+        start: source.start,
+      });
     }
     return images;
   }
@@ -258,14 +275,20 @@ export class PyInstallerArtifactReader implements ArtifactReader {
     archiveStart: number,
     entry: CArchiveEntry,
     signal?: AbortSignal,
-  ): Promise<{ readonly handle: FileHandle; readonly start: number }> {
+  ): Promise<{
+    readonly handle: FileHandle;
+    readonly start: number;
+    readonly path: string;
+    readonly owner: OwnedFileHandle;
+  }> {
     if (entry.compressedSize === 0)
       throw new ArtifactReaderFailure(
         "format",
         "Compressed PYZ image has no zlib bytes",
       );
     this.#temporaryRoot ??= await mkdtemp(join(tmpdir(), "rea-pyz-"));
-    const path = join(this.#temporaryRoot, String(this.#temporaryHandles.size));
+    const path = join(this.#temporaryRoot, String(this.#temporarySerial));
+    this.#temporarySerial += 1;
     let bytes = 0;
     const bounded = new Transform({
       transform(chunk: Buffer, _encoding, callback) {
@@ -318,14 +341,15 @@ export class PyInstallerArtifactReader implements ArtifactReader {
         "Decompressed PYZ image size disagrees with its table entry",
       );
     const opened = await open(path, "r");
-    this.#temporaryHandles.add(new OwnedFileHandle(opened));
-    return { handle: opened, start: 0 };
+    const owner = new OwnedFileHandle(opened);
+    this.#temporaryHandles.add(owner);
+    return { handle: opened, start: 0, path, owner };
   }
 
   #project(
     toc: readonly CArchiveEntry[],
     cookie: PyInstallerCookie,
-    images: ReadonlyMap<string, PyzImage>,
+    images: ReadonlyMap<CArchiveEntry, PyzImage>,
     magic: Buffer | undefined,
     encrypted: boolean,
     signal: AbortSignal | undefined,
@@ -333,7 +357,7 @@ export class PyInstallerArtifactReader implements ArtifactReader {
     const members: PyInstallerMember[] = [];
     for (const entry of toc) {
       abortIfNeeded(signal);
-      const image = images.get(entry.name);
+      const image = entry.typeCode === "z" ? images.get(entry) : undefined;
       if (image === undefined) {
         members.push(projectStoredMember(entry, cookie.archiveStart, magic));
         continue;
@@ -406,7 +430,11 @@ export class PyInstallerArtifactReader implements ArtifactReader {
       const remaining =
         previousSize ??
         this.#budget - this.#charged - (read.header?.length ?? 0);
-      const compressed = await readExact(read.handle, read.offset, read.length);
+      const compressed = await this.#readPyzRange(
+        read.handle,
+        read.offset,
+        read.length,
+      );
       const inflated = await inflateBounded(compressed, remaining);
       if (!inflated.ok) throw failure(inflated.error);
       if (previousSize === undefined) {
@@ -433,6 +461,24 @@ export class PyInstallerArtifactReader implements ArtifactReader {
     return read.header === undefined
       ? bytes
       : Buffer.concat([read.header, bytes]);
+  }
+
+  async #readPyzRange(
+    handle: FileHandle,
+    offset: number,
+    length: number,
+  ): Promise<Buffer> {
+    const path = this.#spooledPyz.get(handle);
+    if (path === undefined) return readExact(handle, offset, length);
+    const opened = await open(path, "r");
+    const owner = new OwnedFileHandle(opened);
+    this.#temporaryHandles.add(owner);
+    try {
+      return await readExact(opened, offset, length);
+    } finally {
+      await owner.close();
+      this.#temporaryHandles.delete(owner);
+    }
   }
 
   async #verifySource(): Promise<void> {
@@ -471,12 +517,24 @@ export class PyInstallerArtifactReader implements ArtifactReader {
 }
 
 const firstPythonMagic = (
-  images: ReadonlyMap<string, PyzImage>,
+  images: ReadonlyMap<CArchiveEntry, PyzImage>,
 ): Buffer | undefined => {
   for (const image of images.values())
     if (image.archive.pythonMagic !== undefined)
       return image.archive.pythonMagic;
   return undefined;
+};
+
+const assertUniqueMemberNames = (entries: readonly CArchiveEntry[]): void => {
+  const names = new Set<string>();
+  for (const entry of entries) {
+    if (names.has(entry.name))
+      throw new ArtifactReaderFailure(
+        "integrity",
+        `Duplicate CArchive member name: ${entry.name}`,
+      );
+    names.add(entry.name);
+  }
 };
 
 const assertMemberRanges = (
