@@ -1,11 +1,14 @@
 import { chmod, mkdir, writeFile } from "node:fs/promises";
 import { join } from "node:path";
 
+import { crc32 } from "node:zlib";
+
 import { TextReader, Uint8ArrayWriter, ZipWriter } from "@zip.js/zip.js";
 import { describe, expect, it } from "vitest";
 
 import { inventoryArtifact } from "../../../tests/fixtures/artifactInventory.js";
 import { compareArtifacts } from "../../domain/artifactComparison.js";
+import { occurrenceIdForLocation } from "../../domain/artifactIdentity.js";
 import { projectAppleApplication } from "../../domain/apple/appleApplication.js";
 import { createEvidence } from "../../domain/evidence.js";
 import { jsonValueSchema } from "../../domain/jsonValue.js";
@@ -13,6 +16,61 @@ import { thinMach } from "../../domain/binaryTarget.fixture.js";
 import { createTestTempDirectory } from "../../../tests/fixtures/temporaryDirectory.js";
 
 const names = ["main.js", "payload.bin", "addon.node"];
+
+const textEncoder = new TextEncoder();
+
+/** Build a minimal stored (uncompressed) ZIP, allowing duplicate entry names. */
+const storedZip = (
+  entries: ReadonlyArray<readonly [string, string]>,
+): Uint8Array => {
+  const localParts: Uint8Array[] = [];
+  const centralParts: Uint8Array[] = [];
+  let offset = 0;
+  for (const [name, content] of entries) {
+    const nameBytes = textEncoder.encode(name);
+    const data = textEncoder.encode(content);
+    const checksum = crc32(data) >>> 0;
+    const local = new DataView(new ArrayBuffer(30));
+    local.setUint32(0, 0x04034b50, true);
+    local.setUint16(4, 20, true);
+    local.setUint32(14, checksum, true);
+    local.setUint32(18, data.length, true);
+    local.setUint32(22, data.length, true);
+    local.setUint16(26, nameBytes.length, true);
+    localParts.push(new Uint8Array(local.buffer), nameBytes, data);
+    const central = new DataView(new ArrayBuffer(46));
+    central.setUint32(0, 0x02014b50, true);
+    central.setUint16(6, 20, true);
+    central.setUint32(16, checksum, true);
+    central.setUint32(20, data.length, true);
+    central.setUint32(24, data.length, true);
+    central.setUint16(28, nameBytes.length, true);
+    central.setUint32(42, offset, true);
+    centralParts.push(new Uint8Array(central.buffer), nameBytes);
+    offset += 30 + nameBytes.length + data.length;
+  }
+  const centralSize = centralParts.reduce(
+    (total, part) => total + part.length,
+    0,
+  );
+  const end = new DataView(new ArrayBuffer(22));
+  end.setUint32(0, 0x06054b50, true);
+  end.setUint16(8, entries.length, true);
+  end.setUint16(10, entries.length, true);
+  end.setUint32(12, centralSize, true);
+  end.setUint32(16, offset, true);
+  const output = new Uint8Array(offset + centralSize + 22);
+  let position = 0;
+  for (const part of [
+    ...localParts,
+    ...centralParts,
+    new Uint8Array(end.buffer),
+  ]) {
+    output.set(part, position);
+    position += part.length;
+  }
+  return output;
+};
 
 const observeArchive = async (order: readonly string[]) => {
   const directory = await createTestTempDirectory("rea-occurrence-identity-");
@@ -233,4 +291,65 @@ describe("directly selected executable formats", () => {
       expect(embedded).toEqual(direct);
     },
   );
+});
+
+describe("duplicate archive entry paths", () => {
+  it("reports duplicate ZIP paths without hiding the remaining members", async () => {
+    const directory = await createTestTempDirectory("rea-duplicate-zip-path-");
+    const path = join(directory, "duplicate.zip");
+    await writeFile(
+      path,
+      storedZip([
+        ["Chemin.txt", "first occurrence\n"],
+        ["Chemin.txt", "second occurrence\n"],
+        ["other.txt", "visible member\n"],
+      ]),
+    );
+
+    const inventory = await inventoryArtifact(path);
+    const duplicates = inventory.occurrences.filter(
+      ({ logical_path }) => logical_path === "Chemin.txt",
+    );
+
+    expect(duplicates).toHaveLength(2);
+    expect(duplicates[0]?.occurrence_id).toBe(
+      occurrenceIdForLocation({
+        rootArtifactId: inventory.manifest.root_artifact_id,
+        logicalPath: "Chemin.txt",
+        entryKind: "file",
+      }),
+    );
+    expect(duplicates[1]?.occurrence_id).toBe(
+      occurrenceIdForLocation({
+        rootArtifactId: inventory.manifest.root_artifact_id,
+        logicalPath: "Chemin.txt",
+        entryKind: "file",
+        duplicateOrdinal: 1,
+      }),
+    );
+    expect(duplicates[0]?.limitations).not.toContain(
+      "Duplicate archive entry path; earlier occurrence of this path exists.",
+    );
+    expect(duplicates[1]?.limitations).toContain(
+      "Duplicate archive entry path; earlier occurrence of this path exists.",
+    );
+    expect(
+      inventory.occurrences.some(
+        ({ logical_path }) => logical_path === "other.txt",
+      ),
+    ).toBe(true);
+
+    const evidence = createEvidence(
+      { path, sha256: inventory.manifest.root_sha256, format: "zip" },
+      { id: "rea-artifact-graph", name: "artifact inventory", version: "1" },
+      {
+        operation: "inventory_artifact",
+        parameters: {},
+        result: jsonValueSchema.parse(inventory),
+        confidence: "observed",
+        authority: "shipped-artifact",
+      },
+    );
+    expect(evidence.operation).toBe("inventory_artifact");
+  });
 });

@@ -2,8 +2,10 @@ import { describe, expect, it } from "vitest";
 
 import {
   annotateEnglishUnicodeCaseCollisions,
+  ArtifactPathRegistry,
   ENGLISH_UNICODE_CASE_INVENTORY_LIMITATION,
 } from "./ArtifactPaths.js";
+import { ArtifactReaderFailure } from "./ArtifactReader.js";
 
 const NOTE =
   "a case-insensitive destination cannot store both. This comparison is not a filesystem observation.";
@@ -103,6 +105,33 @@ describe("English Unicode case collisions", () => {
     const { byPath } = annotate([deep, `${deep}/X`, `${deep}/x`]);
     expect(byPath.get(`${deep}/X`)).toHaveLength(1);
     expect(byPath.get(deep)).toEqual([]);
+  });
+});
+
+describe("ArtifactPathRegistry", () => {
+  it("reports an exact same-kind repeat as a duplicate", () => {
+    const registry = new ArtifactPathRegistry();
+    expect(registry.add("Chemin.txt", "file")).toBe("added");
+    expect(registry.add("Chemin.txt", "file")).toBe("duplicate");
+  });
+
+  it("keeps path-kind and prefix conflicts as typed path failures", () => {
+    const samePath = new ArtifactPathRegistry();
+    samePath.add("Chemin.txt", "file");
+    expect(() =>
+      samePath.add("Chemin.txt", "directory"),
+    ).toThrow(ArtifactReaderFailure);
+
+    const prefix = new ArtifactPathRegistry();
+    prefix.add("a", "file");
+    let failure: unknown;
+    try {
+      prefix.add("a/b", "file");
+    } catch (cause: unknown) {
+      failure = cause;
+    }
+    expect(failure).toBeInstanceOf(ArtifactReaderFailure);
+    expect(failure).toMatchObject({ reason: "path" });
   });
 });
 

@@ -312,8 +312,14 @@ const validateCompleteInventory = (inventory: InventorySet): void => {
     throw new TypeError(
       "Artifact root occurrence does not match its manifest representation",
     );
+  const occurrenceContext: OccurrenceValidationContext = {
+    inventory,
+    nodeIds,
+    occurrenceIds,
+    pathCounts: new Map<string, number>(),
+  };
   for (const occurrence of inventory.occurrences)
-    validateOccurrence(occurrence, inventory, nodeIds, occurrenceIds);
+    validateOccurrence(occurrence, occurrenceContext);
   const occurrencesById = new Map(
     inventory.occurrences.map((occurrence) => [
       occurrence.occurrence_id,
@@ -357,23 +363,34 @@ const validateCompleteInventory = (inventory: InventorySet): void => {
     throw new TypeError("Artifact manifest ID does not match its commitment");
 };
 
+type OccurrenceValidationContext = {
+  readonly inventory: InventorySet;
+  readonly nodeIds: ReadonlySet<string>;
+  readonly occurrenceIds: ReadonlySet<string>;
+  readonly pathCounts: Map<string, number>;
+};
+
 const validateOccurrence = (
   occurrence: ArtifactOccurrence,
-  inventory: InventorySet,
-  nodeIds: ReadonlySet<string>,
-  occurrenceIds: ReadonlySet<string>,
+  context: OccurrenceValidationContext,
 ): void => {
-  if (occurrence.artifact_id !== null && !nodeIds.has(occurrence.artifact_id))
+  if (
+    occurrence.artifact_id !== null &&
+    !context.nodeIds.has(occurrence.artifact_id)
+  )
     throw new TypeError("Artifact occurrence references a missing node");
   if (
     occurrence.parent_occurrence_id !== null &&
-    !occurrenceIds.has(occurrence.parent_occurrence_id)
+    !context.occurrenceIds.has(occurrence.parent_occurrence_id)
   )
     throw new TypeError("Artifact occurrence references a missing parent");
+  const seen = context.pathCounts.get(occurrence.logical_path) ?? 0;
+  context.pathCounts.set(occurrence.logical_path, seen + 1);
   const expectedId = occurrenceIdForLocation({
-    rootArtifactId: inventory.manifest.root_artifact_id,
+    rootArtifactId: context.inventory.manifest.root_artifact_id,
     logicalPath: occurrence.logical_path,
     entryKind: occurrence.entry_kind,
+    ...(seen > 0 ? { duplicateOrdinal: seen } : {}),
   });
   if (occurrence.occurrence_id !== expectedId)
     throw new TypeError("Artifact occurrence ID does not match its identity");

@@ -55,6 +55,7 @@ interface ScanContext {
   readonly occurrences: MutableOccurrence[];
   readonly pendingContradictions: PendingIntegrityContradiction[];
   readonly occurrenceByPath: Map<string, MutableOccurrence>;
+  readonly pathOccurrenceCounts: Map<string, number>;
   readonly registry: ArtifactPathRegistry;
   readonly expandedContainerIds: Set<string>;
   readonly ownedReaders: ArtifactReader[];
@@ -90,6 +91,7 @@ export const scanReader = async (
     occurrences,
     pendingContradictions,
     occurrenceByPath: new Map<string, MutableOccurrence>(),
+    pathOccurrenceCounts: new Map<string, number>(),
     registry: new ArtifactPathRegistry(),
     expandedContainerIds: new Set<string>(),
     ownedReaders,
@@ -172,11 +174,24 @@ const visitArtifactEntries = async (
           : `${frame.prefix}/${entry.path}`,
       );
       const expandableAsar = isExpandableAsar(entry, logicalPath);
-      context.registry.add(
+      const registration = context.registry.add(
         logicalPath,
         expandableAsar ? "directory" : entry.kind,
       );
-      const occurrence = createOccurrence(entry, logicalPath, null);
+      const duplicateOrdinal =
+        context.pathOccurrenceCounts.get(logicalPath) ?? 0;
+      context.pathOccurrenceCounts.set(logicalPath, duplicateOrdinal + 1);
+      const isDuplicate = registration === "duplicate";
+      const occurrence = createOccurrence(
+        entry,
+        logicalPath,
+        null,
+        isDuplicate ? duplicateOrdinal : undefined,
+      );
+      if (isDuplicate)
+        occurrence.limitations.push(
+          "Duplicate archive entry path; earlier occurrence of this path exists.",
+        );
       let digested:
         | {
             readonly node: ArtifactNode;
@@ -211,7 +226,8 @@ const visitArtifactEntries = async (
           );
       }
       context.occurrences.push(occurrence);
-      context.occurrenceByPath.set(logicalPath, occurrence);
+      if (!isDuplicate)
+        context.occurrenceByPath.set(logicalPath, occurrence);
       if (
         expandableAsar &&
         digested !== undefined &&

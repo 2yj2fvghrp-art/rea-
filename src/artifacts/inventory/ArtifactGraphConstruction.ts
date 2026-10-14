@@ -70,6 +70,7 @@ export const createOccurrence = (
   entry: ArtifactEntry,
   path: string,
   parent: string | null,
+  duplicateOrdinal?: number,
 ): MutableOccurrence => {
   const role =
     entry.kind === "directory"
@@ -83,7 +84,12 @@ export const createOccurrence = (
         ? classifyArtifactPath(path)
         : ({ kind: "unknown", format: "unknown" } as const);
   return {
-    occurrence_id: `occ_${digestCanonicalValue({ path, kind: entry.kind }, "Artifact")}`,
+    occurrence_id: `occ_${digestCanonicalValue(
+      duplicateOrdinal === undefined
+        ? { path, kind: entry.kind }
+        : { path, kind: entry.kind, duplicateOrdinal },
+      "Artifact",
+    )}`,
     artifact_id: null,
     parent_occurrence_id: parent,
     logical_path: path,
@@ -249,15 +255,20 @@ export const rekeyOccurrences = (
   occurrences: MutableOccurrence[],
 ): void => {
   const replacements = new Map<string, string>();
-  for (const occurrence of occurrences)
+  const pathCounts = new Map<string, number>();
+  for (const occurrence of occurrences) {
+    const seen = pathCounts.get(occurrence.logical_path) ?? 0;
+    pathCounts.set(occurrence.logical_path, seen + 1);
     replacements.set(
       occurrence.occurrence_id,
       occurrenceIdForLocation({
         rootArtifactId,
         logicalPath: occurrence.logical_path,
         entryKind: occurrence.entry_kind,
+        ...(seen > 0 ? { duplicateOrdinal: seen } : {}),
       }),
     );
+  }
   for (const occurrence of occurrences) {
     occurrence.occurrence_id =
       replacements.get(occurrence.occurrence_id) ?? occurrence.occurrence_id;

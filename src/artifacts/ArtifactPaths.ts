@@ -45,7 +45,10 @@ export const normalizeArtifactPath = (input: string): string => {
 export class ArtifactPathRegistry {
   readonly #root: PathTrieNode = { kind: undefined, children: new Map() };
 
-  add(path: string, kind: "file" | "directory" | "symlink" | "slice"): void {
+  add(
+    path: string,
+    kind: "file" | "directory" | "symlink" | "slice",
+  ): "added" | "duplicate" {
     const parts = path.split("/");
     let node = this.#root;
     for (const [index, part] of parts.entries()) {
@@ -61,6 +64,7 @@ export class ArtifactPathRegistry {
       }
       node = child;
       if (index === parts.length - 1) {
+        if (node.kind === kind) return "duplicate";
         if (node.kind !== undefined)
           throw new ArtifactReaderFailure(
             "path",
@@ -74,6 +78,7 @@ export class ArtifactPathRegistry {
       }
     }
     node.kind = kind;
+    return "added";
   }
 }
 
