@@ -69,8 +69,8 @@ describe("onboarding documentation product facts", () => {
   it("keeps the fork README distinct from upstream release instructions", async () => {
     const rel = await readFile(resolve("README.md"), "utf8");
     const upstream = await readFile(resolve("UPSTREAM_REA_README.md"), "utf8");
-    expect(rel).toContain("# REL");
-    expect(rel).toContain("node rel.mjs demo");
+    expect(rel).toContain("# REE");
+    expect(rel).toContain("node ree.mjs demo");
     expect(rel).toContain("rel/CONNECT_CODEX.md");
     expect(upstream).toContain("# REA: Reverse Engineer Anything");
   });

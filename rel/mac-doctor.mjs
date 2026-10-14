@@ -90,7 +90,8 @@ export function assessMacHost(input) {
       supported: nodeSupported,
     },
     capabilities: {
-      visualLab: nodeSupported,
+      // The dependency-free teaching server is already running on this Node.
+      visualLab: true,
       repoDependencies: Boolean(input.dependenciesPresent),
       builtReaCli: Boolean(input.runtimeBuilt),
       builtMcpServer: Boolean(input.mcpBuilt),
@@ -106,7 +107,7 @@ export function assessMacHost(input) {
     },
     guidance: steps,
     limits: [
-      "A readiness check does not run REL, REA or a reverse-engineering provider.",
+      "A readiness check does not run REE, REA or a reverse-engineering provider.",
       "PATH checks cannot confirm tools installed as Mac apps or verify tool licenses.",
       "The exact Mac CPU and available storage must be read on the actual machine.",
     ],
@@ -172,7 +173,7 @@ export function formatMacDiagnosis(result) {
   const r = result;
   const format = (v) => (v === null || v === undefined ? "unknown" : String(v));
   return [
-    "REL / Mac readiness check (read-only)",
+    "REE / Mac readiness check (read-only)",
     "System: " +
       r.host.platform +
       " / " +
@@ -188,7 +189,7 @@ export function formatMacDiagnosis(result) {
       " GiB | free: " +
       r.host.freeMemoryGiB +
       " GiB",
-    "Free space in REL volume: " + format(r.host.diskFreeGiB) + " GiB",
+    "Free space in REE volume: " + format(r.host.diskFreeGiB) + " GiB",
     "Node: " +
       r.node.current +
       " (pinned " +

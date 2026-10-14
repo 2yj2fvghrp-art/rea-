@@ -32,7 +32,7 @@ writeFileSync(join(fixture, "helper.mjs"), "export const answer = 42;\n");
 const sourceFile = join(fixture, "example.mjs");
 const webCapture = join(home, "test.har");
 writeFileSync(webCapture, "{}");
-const cli = fileURLToPath(new URL("../rel.mjs", import.meta.url));
+const cli = fileURLToPath(new URL("../ree.mjs", import.meta.url));
 process.on("exit", () => rmSync(home, { recursive: true, force: true }));
 
 test("authorization must be explicit even for a source-owned fixture", () => {
@@ -68,7 +68,7 @@ test("output may not be placed in the target, nor contain the target", () => {
   assert.throws(() => planStaticAnalysis(fixture, home, true), /outside/);
 });
 
-test("output may not be placed inside the REL repository", () => {
+test("output may not be placed inside the REE repository", () => {
   assert.throws(
     () => planStaticAnalysis(fixture, join(repository, "evidence"), true),
     /outside/,
@@ -127,7 +127,7 @@ test("Codex status command is informational and has no configuration side effect
     encoding: "utf8",
   });
   assert.match(output, /Codex workspace configuration/);
-  assert.match(output, /Only this REL fork/);
+  assert.match(output, /Only this REE fork/);
 });
 
 test("arbitrary analysis without authorization is refused", () => {
@@ -142,7 +142,7 @@ test("arbitrary analysis without authorization is refused", () => {
   );
 });
 
-test("real REL command retains complete Evidence once and reports the authenticated summary", () => {
+test("real REE command retains complete Evidence once and reports the authenticated summary", () => {
   const output = join(home, "real-analysis");
   execFileSync(
     process.execPath,

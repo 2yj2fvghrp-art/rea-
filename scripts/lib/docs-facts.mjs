@@ -162,8 +162,8 @@ export const documentationFactIssues = async (root, catalog) => {
 
   const forkReadme = await readFile(join(root, "README.md"), "utf8");
   for (const expected of [
-    "# REL",
-    "node rel.mjs",
+    "# REE",
+    "node ree.mjs",
     "rel/CONNECT_CODEX.md",
     "UPSTREAM_REA_README.md",
   ])

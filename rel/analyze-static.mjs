@@ -64,7 +64,7 @@ export function planStaticAnalysis(inputPath, outputPath, authorized) {
     inside(destination, target)
   ) {
     throw new Error(
-      "Output must be outside the REL repository and the target, with neither containing the other.",
+      "Output must be outside the REE repository and the target, with neither containing the other.",
     );
   }
   if (existsSync(destination)) {
@@ -130,7 +130,7 @@ const rows = (items, fallback) => {
 
 export function investigationReport(record) {
   return [
-    "# REL — static JavaScript investigation",
+    "# REE — static JavaScript investigation",
     "",
     "**Target:** " + safe(record.input_path),
     "**Question:** " +
@@ -215,7 +215,7 @@ export function runStaticAnalysis(options) {
     { flag: "wx" },
   );
   writeFileSync(
-    join(plan.output, "REL_EVIDENCE_REPORT.md"),
+    join(plan.output, "REE_EVIDENCE_REPORT.md"),
     investigationReport(result),
     { flag: "wx" },
   );
@@ -224,6 +224,6 @@ export function runStaticAnalysis(options) {
     evidence_id: summary.evidence_id,
     nodes: summary.counts.nodes,
     edges: summary.counts.edges,
-    report: join(plan.output, "REL_EVIDENCE_REPORT.md"),
+    report: join(plan.output, "REE_EVIDENCE_REPORT.md"),
   };
 }

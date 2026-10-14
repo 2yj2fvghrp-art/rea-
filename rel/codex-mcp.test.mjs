@@ -10,7 +10,7 @@ const root = fileURLToPath(new URL("../", import.meta.url));
 
 test("trusted Codex project configuration points to the fork", () => {
   const file = readFileSync(resolve(root, ".codex/config.toml"), "utf8");
-  assert.match(file, /\[mcp_servers\.rel_rea\]/);
+  assert.match(file, /\[mcp_servers\.rea\]/);
   assert.match(file, /args = \["scripts\/rea\.mjs", "mcp"\]/);
   assert.match(file, /cwd = "\."/);
 });

@@ -92,7 +92,7 @@ test("supports bounded investigation filters with explicit truncation", () => {
   assert.equal(r.displayed, 1);
   assert.equal(r.matching, 2);
   assert.equal(r.truncated, true);
-  assert.match(asDot(r), /digraph REL/);
+  assert.match(asDot(r), /digraph REE/);
   assert.match(asDot(r), /"cli" -> "search"/);
   assert.throws(() => exploreEvidence(saved(), { limit: 41 }), /limit must/);
 });
@@ -120,6 +120,6 @@ test("read-only CLI emits JSON and DOT from a saved local file", () => {
   const json = run("--find", "search.mjs", "--json");
   assert.equal(json.status, 0, json.stderr);
   assert.equal(JSON.parse(json.stdout).matching, 1);
-  assert.match(run("--dot").stdout, /digraph REL/);
+  assert.match(run("--dot").stdout, /digraph REE/);
   assert.equal(run("--unauthorized").status, 2);
 });

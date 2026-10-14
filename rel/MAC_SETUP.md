@@ -1,18 +1,18 @@
-# REL on your MacBook — practical setup
+# REE on your MacBook — practical setup
 
-The **same REL fork** retains upstream REA's broad reverse-engineering toolset. This guide makes the experience macOS-first, **without switching off the native Windows safety tests** or claiming every provider works on macOS.
+The **same REE fork** retains upstream REA's broad reverse-engineering toolset. This guide makes the experience macOS-first, **without switching off the native Windows safety tests** or claiming every provider works on macOS.
 
 ## Easiest start: the Finder launcher
 
-After cloning this fork and installing Node.js, double-click **`Start-REL.command`** from Finder. It runs the read-only Mac readiness check and opens the local visual lab. If macOS blocks the unsigned shell script, run `zsh ./Start-REL.command` from Terminal in the repo instead. Don't disable macOS security protections. Keep the window open while learning; Control+C stops the local server. For your first experiment, see [your first ten minutes](../FIRST_10_MINUTES.md).
+After cloning this fork and installing Node.js, double-click **`Start-REE.command`** from Finder. It runs the read-only Mac readiness check and opens the local visual lab. If macOS blocks the unsigned shell script, run `zsh ./Start-REE.command` from Terminal in the repo instead. Don't disable macOS security protections. Keep the window open while learning; Control+C stops the local server. For your first experiment, see [your first ten minutes](../FIRST_10_MINUTES.md).
 
-## First: let REL look at your actual Mac
+## First: let REE look at your actual Mac
 
-In the REL checkout, after installing Node.js:
+In the REE checkout, after installing Node.js:
 
 ```sh
-node rel.mjs doctor
-node rel.mjs doctor --json
+node ree.mjs doctor
+node ree.mjs doctor --json
 ```
 
 This reports whether the computer is Intel or Apple Silicon, Node's own architecture, possible Rosetta translation, RAM, free disk space, build prerequisites, and optional Codex and analysis commands. It **does not** install packages, contact the internet, examine another project or change machine settings.
@@ -23,7 +23,7 @@ A 2020 MacBook Pro may be Intel **or** Apple Silicon, so do not assume which you
 
 ```sh
 # No REA build needed for the beginner browser lab
-node rel.mjs lab --open
+node ree.mjs lab --open
 
 # Then use the version in .nvmrc (nvm is optional, but convenient)
 nvm install
@@ -33,8 +33,8 @@ npm run build:cached
 
 # Prove actual REA analysis on our source-owned fixture
 OUT="$(mktemp -d)/investigation"
-node rel.mjs demo --run --out "$OUT"
-cat "$OUT/REL_EVIDENCE_REPORT.md"
+node ree.mjs demo --run --out "$OUT"
+cat "$OUT/REE_EVIDENCE_REPORT.md"
 node rel/evidence-explorer.mjs "$OUT/evidence.json" --find cli.mjs
 ```
 
@@ -52,7 +52,7 @@ If `nvm` isn't installed, select the Node version from `.nvmrc` by another suppo
 
 A Windows GitHub Actions job does **not** run on your Mac. Its native ownership failure is a separate cross-platform product safety issue, not an automatic diagnosis of your laptop. We preserve that test rather than bypass it.
 
-REL has a macOS smoke-test workflow to verify the Mac-specific path. A passing macOS run is evidence of **that runner's** environment, not proof of your exact CPU or local installation. The repository-wide CI gate still needs every required lane to be resolved before we call the entire PR merge-ready.
+REE has a macOS smoke-test workflow to verify the Mac-specific path. A passing macOS run is evidence of **that runner's** environment, not proof of your exact CPU or local installation. The repository-wide CI gate still needs every required lane to be resolved before we call the entire PR merge-ready.
 
 ## Safety and scope
 

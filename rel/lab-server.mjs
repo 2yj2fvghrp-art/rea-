@@ -1,5 +1,5 @@
 /**
- * REL Visual Lab: minimal, dependency-free, read-only learning server.
+ * REE Visual Lab: minimal, dependency-free, read-only learning server.
  *
  * Serves ONLY the visual lab, its two actual sample modules, and the
  * human-readable verification note. It never executes a supplied target,

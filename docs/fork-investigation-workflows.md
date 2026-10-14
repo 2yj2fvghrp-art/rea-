@@ -22,7 +22,7 @@ These are source-level observations, not certification that every provider works
 on this Mac. The generated provider catalog describes supported routes; host
 prerequisites and real-provider verification still determine availability.
 Native analysis, Android, firmware and runtime capture have different dependencies
-and effects. The REL beginner command currently runs static JavaScript directory
+and effects. The REE beginner command currently runs static JavaScript directory
 or ASAR analysis. Its format classifier is an intake aid, not an analyzer.
 
 ## A complete investigation should survive its first answer
@@ -44,14 +44,14 @@ The first refinement connects the existing CLI summary support to both
 4. Inspect saved relationships or ask the engine for module pages/items.
 
 The engine owns graph counts. The optional `graph_summary` field preserves
-compatibility with older saved views. The REL presentation module lives in
+compatibility with older saved views. The REE presentation module lives in
 `rel/evidence-summary.mjs`; the teaching report and explorer reuse it.
 The demo shares the production static-analysis runner and requires fresh output,
 so rerunning a lesson cannot overwrite a previous investigation.
 
 ## Findings established with actual execution
 
-At baseline `6cdbed816fa021f9d162c0f006ed65b7bf92ab4f`, the REL analyzer wrote a
+At baseline `6cdbed816fa021f9d162c0f006ed65b7bf92ab4f`, the REE analyzer wrote a
 complete Evidence record, parsed it in the parent process, wrote another complete
 copy inside a summary request, and launched a second engine process. Its report
 also included long semantic unknown-ID arrays.
@@ -64,7 +64,7 @@ The evidence contents, graph identities and analysis coverage were preserved.
 
 Measurements on macOS 26.7.1 arm64 with Node 24.18.0 and npm 11.16.0:
 
-| Measure                                   | Previous REL flow | Shared summary flow |
+| Measure                                   | Previous REE flow | Shared summary flow |
 | ----------------------------------------- | ----------------: | ------------------: |
 | Extra full-Evidence request copy          |  10,461,546 bytes |                None |
 | Readable report                           |      99,278 bytes |         6,674 bytes |
@@ -73,7 +73,7 @@ Measurements on macOS 26.7.1 arm64 with Node 24.18.0 and npm 11.16.0:
 | User + system CPU, same repeats           |     7.98 / 7.21 s |       4.90 / 4.84 s |
 | Sampled peak process-family RSS           |     559 / 555 MiB |       566 / 563 MiB |
 
-The warm comparison ran the baseline REL runner against the same revised engine,
+The warm comparison ran the baseline REE runner against the same revised engine,
 then the new runner, twice in sequence without concurrent tests. CPU totals
 include the `ps` sampling subprocesses. RSS samples used a 25 ms sleep between
 process-tree reads and may miss short peaks. These are small local samples,
@@ -88,7 +88,7 @@ passed while real edges displayed blank endpoints. The explorer now reads
 Evidence directly. A public CLI regression analyzes a two-module fixture and
 checks displayed endpoints, source ranges, confidence and authority against the
 saved engine record. The macOS lane now runs that regression as well, and both
-REL workflows react to engine, build-script and dependency changes.
+REE workflows react to engine, build-script and dependency changes.
 
 ## Opportunities that need further experiments
 

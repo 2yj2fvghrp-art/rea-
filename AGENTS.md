@@ -1,15 +1,19 @@
 # Repository Guidelines
 
-## REL fork-specific guidance for Codex and other repository agents
+## REE fork-specific guidance for Codex and other repository agents
 
-This checkout is the **REL fork**, which adds an approachable interface on top of REA. Codex in a trusted local checkout can load the repo-scoped `.codex/config.toml` MCP entry and `$rel-investigator` skill (not model training). When the task concerns REL onboarding or Simple Mode, use [README.md](README.md), [rel/README.md](rel/README.md), and [rel/CONNECT_CODEX.md](rel/CONNECT_CODEX.md) as applicable.
+This checkout is the **REE fork**, which adds an approachable interface on top of REA. Codex in a trusted local checkout can load the repo-scoped `.codex/config.toml` MCP entry and `$ree-investigator` skill (not model training). When the task concerns REE onboarding or Simple Mode, use [README.md](README.md), [rel/README.md](rel/README.md), and [rel/CONNECT_CODEX.md](rel/CONNECT_CODEX.md) as applicable.
 
-- Work **only inside this REL repository** unless the user explicitly expands scope; no edits to their other repositories, deployed projects, global Codex configuration, or services.
-- Prefer `node rel.mjs inspect` (preview) for unfamiliar targets. `analyze TARGET --authorized --out NEW_DIR` runs static JavaScript/Electron analysis only after explicit authorization; `demo --run` is restricted to the source-owned lab.
-- A separate direct REA CLI/MCP invocation has **more authority than `rel.mjs`**. Do not automatically run, attach, scrape, mutate, or instrument outside an authorized explicit target scope.
+- Work **only inside this REE repository** unless the user explicitly expands scope; no edits to their other repositories, deployed projects, global Codex configuration, or services.
+- Prefer `node ree.mjs inspect` (preview) for unfamiliar targets. `analyze TARGET --authorized --out NEW_DIR` runs static JavaScript/Electron analysis only after explicit authorization; `demo --run` is restricted to the source-owned lab.
+- A separate direct REA CLI/MCP invocation has **more authority than `ree.mjs`**. Do not automatically run, attach, scrape, mutate, or instrument outside an authorized explicit target scope.
 - Report observed data, static deductions, unsupported cases and unknowns separately; never claim the model was retrained, a Codex MCP connection was installed, or a run was verified without evidence.
 - Keep upstream docs and licensing intact. If the fork-specific English README changes, preserve the archived upstream README and the translated onboarding test's source.
 - Follow the inherited REA repository rules below for production engine work.
+
+## Branch policy
+
+Use the remote default branch (`rel/first-lab-foundations` at this update) for this fork’s work and pushes, as requested by the owner. Refresh `origin/HEAD` before choosing a destination; do not infer `main` from its name. Preserve dirty work in older checkouts before consolidation. REE is the product name; retained `rel/` paths are compatibility paths.
 
 ## Product and Authority
 

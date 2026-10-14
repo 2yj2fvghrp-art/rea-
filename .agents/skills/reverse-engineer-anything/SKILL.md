@@ -334,3 +334,13 @@ Explain findings in plain language and tie them to returned evidence. When the
 user asks to build something, use normal coding tools and separate observed
 behavior from design choices. Close an opened native session with
 `close_binary` when the investigation is complete.
+
+## Anthony's REE fork
+
+REE means Reverse Engineering Everything and retains REA as its analysis engine.
+Prefer the active REE checkout. For fork onboarding and explicitly requested
+self-audits, use the project’s `ree-investigator` skill. Ordinary source
+architecture work still starts with repository tools. Self-audit authorization
+covers only the named checkout and requested static scope. Use compact CLI
+summaries with separately saved complete Evidence; exact source selection does
+not follow imports. Project skills do not train a model or install account tools.

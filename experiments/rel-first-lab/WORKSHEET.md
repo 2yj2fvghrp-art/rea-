@@ -1,4 +1,4 @@
-# REL investigation worksheet
+# REE investigation worksheet
 
 Copy this template for each exercise. Never turn a prediction into an observation.
 

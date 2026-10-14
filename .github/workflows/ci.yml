@@ -2,9 +2,9 @@ name: CI
 
 on:
   push:
-    branches: [main]
+    branches: [main, "rel/first-lab-foundations"]
   pull_request:
-    branches: [main, "release/*"]
+    branches: [main, "rel/first-lab-foundations", "release/*"]
   schedule:
     - cron: "23 0-2,4-23 * * *"
     - cron: "23 3 * * *"

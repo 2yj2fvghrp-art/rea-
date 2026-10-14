@@ -107,7 +107,7 @@ export function exploreEvidence(record, { find = "", limit = 12 } = {}) {
 
 export function asText(result) {
   const out = [
-    "REL / Saved Evidence Explorer",
+    "REE / Saved Evidence Explorer",
     "Evidence: " + result.evidence_id,
     "Artifact: " + result.artifact_sha256,
     "Recorded graph: " +
@@ -159,7 +159,7 @@ export function asDot(result) {
       .replaceAll(/[\r\n]/gu, " ") +
     '"';
   const lines = [
-    "digraph REL {",
+    "digraph REE {",
     '  graph [label="Saved REA static relationships (NOT runtime)", labelloc=t];',
     "  rankdir=LR;",
     "  node [shape=box];",
@@ -220,7 +220,7 @@ if (
           : asText(result),
     );
   } catch (error) {
-    console.error("REL Evidence Explorer: " + error.message);
+    console.error("REE Evidence Explorer: " + error.message);
     process.exitCode = 2;
   }
 }

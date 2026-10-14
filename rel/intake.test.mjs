@@ -1,6 +1,6 @@
 import assert from "node:assert/strict";
 import { test } from "node:test";
-import { execFileSync } from "node:child_process";
+import { execFileSync, spawnSync } from "node:child_process";
 import {
   mkdtempSync,
   mkdirSync,
@@ -95,7 +95,7 @@ test("category list is broad but transparent about prerequisites", () => {
   assert.ok(all.some((c) => c.capability === "unknown"));
 });
 test("entrypoint displays safe JSON preview", () => {
-  const bin = fileURLToPath(new URL("../rel.mjs", import.meta.url));
+  const bin = fileURLToPath(new URL("../ree.mjs", import.meta.url));
   const output = execFileSync(
     process.execPath,
     [bin, "inspect", site, "--json"],
@@ -104,7 +104,7 @@ test("entrypoint displays safe JSON preview", () => {
   assert.equal(JSON.parse(output).execution, "preview-only");
 });
 test("entrypoint cannot execute arbitrary targets with --run", () => {
-  const bin = fileURLToPath(new URL("../rel.mjs", import.meta.url));
+  const bin = fileURLToPath(new URL("../ree.mjs", import.meta.url));
   assert.throws(
     () =>
       execFileSync(process.execPath, [bin, "inspect", site, "--run"], {
@@ -113,4 +113,20 @@ test("entrypoint cannot execute arbitrary targets with --run", () => {
       }),
     /Analysis execution is only enabled/,
   );
+});
+
+test("legacy entrypoint forwards to the same REE interface", () => {
+  const current = fileURLToPath(new URL("../ree.mjs", import.meta.url));
+  const legacy = fileURLToPath(new URL("../rel.mjs", import.meta.url));
+  const a = spawnSync(process.execPath, [current, "--help"], {
+    encoding: "utf8",
+  });
+  const b = spawnSync(process.execPath, [legacy, "--help"], {
+    encoding: "utf8",
+  });
+  assert.equal(a.status, 0);
+  assert.equal(b.status, 0);
+  assert.equal(b.stdout, a.stdout);
+  assert.match(a.stdout, /REE/);
+  assert.match(a.stdout, /node ree\.mjs/);
 });

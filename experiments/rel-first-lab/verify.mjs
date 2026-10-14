@@ -31,4 +31,4 @@ const noQuery = spawnSync(process.execPath, [cliPath], {
 assert.equal(noQuery.status, 2);
 assert.match(noQuery.stderr, /Provide search terms/);
 
-console.log("REL first lab: 11 checks passed.");
+console.log("REE first lab: 11 checks passed.");

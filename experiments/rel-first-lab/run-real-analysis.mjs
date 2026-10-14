@@ -71,14 +71,14 @@ try {
     ) + "\n",
   );
   writeFileSync(
-    join(output, "REL_EVIDENCE_REPORT.md"),
+    join(output, "REE_EVIDENCE_REPORT.md"),
     markdownReport(summary),
   );
   console.log(
-    `REL REAL ANALYZER VERIFIED: ${summary.counts.nodes} graph nodes, ${summary.counts.edges} edges; Evidence ${summary.evidence_id}`,
+    `REE REAL ANALYZER VERIFIED: ${summary.counts.nodes} graph nodes, ${summary.counts.edges} edges; Evidence ${summary.evidence_id}`,
   );
   console.log(`Local output: ${output}`);
 } catch (error) {
-  console.error(`REL analysis incomplete: ${error.message}`);
+  console.error(`REE analysis incomplete: ${error.message}`);
   process.exitCode = 1;
 }

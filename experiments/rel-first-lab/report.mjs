@@ -9,7 +9,7 @@ const safeInline = (value) =>
   String(value).replaceAll("`", "'").replaceAll("\n", " ");
 export function markdownReport(summary) {
   const lines = [
-    "# REL — first real analyzer run",
+    "# REE — first real analyzer run",
     "",
     "**Status:** REA produced a JavaScript application Evidence record for the fork-owned lab.",
     "",
@@ -64,10 +64,10 @@ if (
     writeFileSync(process.argv[3], `${JSON.stringify(summary, null, 2)}\n`);
     writeFileSync(process.argv[4], markdownReport(summary));
     console.log(
-      `REL Evidence: ${summary.counts.nodes} nodes, ${summary.counts.edges} edges; ${summary.evidence_id}`,
+      `REE Evidence: ${summary.counts.nodes} nodes, ${summary.counts.edges} edges; ${summary.evidence_id}`,
     );
   } catch (error) {
-    console.error(`REL report failed: ${error.message}`);
+    console.error(`REE report failed: ${error.message}`);
     process.exitCode = 1;
   }
 }

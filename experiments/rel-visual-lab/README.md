@@ -1,26 +1,26 @@
-# REL Visual Lab 01 — learn by seeing
+# REE Visual Lab 01 — learn by seeing
 
-**REL = Reverse Engineering Life.** Our promise: **understand the mechanism, show the proof, and test what we learned.**
+**REE = Reverse Engineering Everything.** Our promise: **understand the mechanism, show the proof, and test what we learned.**
 
 This is our own beginner experience built **on top of** the original [REA engine](https://github.com/morluto/rea). We are not renaming someone else's engine or pretending to have written its analysis providers. Our identity is the learning workflow and clear explanations around the real engine.
 
 ## First lesson in plain English
 
-On a Mac with Node.js installed, you can open **`Start-REL.command`** from the repo folder. Try searching for `bridge`, click **Show real results**, and then **Show me how**. See [your first ten minutes](../../FIRST_10_MINUTES.md) for the exact walkthrough and macOS troubleshooting.
+On a Mac with Node.js installed, you can open **`Start-REE.command`** from the repo folder. Try searching for `bridge`, click **Show real results**, and then **Show me how**. See [your first ten minutes](../../FIRST_10_MINUTES.md) for the exact walkthrough and macOS troubleshooting.
 
 ## Start on your computer
 
-Open Terminal in the REL checkout on branch `rel/first-lab-foundations`. Use a supported Node.js version (the repo pins one in `.nvmrc`).
+Open Terminal in the REE checkout on branch `rel/first-lab-foundations`. Use a supported Node.js version (the repo pins one in `.nvmrc`).
 
 ```bash
-node rel.mjs lab --open
+node ree.mjs lab --open
 ```
 
 That opens a browser tab on your own computer. If the browser cannot be opened automatically, the command prints a local address beginning with `http://127.0.0.1:` which you can copy into Safari or Chrome.
 
 **No dependency installation, REA compilation, API key or Ghidra installation is required for the visual lesson.** It uses the sample code already committed to this repository.
 
-If your environment is remote or has no desktop browser, run `node rel.mjs lab` and use the printed local URL in a browser **on that same machine** (remote ports are not automatically exposed).
+If your environment is remote or has no desktop browser, run `node ree.mjs lab` and use the printed local URL in a browser **on that same machine** (remote ports are not automatically exposed).
 
 Press **Ctrl+C** in Terminal to stop the lab. This opens a local-only server on a randomly selected port, not a public website.
 
@@ -79,13 +79,13 @@ After setting up the pinned Node/npm toolchain in this fork:
 npm ci
 npm run build:cached
 OUT="$(mktemp -d)/investigation"
-node rel.mjs demo --run --out "$OUT"
-cat "$OUT/REL_EVIDENCE_REPORT.md"
+node ree.mjs demo --run --out "$OUT"
+cat "$OUT/REE_EVIDENCE_REPORT.md"
 ```
 
 This invokes the built REA analyzer on our source-owned lab and saves evidence outside the repository. **Do not confuse this real analysis with the UI animation.**
 
-In a trusted checkout, Codex can use the project's existing MCP configuration and the `$rel-investigator` skill. That is tool access and instructions, not model training or permission to inspect arbitrary applications.
+In a trusted checkout, Codex can use the project's existing MCP configuration and the `$ree-investigator` skill. That is tool access and instructions, not model training or permission to inspect arbitrary applications.
 
 ## Developer verification
 

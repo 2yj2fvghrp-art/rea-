@@ -1,4 +1,4 @@
-# REL First Lab — investigate a tiny note search
+# REE First Lab — investigate a tiny note search
 
 This is **fictional, offline, source-owned JavaScript**. Three small production modules demonstrate a search CLI, test data, and ranking. The demo uses no network, accounts, browser, native provider, external targets, or filesystem writes.
 
@@ -21,7 +21,7 @@ Ask: why does **Bridge Patterns** outrank **Signal Bridge**? Why does **Local Ca
 node experiments/rel-first-lab/verify.mjs
 ```
 
-Expected: **REL first lab: 11 checks passed.** This verifies the sample's search behavior, preservation of source data, and selected CLI success/error behavior. It does **not** test the REA engine or MCP server.
+Expected: **REE first lab: 11 checks passed.** This verifies the sample's search behavior, preservation of source data, and selected CLI success/error behavior. It does **not** test the REA engine or MCP server.
 
 ## C. Explain the result from source
 

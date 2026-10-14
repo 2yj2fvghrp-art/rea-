@@ -28,7 +28,7 @@ const CATALOG = {
     "Maps code, imports and application boundaries without starting the target.",
     "static-supported",
     "docs/javascript-artifact-reconstruction.md",
-    ["Build the REL fork"],
+    ["Build the REE fork"],
     "Use the REA JavaScript application analysis workflow.",
     "JavaScript-style filename or project entries",
   ),
@@ -268,7 +268,7 @@ export function classifyTarget(raw) {
 
 export function renderPlan(plan, question = null) {
   const lines = [
-    "REL  /  Investigation intake",
+    "REE  /  Investigation intake",
     `Target: ${plan.target}`,
     `Detected: ${plan.label}`,
     `Why: ${plan.basis}`,
@@ -277,7 +277,7 @@ export function renderPlan(plan, question = null) {
       ? `Question: ${question}`
       : "Question: What do you want to understand about this target?",
     "",
-    "What REL can help with:",
+    "What REE can help with:",
     plan.meaning,
     "",
     "Next step:",

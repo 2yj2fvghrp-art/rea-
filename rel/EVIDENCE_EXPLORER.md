@@ -1,13 +1,13 @@
-# REL Evidence Explorer
+# REE Evidence Explorer
 
 **Go beyond the teaching animation.** This command reads an existing, saved REA JavaScript application Evidence record. It does not run an unknown program or download anything.
 
-Run real analysis first, on REL's owned lab:
+Run real analysis first, on REE's owned lab:
 
     npm ci
     npm run build:cached
     OUT="$(mktemp -d)/investigation"
-    node rel.mjs demo --run --out "$OUT"
+    node ree.mjs demo --run --out "$OUT"
 
 Read a real saved graph, filtering by source file:
 

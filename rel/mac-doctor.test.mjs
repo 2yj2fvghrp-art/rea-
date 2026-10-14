@@ -68,7 +68,7 @@ test("Rosetta, low disk space and missing dependencies are actionable, not conce
     }),
   );
   assert.equal(r.node.supported, false);
-  assert.equal(r.capabilities.visualLab, false);
+  assert.equal(r.capabilities.visualLab, true);
   assert.match(r.guidance.join(" "), /Rosetta/);
   assert.match(r.guidance.join(" "), /10 GiB/);
   assert.match(r.guidance.join(" "), /npm ci/);
@@ -88,7 +88,7 @@ test("non-Mac CI still runs diagnosis without pretending to be a Mac", () => {
 });
 
 test("actual doctor CLI is read-only, machine-readable and rejects analysis flags", () => {
-  const root = fileURLToPath(new URL("../rel.mjs", import.meta.url));
+  const root = fileURLToPath(new URL("../ree.mjs", import.meta.url));
   const raw = execFileSync(process.execPath, [root, "doctor", "--json"], {
     encoding: "utf8",
   });
@@ -96,7 +96,7 @@ test("actual doctor CLI is read-only, machine-readable and rejects analysis flag
   assert.equal(result.profile, "macos-first-read-only");
   assert.equal(result.node.current, process.versions.node);
   assert.equal(result.capabilities.projectCodexConfig, true);
-  assert.match(formatMacDiagnosis(diagnoseMac()), /REL \/ Mac readiness check/);
+  assert.match(formatMacDiagnosis(diagnoseMac()), /REE \/ Mac readiness check/);
   assert.throws(
     () =>
       execFileSync(process.execPath, [root, "doctor", "--run"], {

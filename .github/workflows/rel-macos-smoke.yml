@@ -1,8 +1,10 @@
-name: REL macOS smoke
+name: REE macOS smoke
 
 on:
+  push:
+    branches: ["rel/first-lab-foundations"]
   pull_request:
-    branches: [main]
+    branches: [main, "rel/first-lab-foundations"]
     paths:
       - "src/**"
       - "scripts/**"
@@ -10,7 +12,9 @@ on:
       - "package-lock.json"
       - ".nvmrc"
       - ".github/actions/npm-cache/**"
+      - "ree.mjs"
       - "rel.mjs"
+      - "Start-REE.command"
       - "Start-REL.command"
       - "FIRST_10_MINUTES.md"
       - "rel/**"
@@ -24,7 +28,7 @@ permissions:
 
 jobs:
   macos-first-lab:
-    name: macOS REL smoke and real evidence
+    name: macOS REE smoke and real evidence
     runs-on: macos-15
     timeout-minutes: 20
     env:
@@ -40,12 +44,12 @@ jobs:
       - name: Verify Mac platform and report actual runner resources
         run: |
           test "$(uname -s)" = "Darwin"
-          node rel.mjs doctor
-          node rel.mjs doctor --json > "$RUNNER_TEMP/rel-mac-doctor.json"
+          node ree.mjs doctor
+          node ree.mjs doctor --json > "$RUNNER_TEMP/rel-mac-doctor.json"
       - name: Verify Finder launcher executable mode and macOS shell syntax
         run: |
-          test -x Start-REL.command
-          /bin/zsh -n Start-REL.command
+          test -x Start-REE.command
+          /bin/zsh -n Start-REE.command
       - name: Run deterministic Mac readiness checks and local visual lab tests
         run: |
           node --test rel/mac-doctor.test.mjs
@@ -58,7 +62,7 @@ jobs:
       - name: Verify static analysis and saved relationships on macOS
         run: node --test rel/analyze-static.test.mjs
       - name: Run real source-owned REA analysis
-        run: node rel.mjs demo --run --out "$RUNNER_TEMP/rel-mac-evidence"
+        run: node ree.mjs demo --run --out "$RUNNER_TEMP/rel-mac-evidence"
       - name: Verify evidence exploration on Mac
         run: |
           node --test rel/evidence-explorer.test.mjs
