@@ -217,3 +217,10 @@ verify that later or reordered pages and repeated reads preserve a correct cited
 answer, while citing only the wrong page fails factual grading. Extra calls still
 fail the fixed workflow plan. Regrading all six original model records preserves
 their outcomes and recorded costs; these replays are not new model trials.
+
+Failed or malformed calls remain workflow failures and never become authenticated
+Evidence. Nine failure-injection and answer-shape replays using an actual successful
+capture verify that later recovery preserves supported facts, while failed-only
+attempts and missing or unobserved citations fail factual grading. Missing
+limitations and extra answer keys fail the fixed plan without changing correct
+recorded facts. Successful original-model outcomes remain unchanged.

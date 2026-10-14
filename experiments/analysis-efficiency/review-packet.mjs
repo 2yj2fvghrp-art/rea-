@@ -77,74 +77,90 @@ try {
       "Completed public REA call sequence differs from the fixed plan",
     );
   const ids = new Set();
+  const conflictingIds = new Set();
   for (const call of calls) {
     if (call.server !== "rea" || call.status !== "completed" || call.error)
       continue;
-    const result = call.result;
-    if (result?.isError)
-      throw new Error("Tool failure is not observed packet evidence");
-    const text = result?.content?.filter((item) => item.type === "text") ?? [];
-    if (!result?.structuredContent && text.length !== 1)
-      throw new Error("No unambiguous captured Evidence envelope");
-    const evidence = result.structuredContent ?? JSON.parse(text[0].text);
-    parseEvidence(evidence);
-    ids.add(evidence.evidence_id);
-    if (call.tool === "inspect_packet_fields") {
-      const input = inspectPacketFieldsInputSchema.parse({
-        kind: "fields",
-        protocol: "tcp",
-        query: "tcp.flags",
-        limit: 1,
-      });
-      const report = packetFieldsCatalogSchema.parse(
-        evidence.normalized_result,
-      );
-      if (
-        !isDeepStrictEqual(
-          inspectPacketFieldsInputSchema.parse(call.arguments),
-          input,
-        ) ||
-        !isDeepStrictEqual(evidence.parameters, input) ||
-        !isDeepStrictEqual(report.selection, input) ||
-        evidence.operation !== call.tool ||
-        !report.records.some((row) => row.abbreviation === "tcp.flags") ||
-        evidence.subject?.local_path !== report.tool.path ||
-        evidence.subject?.digest?.sha256 !== report.tool.sha256
-      )
-        throw new Error(
-          "Discovery Evidence does not establish the requested installed field",
+    try {
+      const result = call.result;
+      if (result?.isError)
+        throw new Error("Tool failure is not observed packet evidence");
+      const text =
+        result?.content?.filter((item) => item.type === "text") ?? [];
+      if (!result?.structuredContent && text.length !== 1)
+        throw new Error("No unambiguous captured Evidence envelope");
+      const evidence = result.structuredContent ?? JSON.parse(text[0].text);
+      parseEvidence(evidence);
+      if (conflictingIds.has(evidence.evidence_id))
+        throw new Error("Previously conflicting Evidence identity");
+      if (call.tool === "inspect_packet_fields") {
+        const input = inspectPacketFieldsInputSchema.parse({
+          kind: "fields",
+          protocol: "tcp",
+          query: "tcp.flags",
+          limit: 1,
+        });
+        const report = packetFieldsCatalogSchema.parse(
+          evidence.normalized_result,
         );
-    } else {
-      const planned = inspectPacketCaptureInputSchema.parse(
-        packetRequest(
-          "wireshark-pgsql-jdbc.pcap",
-          settings.selected_artifact_path,
-          values.selection,
-        ),
-      );
-      const input = inspectPacketCaptureInputSchema.parse(call.arguments);
-      if (!isDeepStrictEqual(input, planned))
-        workflowReasons.push("Capture selection differs from the fixed plan");
-      const report = packetCaptureSchema.parse(evidence.normalized_result);
-      if (
-        !isDeepStrictEqual(evidence.parameters, input) ||
-        !isDeepStrictEqual(report.selection, input) ||
-        evidence.operation !== call.tool ||
-        evidence.subject?.local_path !== input.path ||
-        evidence.subject?.digest?.sha256 !== oracle.sha256 ||
-        report.artifact.path !== input.path ||
-        report.artifact.sha256 !== oracle.sha256
-      )
-        throw new Error(
-          "Capture Evidence differs from the fixed input/byte identity",
+        if (
+          !isDeepStrictEqual(
+            inspectPacketFieldsInputSchema.parse(call.arguments),
+            input,
+          ) ||
+          !isDeepStrictEqual(evidence.parameters, input) ||
+          !isDeepStrictEqual(report.selection, input) ||
+          evidence.operation !== call.tool ||
+          !report.records.some((row) => row.abbreviation === "tcp.flags") ||
+          evidence.subject?.local_path !== report.tool.path ||
+          evidence.subject?.digest?.sha256 !== report.tool.sha256
+        )
+          throw new Error(
+            "Discovery Evidence does not establish the requested installed field",
+          );
+      } else if (call.tool === "inspect_packet_capture") {
+        const planned = inspectPacketCaptureInputSchema.parse(
+          packetRequest(
+            "wireshark-pgsql-jdbc.pcap",
+            settings.selected_artifact_path,
+            values.selection,
+          ),
         );
-      const observed = packetFacts("postgres", report);
-      if (
-        captures.has(evidence.evidence_id) &&
-        !isDeepStrictEqual(captures.get(evidence.evidence_id), observed)
-      )
-        throw new Error("Repeated Evidence identity has inconsistent facts");
-      captures.set(evidence.evidence_id, observed);
+        const input = inspectPacketCaptureInputSchema.parse(call.arguments);
+        if (!isDeepStrictEqual(input, planned))
+          workflowReasons.push("Capture selection differs from the fixed plan");
+        const report = packetCaptureSchema.parse(evidence.normalized_result);
+        if (
+          !isDeepStrictEqual(evidence.parameters, input) ||
+          !isDeepStrictEqual(report.selection, input) ||
+          evidence.operation !== call.tool ||
+          evidence.subject?.local_path !== input.path ||
+          evidence.subject?.digest?.sha256 !== oracle.sha256 ||
+          report.artifact.path !== input.path ||
+          report.artifact.sha256 !== oracle.sha256
+        )
+          throw new Error(
+            "Capture Evidence differs from the fixed input/byte identity",
+          );
+        const observed = packetFacts("postgres", report);
+        if (
+          captures.has(evidence.evidence_id) &&
+          !isDeepStrictEqual(captures.get(evidence.evidence_id), observed)
+        ) {
+          captures.delete(evidence.evidence_id);
+          ids.delete(evidence.evidence_id);
+          conflictingIds.add(evidence.evidence_id);
+          throw new Error("Repeated Evidence identity has inconsistent facts");
+        }
+        captures.set(evidence.evidence_id, observed);
+      } else {
+        throw new Error("Call is not a packet observation tool");
+      }
+      ids.add(evidence.evidence_id);
+    } catch (error) {
+      workflowReasons.push(
+        `Call ${call.tool} did not provide authenticated packet observations: ${String(error)}`,
+      );
     }
   }
   answer = JSON.parse(
@@ -160,7 +176,10 @@ try {
         "evidence_ids",
         "limitations",
       ].sort(),
-    ) ||
+    )
+  )
+    workflowReasons.push("Final answer shape differs from the fixed plan");
+  if (
     !isDeepStrictEqual(
       Object.fromEntries(
         Object.keys(expected).map((key) => [key, answer[key]]),
