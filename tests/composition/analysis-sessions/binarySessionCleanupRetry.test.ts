@@ -124,6 +124,40 @@ it("keeps recorded unknowns when a target switch cannot retire the previous prov
   expect(fixture.session.listUnknowns({})).toHaveLength(1);
 });
 
+it("keeps a queued close behind an open that is still settling prior cleanup", async () => {
+  const fixture = await retryFixture();
+  const [first] = fixture.targets;
+  const release = createDeferred<void>();
+  const order: string[] = [];
+
+  const opening = fixture.session
+    .open(first, {
+      beforeOpen: async () => {
+        order.push("cleanup-start");
+        await release.promise;
+        order.push("cleanup-end");
+        return resultOk(null);
+      },
+    })
+    .then((result) => {
+      order.push("open");
+      return result;
+    });
+  await new Promise((resolve) => setTimeout(resolve, 10));
+  const closing = fixture.session.close().then((result) => {
+    order.push("close");
+    return result;
+  });
+  await new Promise((resolve) => setTimeout(resolve, 10));
+  expect(order).toEqual(["cleanup-start"]);
+
+  release.resolve();
+  await Promise.all([opening, closing]);
+
+  expect(order).toEqual(["cleanup-start", "cleanup-end", "open", "close"]);
+  expect(fixture.session.activeTarget()).toBeUndefined();
+});
+
 it("keeps a failed candidate for cleanup and preserves its startup failure", async () => {
   const primary = new HopperStartError();
   const fixture = await retryFixture(() => Promise.resolve(err(primary)));

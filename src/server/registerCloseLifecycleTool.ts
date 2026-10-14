@@ -30,7 +30,8 @@ export const registerCloseLifecycleTool = ({
     // An admitted reverse command may still be draining behind the session
     // transition; retry its retained owners only after that has settled.
     const [reverseCleanup] = await Promise.allSettled([
-      retryReverseEngineeringCleanup?.() ?? Promise.resolve(ok(null)),
+      retryReverseEngineeringCleanup?.(closeContract.name) ??
+        Promise.resolve(ok(null)),
     ]);
     if (sessionClose.status === "rejected") {
       if (resourceClose.status === "rejected")

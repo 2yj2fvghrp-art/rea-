@@ -156,9 +156,9 @@ export interface LifecycleToolRegistration {
     signal: AbortSignal,
   ) => Promise<ProviderAvailability>;
   readonly closeProcessResources: () => Promise<Result<null, AnalysisError>>;
-  readonly retryReverseEngineeringCleanup?: () => Promise<
-    Result<null, AnalysisError>
-  >;
+  readonly retryReverseEngineeringCleanup?: (
+    operation: string,
+  ) => Promise<Result<null, AnalysisError>>;
 }
 
 const registerLifecycleTools = (
@@ -199,9 +199,6 @@ const registerOpenLifecycleTool = (
     openContract.name,
     toolRegistrationOptions(openContract),
     async (input, context) => {
-      const cleanup = await retryReverseEngineeringCleanup?.();
-      if (cleanup !== undefined && !cleanup.ok)
-        return server.delivery.toCallToolResult(cleanup, openContract);
       let snapshot: AnalysisSnapshot | undefined;
       if (input.snapshot_path !== undefined) {
         const loaded = await readAnalysisSnapshot(
@@ -216,6 +213,14 @@ const registerOpenLifecycleTool = (
       const opened = await logToolExecution(logger, openContract.name, () =>
         session.open(input.path, {
           signal: context.mcpReq.signal,
+          // Retained reverse-engineering owners are settled inside the open
+          // transition, so a later close cannot overtake this open.
+          ...(retryReverseEngineeringCleanup === undefined
+            ? {}
+            : {
+                beforeOpen: () =>
+                  retryReverseEngineeringCleanup(openContract.name),
+              }),
           ...(input.format === undefined ? {} : { formatHint: input.format }),
           ...(input.architecture === undefined
             ? {}
@@ -245,9 +250,9 @@ const registerOpenLifecycleTool = (
 /** Register MCP-only target lifecycle operations on a long-lived session. */
 export interface SessionToolOptions {
   readonly artifactResources: ArtifactResourceScope;
-  readonly retryReverseEngineeringCleanup?: () => Promise<
-    Result<null, AnalysisError>
-  >;
+  readonly retryReverseEngineeringCleanup?: (
+    operation: string,
+  ) => Promise<Result<null, AnalysisError>>;
   readonly startedAt?: string;
   readonly availabilityPolicy?: () => AvailabilityPolicy;
   readonly androidAnalysisAvailability?: (
