@@ -425,10 +425,14 @@ const selectedArchitectureArguments = (
 ): string[] => {
   if (architecture === null) return [];
   const baseArchitecture = architecture.split(".")[0] ?? architecture;
-  // dyld_info distinguishes arm64e ABI variants; the other Apple tools use
-  // the base CPU-family spelling for the same slice.
+  // dyld_info distinguishes arm64e ABI variants. otool must receive the
+  // exact spelling for newer arm64e variants such as arm64e.x1; its base
+  // spelling does not select that slice on all Apple toolchains.
   const toolArchitecture =
-    tool === "dyld_info" ? architecture : baseArchitecture;
+    tool === "dyld_info" ||
+    (tool === "otool" && /^arm64e\./u.test(architecture))
+      ? architecture
+      : baseArchitecture;
   return tool === "dwarfdump"
     ? [`--arch=${toolArchitecture}`]
     : ["-arch", toolArchitecture];
