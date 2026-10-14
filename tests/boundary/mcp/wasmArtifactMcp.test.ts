@@ -6,8 +6,9 @@ import {
 import { Client, InMemoryTransport } from "@modelcontextprotocol/client";
 import { expect, it, onTestFinished, vi } from "vitest";
 import { readFile, realpath, writeFile } from "node:fs/promises";
-import { join } from "node:path";
+import { join, resolve, sep } from "node:path";
 import { WasmArtifactService } from "../../../src/application/wasm/WasmArtifactService.js";
+import { associateWasmGlue } from "../../../src/wasm/WasmGlueAdapter.js";
 import { toolContract } from "../../../src/contracts/toolContracts.js";
 import { createEvidence, parseEvidence } from "../../../src/domain/evidence.js";
 import { wasmArtifactSummaryViewResultSchema } from "../../../src/domain/analysisView/analysisView.js";
@@ -304,6 +305,70 @@ it("attributes rejected WASM paths to their selected fields before provider work
     expect.objectContaining({ signal: expect.any(AbortSignal) }),
   );
   await harness.client.ping();
+});
+
+it("retains selected path spelling while projecting an unambiguous local glue association over MCP", async () => {
+  const app = resolve("/app");
+  const gluePath = join(app, "glue.js");
+  const other = resolve("/other/module.wasm");
+  const source = 'fetch("./module.wasm");';
+  const harness = await createApplicationMcpHarness({
+    serverOptions: {
+      wasmArtifact: new WasmArtifactService({
+        close: () => Promise.resolve(),
+        inspect: (input) => {
+          const value = wasmArtifactFixture(input.path);
+          value.candidates.push({
+            path: other,
+            sha256: "c".repeat(64),
+            bytes: 8,
+          });
+          value.glue = [
+            {
+              artifact: {
+                path: gluePath,
+                sha256: createHash("sha256").update(source).digest("hex"),
+                bytes: Buffer.byteLength(source),
+              },
+              ...associateWasmGlue(source, gluePath, [input.path, other]),
+            },
+          ];
+          return Promise.resolve(ok(wasmArtifactExecution(value)));
+        },
+      }),
+    },
+  });
+  onTestFinished(harness.close);
+  for (const selected of [
+    join(app, "module.wasm"),
+    `${app}${sep}.${sep}module.wasm`,
+  ]) {
+    const response = await harness.client.callTool({
+      name: "inspect_wasm_artifact",
+      arguments: {
+        path: selected,
+        glue_paths: [gluePath],
+        candidate_paths: [other],
+      },
+    });
+    expect(response.isError).not.toBe(true);
+    const evidence = parseEvidence(response.structuredContent);
+    expect(evidence.parameters.path).toBe(selected);
+    expect(evidence.normalized_result).toMatchObject({
+      artifact: { path: selected },
+      glue: [
+        {
+          artifact: { path: gluePath },
+          references: [
+            {
+              association: "local-path-candidate",
+              candidate_paths: [selected],
+            },
+          ],
+        },
+      ],
+    });
+  }
 });
 
 it("rejects a WASM provider response with a non-file subject before recording Evidence", async () => {

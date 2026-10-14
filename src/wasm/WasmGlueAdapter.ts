@@ -1,4 +1,4 @@
-import { basename, dirname, resolve } from "node:path";
+import { basename, dirname, parse, resolve, sep } from "node:path";
 import * as t from "@babel/types";
 import { parseJavaScriptSource } from "../domain/javascript/javascriptSourceParser.js";
 import { traverseJavaScriptAst } from "../domain/javascript/javascriptSemanticTraversal.js";
@@ -43,7 +43,8 @@ export const associateWasmGlue = (
         !/[?#]/u.test(value);
       const exact = local
         ? candidates.filter(
-            (candidate) => candidate === resolve(dirname(path), value),
+            (candidate) =>
+              withoutDotComponents(candidate) === resolve(dirname(path), value),
           )
         : [];
       const matches =
@@ -72,4 +73,20 @@ export const associateWasmGlue = (
       file.errors.length === 0 ? ("complete" as const) : ("partial" as const),
     references,
   };
+};
+
+/** Dot components do not change a selected path; parent traversal can cross symlinks. */
+const withoutDotComponents = (path: string): string => {
+  const selected = path.replaceAll("/", sep);
+  const root = parse(selected).root;
+  const components = selected.slice(root.length).split(sep);
+  return (
+    root +
+    components
+      .filter(
+        (component, index) =>
+          component !== "." || index === components.length - 1,
+      )
+      .join(sep)
+  );
 };
