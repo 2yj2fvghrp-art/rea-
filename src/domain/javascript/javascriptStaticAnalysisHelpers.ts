@@ -222,9 +222,8 @@ const staticCallPath = (
     return isFileIdentity(argumentNode(node.arguments[1]))
       ? stringValue(node.arguments[0])
       : undefined;
-  if (name === "fileURLToPath" || name.endsWith(".fileURLToPath")) {
+  if (name === "fileURLToPath" || name.endsWith(".fileURLToPath"))
     return staticFileUrlPath(argumentNode(node.arguments[0]));
-  }
   if (name.endsWith(".resolve"))
     return name === "win32.resolve" || name.endsWith(".win32.resolve")
       ? undefined
@@ -249,9 +248,19 @@ const staticFileUrlPath = (
   argument: t.Node | undefined,
 ): string | undefined => {
   if (argument === undefined) return undefined;
-  return isSourceFileUrl(argument)
-    ? sourceRelativeFileUrlPath(argument)
-    : staticPath(argument);
+  if (isSourceFileUrl(argument)) return sourceRelativeFileUrlPath(argument);
+  const literal = staticPath(argument);
+  if (literal === undefined) return undefined;
+  // A literal file URL is a path only after the real decoder. Other strings
+  // are not filesystem paths; fileURLToPath would throw on them.
+  if (!literal.toLowerCase().startsWith("file:")) return undefined;
+  try {
+    const path = fileURLToPath(literal, { windows: false });
+    return path.startsWith("/") ? path : undefined;
+  } catch (cause: unknown) {
+    void cause;
+    return undefined;
+  }
 };
 
 /** Project a known source-relative URL through the actual file URL decoder. */
@@ -338,11 +347,14 @@ const isFilesystemPathExpression = (node: t.Node): boolean => {
       return true;
     if (name === "URL" || name.endsWith(".URL"))
       return isFileIdentity(argumentNode(node.arguments[1]));
-    if (name === "fileURLToPath" || name.endsWith(".fileURLToPath"))
+    if (name === "fileURLToPath" || name.endsWith(".fileURLToPath")) {
+      const decoded = staticFileUrlPath(argumentNode(node.arguments[0]));
+      if (decoded !== undefined && posix.isAbsolute(decoded)) return true;
       return node.arguments.some((argument) => {
         const value = argumentNode(argument);
         return value !== undefined && isFilesystemPathExpression(value);
       });
+    }
     return node.arguments.some((argument) => {
       const value = argumentNode(argument);
       return value !== undefined && isFilesystemPathExpression(value);

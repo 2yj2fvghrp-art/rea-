@@ -1,4 +1,5 @@
 import { posix } from "node:path";
+import { fileURLToPath } from "node:url";
 
 import { parseExpression } from "@babel/parser";
 import { describe, expect, it } from "vitest";
@@ -205,6 +206,23 @@ describe("inert JavaScript path resolution", () => {
       staticPath(parseExpression(expression, { sourceType: "module" })),
     ).toBeUndefined(),
   );
+
+  it("decodes a literal file URL passed to fileURLToPath", () => {
+    const url = "file:///app/preload%20file.js";
+    assertPathProjection(
+      `fileURLToPath(${JSON.stringify(url)})`,
+      fileURLToPath(url, { windows: false }),
+      "filesystem-expression",
+    );
+  });
+
+  it("leaves a non-url fileURLToPath argument unknown", () => {
+    expect(
+      staticPath(
+        parseExpression("fileURLToPath(runtimePath)", { sourceType: "module" }),
+      ),
+    ).toBeUndefined();
+  });
 });
 
 const analyzePathConsumers = (expression: string) => {
