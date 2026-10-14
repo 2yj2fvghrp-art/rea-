@@ -137,11 +137,13 @@ Setup registers REA for the whole client. For Claude Code it writes
 offer REA's tools only where they're wanted, use one of the routes below.
 
 Both routes control which sessions discover REA's MCP server and skill. They
-don't isolate anything. An agent running under the same OS account can still
-run a `rea` command on the shell `PATH`, start REA with `npx`, and read the other
-profile's files and REA's output. Where the separation has to hold, as in a
-clean-room reimplementation, keep REA, the target, and REA's output in a separate
-OS account or container that the other agent's account can't read.
+leave shell commands, filesystem access and network access available. An agent
+under the same OS account can run `rea` from `PATH` or `npx` and read other
+profiles and REA output. For clean-room separation, use an implementation
+environment with filesystem and network restrictions that prevent reading or
+fetching REA, the target and analysis output, including through shared
+installations and package registries. A separate account or container must
+enforce those restrictions.
 
 For Claude Code, check existing default-profile state before choosing either
 route. Setup is additive: a previous user-level REA registration and personal
@@ -162,8 +164,8 @@ CLAUDE_CONFIG_DIR=~/.claude-rea npx rea-agents setup --client claude_code
 CLAUDE_CONFIG_DIR=~/.claude-rea claude
 ```
 
-A new profile may need authentication. Console sign-ins without an API key use
-Anthropic profiles outside `CLAUDE_CONFIG_DIR`; see
+A new profile may need authentication. Console sign-ins without an API key are
+stored outside `CLAUDE_CONFIG_DIR`; see
 [Claude Code authentication](https://code.claude.com/docs/en/authentication#log-in-with-multiple-accounts).
 Sessions started without the variable use the default profile's registration,
 skill and history.
