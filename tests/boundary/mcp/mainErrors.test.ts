@@ -156,6 +156,16 @@ describe("MCP runtime errors", () => {
 
   it("safely returns false when entryPath is undefined", () => {
     expect(isDirectEntrypoint(undefined, "file:///some/target.js")).toBe(false);
+
+    const originalArgv1 = process.argv[1];
+    try {
+      delete process.argv[1];
+      expect(isDirectEntrypoint()).toBe(false);
+    } finally {
+      if (originalArgv1 !== undefined) {
+        process.argv[1] = originalArgv1;
+      }
+    }
   });
 
   it("safely handles non-existent or invalid entryPath without throwing", () => {

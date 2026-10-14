@@ -110,9 +110,11 @@ export const runEntrypoint = async (
 };
 
 export const isDirectEntrypoint = (
-  entryPath: string | undefined = process.argv[1],
-  currentUrl: string = import.meta.url,
+  ...args: [entryPath?: string | undefined, currentUrl?: string]
 ): boolean => {
+  const entryPath = args.length > 0 ? args[0] : process.argv[1];
+  const currentUrl =
+    args.length > 1 && args[1] !== undefined ? args[1] : import.meta.url;
   if (entryPath === undefined) {
     return false;
   }
