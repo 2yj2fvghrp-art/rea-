@@ -786,6 +786,10 @@ export class GdbSessionManager {
                   : []),
               ],
             });
+      // stdout may settle before stderr; give both pipes a bounded chance to
+      // deliver buffered startup diagnostics before they are snapshotted.
+      if (session.exited)
+        await session.supervisor.waitForOutputClose(250).catch(() => undefined);
       const processOutput = session.supervisor.snapshot();
       const capturedOutput = {
         stdout: processOutput.stdout.text,
