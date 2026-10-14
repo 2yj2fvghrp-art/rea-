@@ -11,6 +11,7 @@ from pathlib import Path, PurePosixPath
 from string import Template
 import subprocess
 import sys
+import tempfile
 from textwrap import indent
 from urllib.parse import quote, urlsplit
 
@@ -82,7 +83,7 @@ def contributor_block(root):
 
 
 def refresh_contributors(root):
-    """Fetch every GitHub page before replacing the offline source snapshot."""
+    """Validate every GitHub page, then atomically replace the offline snapshot."""
     result = subprocess.run(
         ["gh", "api", "--paginate", "repos/morluto/rea/contributors?per_page=100", "--jq",
          "[.[] | {login,id,type,avatar_url,html_url}]"],
@@ -99,7 +100,10 @@ def refresh_contributors(root):
         "repository": "morluto/rea", "updated": date.today().isoformat(), "contributors": people,
     })
     path = root / "website/public/contributors/people.json"
-    path.write_text(json.dumps(data, ensure_ascii=False, indent=2) + "\n", encoding="utf-8")
+    with tempfile.TemporaryDirectory(dir=path.parent, prefix=f".{path.name}-") as directory:
+        staged = Path(directory) / path.name
+        staged.write_text(json.dumps(data, ensure_ascii=False, indent=2) + "\n", encoding="utf-8")
+        staged.replace(path)
     print(f"Refreshed {len(people)} contributors. Run sync, translations extract and check.")
 
 

@@ -1,6 +1,7 @@
 """Exercise automatic route discovery and mistakes that break search metadata."""
 
 import contextlib
+import errno
 import importlib.util
 import io
 import json
@@ -183,6 +184,7 @@ class WebsiteMaintenanceChecks(unittest.TestCase):
                 WEBSITE.refresh_contributors(root)
             self.assertIn("--paginate", api.call_args.args[0])
             self.assertEqual(json.loads(snapshot.read_text())["contributors"], people)
+            self.assertEqual(set(snapshot.parent.iterdir()), {snapshot})
             good = snapshot.read_text()
             for output in (json.dumps(people) + "\n[", json.dumps(people + people), "[]", '{"message":"API error"}'):
                 with self.subTest(output=output), patch.object(WEBSITE.subprocess, "run", return_value=WEBSITE.subprocess.CompletedProcess([], 0, stdout=output)):
@@ -193,6 +195,40 @@ class WebsiteMaintenanceChecks(unittest.TestCase):
                 with self.assertRaises(WEBSITE.subprocess.CalledProcessError):
                     WEBSITE.refresh_contributors(root)
             self.assertEqual(snapshot.read_text(), good)
+
+    def test_contributor_refresh_preserves_snapshot_and_cleans_staging_on_save_failure(self):
+        people = json.loads((ROOT / "website/public/contributors/people.json").read_text())["contributors"][:2]
+        response = WEBSITE.subprocess.CompletedProcess([], 0, stdout=json.dumps(people))
+        write_text = Path.write_text
+
+        def partial_write(path, text, *args, **kwargs):
+            write_text(path, text[:20], *args, **kwargs)
+            raise OSError(errno.ENOSPC, "injected partial write", str(path))
+
+        failures = (
+            ("partial write", patch.object(
+                Path, "write_text", autospec=True, side_effect=partial_write,
+            )),
+            ("replace", patch.object(
+                Path, "replace", autospec=True,
+                side_effect=PermissionError(errno.EACCES, "injected replace failure"),
+            )),
+        )
+        for name, failure in failures:
+            with self.subTest(failure=name), tempfile.TemporaryDirectory() as directory:
+                root = Path(directory)
+                snapshot = root / "website/public/contributors/people.json"
+                snapshot.parent.mkdir(parents=True)
+                snapshot.write_bytes(json.dumps({
+                    "repository": "morluto/rea", "updated": "2026-10-14", "contributors": people[:1],
+                }).encode("utf-8"))
+                before = snapshot.read_bytes()
+                with patch.object(WEBSITE.subprocess, "run", return_value=response), failure as save:
+                    with self.assertRaises(OSError):
+                        WEBSITE.refresh_contributors(root)
+                self.assertEqual(save.call_count, 1)
+                self.assertEqual(snapshot.read_bytes(), before)
+                self.assertEqual(set(snapshot.parent.iterdir()), {snapshot})
 
     def test_contributor_snapshot_rejects_malformed_identity_and_unsafe_links(self):
         original = json.loads((ROOT / "website/public/contributors/people.json").read_text())
