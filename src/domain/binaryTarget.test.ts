@@ -170,9 +170,10 @@ describe("Xbox 360 basefile admission", () => {
     expect(result.ok).toBe(false);
     if (result.ok) return;
     expect(result.error).toContain("XEX2");
-    expect(result.error).toContain("basefile");
-    // The generic refusal must not hide the container identity.
-    expect(result.error).not.toBe("unsupported binary format");
+    expect(result.error).toContain(
+      "extract the decrypted PE basefile externally",
+    );
+    expect(result.error).toContain("open that file instead");
   });
 });
 
