@@ -13,6 +13,8 @@ export type SetupProviderEnvironment = Readonly<Record<string, string>>;
 /** Read-only host facts shared by the initial setup plan. */
 export interface SetupInitialState {
   readonly hopperPath?: string;
+  /** Whether the caller explicitly selected a Hopper launcher in its environment. */
+  readonly hopperLauncherConfigured?: boolean;
   readonly providerEnvironment: SetupProviderEnvironment;
   readonly doctor: DoctorReport;
 }
@@ -25,7 +27,12 @@ export type ClientConfigurationResult =
     }
   | {
       readonly status: "failed";
-      readonly reason: "path" | "backup" | "write" | "readback";
+      readonly reason:
+        | "path"
+        | "target_changed"
+        | "backup"
+        | "write"
+        | "readback";
     }
   | {
       readonly status: "failed";
@@ -55,6 +62,8 @@ export interface SetupHost {
   readonly homeDirectory: string;
   skillDestinations(clientIds: readonly string[]): readonly SkillDestination[];
   readonly registrationCommand: readonly string[];
+  /** Why no client may be registered with `registrationCommand` from this host. */
+  readonly registrationCommandBlocker?: string;
   readonly nodeVersion: string;
   macosVersion(): Promise<string | undefined>;
   linuxDistribution(): Promise<LinuxDistribution | undefined>;

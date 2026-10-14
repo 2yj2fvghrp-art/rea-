@@ -1,13 +1,15 @@
 import type { ZipPackageFormat } from "./zipPackageFormat.js";
 
-/** Provider-neutral CPU families detected from supported executable headers. */
+/** Provider-neutral CPU families detected from headers or explicitly selected raw loads. */
 export const BINARY_ARCHITECTURES = [
   "x86",
   "x86_64",
   "arm",
   "arm64",
   "mips",
+  "6502",
   "riscv",
+  "powerpc",
 ] as const;
 export type BinaryArchitecture = (typeof BINARY_ARCHITECTURES)[number];
 
@@ -23,10 +25,19 @@ export interface ElfFamilyMetadata {
   readonly flags: number;
 }
 
+/** Referenced CodeView debug symbols from a PE debug directory. */
+export interface PeCodeViewRecord {
+  readonly pdbPath: string;
+  readonly pdbFileName: string;
+  readonly guid: string | null;
+  readonly age: number;
+}
+
 /** Families whose parsed target variant carries `ElfFamilyMetadata`. */
 export const ELF_METADATA_ARCHITECTURES = [
   "mips",
   "riscv",
+  "powerpc",
 ] as const satisfies readonly BinaryArchitecture[];
 export type ElfMetadataArchitecture =
   (typeof ELF_METADATA_ARCHITECTURES)[number];
@@ -40,7 +51,7 @@ export const isElfMetadataArchitecture = (
 /** Recognized family with no ELF metadata member; the header alone is the fact. */
 export type HeaderArchitecture = Exclude<
   BinaryArchitecture,
-  ElfMetadataArchitecture
+  ElfMetadataArchitecture | "6502"
 >;
 
 /** Raw ELF facts; family recognition does not establish ISA or ABI support. */
@@ -80,6 +91,9 @@ export interface MipsAbiFlags {
  * ISA extensions in `.riscv.attributes` are not inspected by this header parser.
  */
 export type RiscvElfMetadata = ElfFamilyMetadata;
+
+/** Raw PowerPC declarations; family identity does not select a processor variant. */
+export type PowerPcElfMetadata = ElfFamilyMetadata;
 
 /** Byte range of the selected slice inside its universal Mach-O container. */
 export interface UniversalMachOSlice {
@@ -131,6 +145,15 @@ export type BinaryTarget =
       readonly executableRole?: never;
       readonly managed?: never;
     })
+  | (BinaryTargetIdentity & {
+      readonly kind: "executable";
+      readonly format: "elf";
+      readonly architecture: "powerpc";
+      readonly availableArchitectures: readonly "powerpc"[];
+      readonly powerpc: PowerPcElfMetadata;
+      readonly executableRole?: never;
+      readonly managed?: never;
+    })
   | (ExecutableTarget & {
       readonly format: "mach-o" | "elf" | "dos-mz" | "dos-com";
       readonly universalSlice?: never;
@@ -144,8 +167,17 @@ export type BinaryTarget =
       readonly executableRole?: never;
       readonly managed?: never;
     })
-  | (ExecutableTarget & {
+  | (BinaryTargetIdentity & {
+      readonly kind: "executable";
       readonly format: "raw-binary";
+      readonly architecture: Exclude<
+        BinaryArchitecture,
+        ElfMetadataArchitecture
+      >;
+      readonly availableArchitectures: readonly Exclude<
+        BinaryArchitecture,
+        ElfMetadataArchitecture
+      >[];
       readonly entryPoint: string;
       readonly entryPointSource: string;
       readonly executableRole?: never;
@@ -160,6 +192,8 @@ export type BinaryTarget =
         | "non-executable";
       /** Whether the PE declares a non-empty CLI header data-directory entry. */
       readonly managed: boolean;
+      /** Referenced CodeView debug symbols from the PE debug directory, if present. */
+      readonly codeView?: PeCodeViewRecord;
     })
   | (BinaryTargetIdentity &
       NonExecutableMetadata & {

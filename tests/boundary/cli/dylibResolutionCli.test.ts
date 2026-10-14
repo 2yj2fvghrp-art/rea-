@@ -106,6 +106,57 @@ const withBrokenHelper = async (app: string): Promise<void> => {
   await writeFiles(app, { "Contents/Helpers/broken": broken });
 };
 
+cliTest(
+  "does not turn U+FEFF-prefixed strings into dyld path tokens",
+  async ({ cli }) => {
+    const app = await fixtureApp();
+    await writeFiles(app, {
+      "Contents/MacOS/App": machoImage({
+        commands: [
+          buildVersionCommand(1),
+          rpathCommand("@executable_path/../Frameworks"),
+          dylibCommand(LC.LOAD_DYLIB, "@rpath/libcore.dylib"),
+          dylibCommand(LC.LOAD_DYLIB, "\uFEFF@rpath/libcore.dylib"),
+        ],
+      }),
+      "Contents/Helpers/tool": machoImage({
+        commands: [
+          buildVersionCommand(1),
+          rpathCommand("\uFEFF@loader_path/../Frameworks"),
+          dylibCommand(LC.LOAD_DYLIB, "@rpath/libcore.dylib"),
+        ],
+      }),
+    });
+    const output = await cli.run({
+      arguments: ["trace-dylib-resolution", app, "--json"],
+      environment: ENVIRONMENT,
+    });
+    expect(output.exitCode, output.stderr).toBe(0);
+    const trace = dylibResolutionResultSchema.parse(
+      parseEvidence(output.json).normalized_result,
+    );
+    const ordinary = trace.edges.find(
+      ({ loader, install_name }) =>
+        loader === "Contents/MacOS/App" &&
+        install_name === "@rpath/libcore.dylib",
+    );
+    expect(ordinary?.resolution).toMatchObject({
+      status: "resolved",
+      image: "Contents/Frameworks/libcore.dylib",
+    });
+    const marked = trace.edges.find(
+      ({ install_name }) => install_name === "\uFEFF@rpath/libcore.dylib",
+    );
+    expect(marked).toBeDefined();
+    expect(marked?.resolution.image).toBeNull();
+    const helper = trace.edges.find(
+      ({ loader }) => loader === "Contents/Helpers/tool",
+    );
+    expect(helper).toBeDefined();
+    expect(helper?.resolution.image).toBeNull();
+  },
+);
+
 describe("trace-dylib-resolution CLI", () => {
   cliTest("traces every executable root of an app bundle", async ({ cli }) => {
     const app = await fixtureApp();
@@ -180,14 +231,17 @@ describe("trace-dylib-resolution CLI", () => {
       // A root below a symlinked directory that points outside the bundle.
       const outside = await createTestTempDirectory("rea-dylib-outside-");
       await writeFiles(outside, { Tool: machoImage({}) });
-      await symlink(outside, join(app, "Contents/Linked"));
+      await symlink(outside, join(app, "Contents/Linked"), "dir");
       for (const [root, reason, message] of [
         ["../outside", "invalid_format", "Use a normalized path"],
         ["Contents/Info.plist", "invalid_value", "is not a Mach-O image"],
         [
           "Contents/Linked/Tool",
           "invalid_value",
-          "resolves outside the analyzed root",
+          // Windows link text is outside the POSIX dyld path representation.
+          process.platform === "win32"
+            ? "is not a regular file in the analyzed root"
+            : "resolves outside the analyzed root",
         ],
       ] as const) {
         await expectRootInputError(cli, { app, root, reason, message });
@@ -378,7 +432,8 @@ cliTest(
   },
 );
 
-describe.skipIf(process.getuid?.() === 0)(
+// This permission fixture requires POSIX mode bits and a non-root caller.
+describe.skipIf(process.platform === "win32" || process.getuid?.() === 0)(
   "trace-dylib-resolution permissions",
   () => {
     cliTest(
@@ -510,6 +565,8 @@ cliTest(
           app,
           "--root",
           "Contents/MacOS/App",
+          "--architecture",
+          "arm64e",
           "--json",
         ],
         environment: ENVIRONMENT,
@@ -518,9 +575,7 @@ cliTest(
       const trace = dylibResolutionResultSchema.parse(
         parseEvidence(result.json).normalized_result,
       );
-      expect(
-        trace.roots.filter(({ architecture }) => architecture === "arm64e"),
-      ).toHaveLength(2);
+      expect(trace.roots).toHaveLength(2);
       const environments = trace.findings
         .filter(({ kind }) => kind === "dyld-environment-present")
         .map(({ explanation }) =>

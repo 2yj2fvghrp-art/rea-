@@ -11,7 +11,11 @@ import {
 } from "./CdpCaptureValues.js";
 import { exclusionReasonForUrl } from "./CdpCaptureEventHelpers.js";
 import type { CdpCaptureCompleteness } from "./CdpCaptureCompleteness.js";
-import { createDocumentSvgAncestry, domSvgLink } from "./CdpCaptureDomSvg.js";
+import {
+  createDocumentSvgAncestry,
+  domSvgLink,
+  type DomSvgNodeQuery,
+} from "./CdpCaptureDomSvg.js";
 import { compareUnicodeCodePoints } from "../domain/unicodeCodePointOrder.js";
 
 export type CapturedResource = Omit<
@@ -135,90 +139,200 @@ export const walkFrameTrees = function* (
   }
 };
 
-export const captureDom = (
+interface DomMetadataCapture {
+  readonly urls: WebPageInspection["metadata"]["dom_urls"];
+  readonly agentHints: WebPageInspection["metadata"]["agent_hints"];
+  readonly excludedUrls: number;
+  readonly unresolvedSvgNodes: number;
+}
+
+export interface DomCapture extends DomMetadataCapture {
+  readonly total: number;
+  readonly nodes: WebPageInspection["dom"]["nodes"];
+}
+
+// Bound retained projections and outstanding CDP reads independently of page size.
+// Eight leaves room for the session's other cancellation listeners.
+const DOM_METADATA_BATCH_SIZE = 8;
+
+interface PendingDomMetadata {
+  readonly options: DomMetadataOptions;
+  // Undefined means no query is needed; null means the candidate has no valid ID.
+  readonly svgQuery: DomSvgNodeQuery | null | undefined;
+}
+
+/** Project one snapshot, requesting bounded batches of SVG identity facts. */
+export function* captureDom(
   result: unknown,
   allowedOrigins: ReadonlySet<string>,
   input: InspectWebPageInput,
   completeness?: CdpCaptureCompleteness,
-): {
-  readonly total: number;
-  readonly nodes: WebPageInspection["dom"]["nodes"];
-  readonly urls: WebPageInspection["metadata"]["dom_urls"];
-  readonly agentHints: WebPageInspection["metadata"]["agent_hints"];
-  readonly excludedUrls: number;
-} => {
+): Generator<
+  readonly DomSvgNodeQuery[],
+  DomCapture,
+  readonly (boolean | undefined)[]
+> {
   const root = requiredRecord(result);
   const strings = Array.isArray(root.strings)
-    ? root.strings.map((value) => cdpStringValue(value) ?? "")
+    ? root.strings.map(cdpStringValue)
     : [];
   const nodes: WebPageInspection["dom"]["nodes"] = [];
   const urls: WebPageInspection["metadata"]["dom_urls"] = [];
   const agentHints: WebPageInspection["metadata"]["agent_hints"] = [];
   let excludedUrls = 0;
   let total = 0;
+  let unresolvedSvgNodes = 0;
   for (const document of recordsValue(root.documents)) {
     const documentUrl = indexedString(strings, document.documentURL);
+    if (documentUrl === undefined) {
+      completeness?.exclude("dom", "invalid_protocol_value");
+      continue;
+    }
     if (allowedSanitizedUrl(documentUrl, allowedOrigins) === undefined) {
       completeness?.exclude("dom", exclusionReasonForUrl(documentUrl));
       continue;
     }
-    const baseUrl = indexedString(strings, document.baseURL) || documentUrl;
+    const baseUrlValue =
+      document.baseURL === undefined
+        ? documentUrl
+        : indexedString(strings, document.baseURL);
+    if (baseUrlValue === undefined) {
+      completeness?.exclude("dom", "invalid_protocol_value");
+      continue;
+    }
+    const baseUrl = baseUrlValue || documentUrl;
     const documentNodes = recordValue(document.nodes);
     if (documentNodes === undefined) continue;
-    const nodeTypes = numberArray(documentNodes.nodeType);
-    const nodeNames = numberArray(documentNodes.nodeName);
-    const nodeValues = numberArray(documentNodes.nodeValue);
-    const parents = numberArray(documentNodes.parentIndex);
-    const attributes = Array.isArray(documentNodes.attributes)
+    const rawNodeTypes = numberArray(documentNodes.nodeType);
+    const rawNodeNames = numberArray(documentNodes.nodeName);
+    const rawNodeValues = numberArray(documentNodes.nodeValue);
+    const rawParents = numberArray(documentNodes.parentIndex);
+    const rawAttributes = Array.isArray(documentNodes.attributes)
       ? documentNodes.attributes
+      : undefined;
+    if (
+      rawNodeTypes === undefined ||
+      rawNodeNames === undefined ||
+      rawNodeValues === undefined ||
+      rawParents === undefined ||
+      rawAttributes === undefined ||
+      rawNodeNames.length !== rawNodeTypes.length ||
+      rawNodeValues.length !== rawNodeTypes.length ||
+      rawParents.length !== rawNodeTypes.length
+    ) {
+      completeness?.exclude("dom", "invalid_protocol_value");
+      continue;
+    }
+    if (rawAttributes.length > rawNodeTypes.length)
+      completeness?.exclude(
+        "dom",
+        "invalid_protocol_value",
+        rawAttributes.length - rawNodeTypes.length,
+      );
+    const backendNodeIds = Array.isArray(documentNodes.backendNodeId)
+      ? documentNodes.backendNodeId
       : [];
-    const baseIndex = nodes.length;
+    const baseIndex = total;
+    total += rawNodeTypes.length;
     const ancestry = createDocumentSvgAncestry({
-      nodeTypes,
-      nodeNames,
-      parents,
+      nodeTypes: rawNodeTypes,
+      nodeNames: rawNodeNames,
+      parents: rawParents,
       strings,
-      attributes,
+      attributes: rawAttributes,
     });
-    total += nodeTypes.length;
-    for (let index = 0; index < nodeTypes.length; index += 1) {
-      const attributeIndexes = numberArray(attributes[index]);
-      const parent = Math.trunc(parents[index] ?? -1);
-      const nodeIndex = nodes.length;
-      const nodeName = indexedString(strings, nodeNames[index]);
-      const attributeNames = uniqueAttributeNames(attributeIndexes, strings);
+    const pendingMetadata: PendingDomMetadata[] = [];
+    for (let index = 0; index < rawNodeTypes.length; index += 1) {
+      const nodeType = rawNodeTypes[index];
+      const nodeNameIndex = rawNodeNames[index];
+      const nodeValueIndex = rawNodeValues[index];
+      const parent = rawParents[index];
+      const attributeIndexes = numberArray(rawAttributes[index]);
+      const nodeName = indexedString(strings, nodeNameIndex);
+      const nodeValue = indexedString(strings, nodeValueIndex);
+      if (
+        nodeType === undefined ||
+        nodeName === undefined ||
+        nodeValue === undefined ||
+        parent === undefined ||
+        parent < -1 ||
+        parent === index ||
+        parent >= rawNodeTypes.length ||
+        attributeIndexes === undefined ||
+        attributeIndexes.length % 2 !== 0 ||
+        attributeIndexes.some(
+          (value) =>
+            value === undefined || indexedString(strings, value) === undefined,
+        )
+      ) {
+        completeness?.exclude("dom", "invalid_protocol_value");
+        continue;
+      }
+      const attributes = attributeIndexes as readonly number[];
+      const nodeIndex = baseIndex + index;
+      const attributeNames = uniqueAttributeNames(attributes, strings);
+      const svgLink = domSvgLink(ancestry, index);
+      if (svgLink.xmlDocument === undefined)
+        completeness?.exclude("metadata", "invalid_protocol_value");
+      let svgQuery: DomSvgNodeQuery | null | undefined;
+      if (
+        svgLink.xmlDocument === false &&
+        nodeType === 1 &&
+        attributeNames.includes("xlink:href") &&
+        !attributeNames.includes("href")
+      ) {
+        const backendNodeId = numberValue(backendNodeIds[index]);
+        svgQuery =
+          backendNodeId !== undefined &&
+          Number.isSafeInteger(backendNodeId) &&
+          backendNodeId > 0
+            ? { backendNodeId, nodeName }
+            : null;
+      }
       nodes.push({
         index: nodeIndex,
         parent_index: parent < 0 ? -1 : baseIndex + parent,
-        node_type: Math.max(0, Math.trunc(nodeTypes[index] ?? 0)),
+        node_type: nodeType,
         node_name: nodeName,
-        node_value_length: indexedString(strings, nodeValues[index]).length,
+        node_value_length: nodeValue.length,
         attribute_names: attributeNames,
       });
-      const metadata = domMetadata({
-        strings,
-        attributes: attributeIndexes,
-        // The BASE element itself resolves against the document fallback URL.
-        baseUrl: nodeName.toLowerCase() === "base" ? documentUrl : baseUrl,
-        documentUrl,
-        nodeIndex,
-        nodeName,
-        allowedOrigins,
-        ...domSvgLink(ancestry, index),
+      pendingMetadata.push({
+        svgQuery,
+        options: {
+          strings,
+          attributes,
+          // The BASE element itself resolves against the document fallback URL.
+          baseUrl: nodeName.toLowerCase() === "base" ? documentUrl : baseUrl,
+          documentUrl,
+          nodeIndex,
+          nodeName,
+          allowedOrigins,
+          ...svgLink,
+        },
       });
-      for (const url of metadata.urls) {
-        urls.push(url);
-        if (url.destination_scope !== "approved") {
-          excludedUrls += 1;
-          completeness?.exclude(
-            "metadata",
-            url.destination_scope === "outside_policy"
-              ? "disallowed_origin"
-              : "unsupported_url",
-          );
-        }
+      if (
+        pendingMetadata.length === DOM_METADATA_BATCH_SIZE ||
+        index === rawNodeTypes.length - 1
+      ) {
+        const metadata = yield* captureDomMetadata(
+          pendingMetadata,
+          completeness,
+        );
+        urls.push(...metadata.urls);
+        agentHints.push(...metadata.agentHints);
+        excludedUrls += metadata.excludedUrls;
+        unresolvedSvgNodes += metadata.unresolvedSvgNodes;
+        pendingMetadata.length = 0;
       }
+    }
+    if (pendingMetadata.length > 0) {
+      const metadata = yield* captureDomMetadata(pendingMetadata, completeness);
+      urls.push(...metadata.urls);
       agentHints.push(...metadata.agentHints);
+      excludedUrls += metadata.excludedUrls;
+      unresolvedSvgNodes += metadata.unresolvedSvgNodes;
+      pendingMetadata.length = 0;
     }
   }
   return {
@@ -227,8 +341,54 @@ export const captureDom = (
     urls,
     agentHints,
     excludedUrls,
+    unresolvedSvgNodes,
   };
-};
+}
+
+function* captureDomMetadata(
+  pending: readonly PendingDomMetadata[],
+  completeness: CdpCaptureCompleteness | undefined,
+): Generator<
+  readonly DomSvgNodeQuery[],
+  DomMetadataCapture,
+  readonly (boolean | undefined)[]
+> {
+  const queries = pending.flatMap(({ svgQuery }) =>
+    svgQuery == null ? [] : [svgQuery],
+  );
+  const kinds = queries.length > 0 ? yield queries : [];
+  const urls: DomMetadataCapture["urls"] = [];
+  const agentHints: DomMetadataCapture["agentHints"] = [];
+  let queryIndex = 0;
+  let unresolvedSvgNodes = 0;
+  let excludedUrls = 0;
+  for (const { options, svgQuery } of pending) {
+    let svgElement = options.svgElement;
+    if (svgQuery !== undefined) {
+      const kind = svgQuery === null ? undefined : kinds[queryIndex++];
+      svgElement = kind === true;
+      if (kind === undefined) {
+        unresolvedSvgNodes += 1;
+        completeness?.exclude("metadata", "provider_unavailable");
+      }
+    }
+    const metadata = domMetadata({ ...options, svgElement });
+    for (const url of metadata.urls) {
+      urls.push(url);
+      if (url.destination_scope !== "approved") {
+        excludedUrls += 1;
+        completeness?.exclude(
+          "metadata",
+          url.destination_scope === "outside_policy"
+            ? "disallowed_origin"
+            : "unsupported_url",
+        );
+      }
+    }
+    agentHints.push(...metadata.agentHints);
+  }
+  return { urls, agentHints, unresolvedSvgNodes, excludedUrls };
+}
 
 export const captureAccessibility = (
   results: readonly unknown[],
@@ -354,19 +514,25 @@ const accessibilityStates = (
 const axText = (value: unknown): string | null =>
   cdpStringValue(recordValue(value)?.value) ?? null;
 
-const indexedString = (strings: readonly string[], index: unknown): string => {
+const indexedString = (
+  strings: readonly (string | undefined)[],
+  index: unknown,
+): string | undefined => {
   const integer = numberValue(index);
-  return integer === undefined ? "" : (strings[Math.trunc(integer)] ?? "");
+  if (integer === undefined || !Number.isSafeInteger(integer) || integer < 0)
+    return undefined;
+  return strings[integer];
 };
 
 const uniqueAttributeNames = (
   attributeIndexes: readonly number[],
-  strings: readonly string[],
+  strings: readonly (string | undefined)[],
 ): string[] => {
   const names: string[] = [];
   const seen = new Set<string>();
   for (let index = 0; index < attributeIndexes.length; index += 2) {
     const name = indexedString(strings, attributeIndexes[index]);
+    if (name === undefined) continue;
     if (seen.has(name)) continue;
     seen.add(name);
     names.push(name);
@@ -374,16 +540,20 @@ const uniqueAttributeNames = (
   return names;
 };
 
-const numberArray = (value: unknown): readonly number[] =>
-  Array.isArray(value)
-    ? value.flatMap((item) => {
-        const number = numberValue(item);
-        return number === undefined ? [] : [number];
-      })
-    : [];
+const numberArray = (
+  value: unknown,
+): readonly (number | undefined)[] | undefined => {
+  if (!Array.isArray(value)) return undefined;
+  return value.map((item) => {
+    const number = numberValue(item);
+    return number !== undefined && Number.isSafeInteger(number)
+      ? number
+      : undefined;
+  });
+};
 
 interface DomMetadataOptions {
-  readonly strings: readonly string[];
+  readonly strings: readonly (string | undefined)[];
   readonly attributes: readonly number[];
   readonly baseUrl: string;
   readonly documentUrl: string;
@@ -391,7 +561,7 @@ interface DomMetadataOptions {
   readonly nodeName: string;
   readonly allowedOrigins: ReadonlySet<string>;
   readonly svgElement: boolean;
-  readonly xmlDocument: boolean;
+  readonly xmlDocument: boolean | undefined;
   readonly xlinkHref: string | undefined;
 }
 
@@ -429,6 +599,7 @@ const domMetadata = (
     // Chrome already folds HTML names; SVG/XML names remain case-sensitive.
     const name = indexedString(strings, attributes[index]);
     const value = indexedString(strings, attributes[index + 1]);
+    if (name === undefined || value === undefined) continue;
     // HTML keeps the first declaration. A later repeat must not move dom_urls.
     if (!pairs.has(name)) pairs.set(name, value);
   }
@@ -460,7 +631,8 @@ const domMetadata = (
   }
   const rel = (pairs.get("rel") ?? "")
     .toLowerCase()
-    .split(/\s+/u)
+    // HTML link type tokens are separated by ASCII whitespace only.
+    .split(/[\t\n\f\r ]+/u)
     .filter((value) => agentRelValues.includes(value));
   const href = urls.find(({ attribute }) => attribute === "href")?.url ?? null;
   const agentHints =

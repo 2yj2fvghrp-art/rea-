@@ -8,10 +8,15 @@ import { spawnOwnedProviderProcess } from "../../dist/process/ProviderProcess.js
 import { createSystemProcessOwnershipHost } from "../../dist/process/ProcessOwnershipObservation.js";
 import { liveProcesses } from "../../dist/process/ProcessOwnershipProcessTree.js";
 import { CdpConnection } from "../../dist/browser/CdpConnection.js";
-import { waitForBrowserDevtoolsPort } from "../../dist/browser/BrowserProcessStartup.js";
+import {
+  BROWSER_DEVTOOLS_STARTUP_TIMEOUT_MS,
+  waitForBrowserDevtoolsPort,
+} from "../../dist/browser/BrowserProcessStartup.js";
+import { requireOrdinaryWindowsVerifierCaller } from "./windows-ordinary-user-verifier.mjs";
 
 /** Launch the synthetic fixture browser and await CDP in its own verified process group. */
 export async function startRuntimeFixtureBrowser(executable, origin) {
+  await requireOrdinaryWindowsVerifierCaller();
   const profile = await mkdtemp(join(tmpdir(), "rea-real-web-runtime-"));
   let owned;
   try {
@@ -50,7 +55,7 @@ export async function startRuntimeFixtureBrowser(executable, origin) {
       stderr: () => stderr,
       // Match the broader real-browser verifier's allowance for cold Chrome
       // startup on shared runners; early process failures still reject at once.
-      timeoutMs: 60_000,
+      timeoutMs: BROWSER_DEVTOOLS_STARTUP_TIMEOUT_MS,
     });
     return {
       port,

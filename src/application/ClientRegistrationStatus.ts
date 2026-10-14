@@ -13,10 +13,12 @@ import { access } from "node:fs/promises";
 import { resolve } from "node:path";
 
 import { z } from "zod";
+import { valid } from "semver";
 
 import { PRODUCT_IDENTITY } from "../identity.js";
 import { MCP_STARTUP_POLICY } from "../mcpStartupPolicy.js";
 import {
+  clientRegistrationPackageReference,
   isOwnedClientRegistrationCommand,
   packageRunnerRegistrationCommand,
 } from "./ClientRegistrationIdentity.js";
@@ -33,6 +35,8 @@ import type { ArtifactResourceScope } from "../artifacts/ArtifactResourceScope.j
 interface ClientRegistrationStatusBase {
   readonly client: string;
   readonly config_path: string;
+  /** Exact package reference requested by npx/bunx, when registration uses one. */
+  readonly package_reference?: string;
 }
 
 type RegistrationCommand = readonly [string, ...string[]];
@@ -66,6 +70,8 @@ const registrationSchema = z
     command: z.string().min(1),
     args: z.array(z.string()).default([]),
     startup_timeout_sec: z.number().positive().optional(),
+    startupTimeoutMs: z.number().positive().optional(),
+    toolTimeoutMs: z.number().positive().optional(),
     type: z.string().optional(),
     transport: z.string().optional(),
     serverName: z.string().optional(),
@@ -155,7 +161,7 @@ export const readClientRegistrationInspections = async (
       }
       const parsed = effectiveClientConfiguration(files.value);
       if (parsed === undefined) {
-        record(unavailableStatus(client.name, client.configPath, "missing"));
+        record(unavailableStatus(client, "missing"));
         continue;
       }
       const policy = await readClientPolicyBlock(
@@ -191,7 +197,7 @@ export const readClientRegistrationInspections = async (
           });
           continue;
         }
-        record(unavailableStatus(client.name, client.configPath, "missing"));
+        record(unavailableStatus(client, "missing"));
         continue;
       }
       const registration = parseRegistration(raw, client);
@@ -199,13 +205,18 @@ export const readClientRegistrationInspections = async (
         registration.command,
         ...registration.args,
       ];
+      const packageReference = clientRegistrationPackageReference(command);
       const activation = registrationActivation(registration, client, parsed);
+      const packageVersion = exactRegisteredPackageVersion(packageReference);
+      const packageVersionDrift =
+        packageVersion !== undefined &&
+        packageVersion !== PRODUCT_IDENTITY.packageVersion;
       record(
         configuredStatus(
-          client.name,
-          client.configPath,
+          client,
           command,
           activation === "enabled" &&
+            !packageVersionDrift &&
             registrationAligned(
               registration,
               client,
@@ -216,17 +227,17 @@ export const readClientRegistrationInspections = async (
             policyBlock === undefined
             ? "aligned"
             : "stale",
-          policyBlock,
+          policyBlock ??
+            (packageVersionDrift
+              ? packageVersionRemediation(packageReference ?? "", client)
+              : undefined),
+          packageReference,
         ),
         activation,
       );
     } catch (cause: unknown) {
       record(
-        unavailableStatus(
-          client.name,
-          client.configPath,
-          isMissing(cause) ? "missing" : "invalid",
-        ),
+        unavailableStatus(client, isMissing(cause) ? "missing" : "invalid"),
       );
     }
   }
@@ -263,19 +274,27 @@ const registrationAligned = (
       MCP_STARTUP_POLICY.codexStartupTimeoutSeconds
   )
     return false;
+  if (
+    client.name === "kimi" &&
+    (registration.startupTimeoutMs !==
+      MCP_STARTUP_POLICY.kimiStartupTimeoutMs ||
+      registration.toolTimeoutMs !== MCP_STARTUP_POLICY.kimiToolTimeoutMs)
+  )
+    return false;
+  if (
+    (client.format === "kimi" ||
+      client.format === "omp" ||
+      client.format === "pi") &&
+    registration.type !== undefined &&
+    registration.type !== "stdio"
+  )
+    return false;
   if (client.format === "vscode" && registration.type !== "stdio") return false;
   // A Harness registration only connects as the rea stdio server; another
   // server name or transport leaves the session without REA tools.
   if (
     client.format === "dsh" &&
     (registration.serverName !== "rea" || registration.transport !== "stdio")
-  )
-    return false;
-  // OMP and Pi infer stdio for a command entry without an explicit type.
-  if (
-    (client.format === "omp" || client.format === "pi") &&
-    registration.type !== undefined &&
-    registration.type !== "stdio"
   )
     return false;
   if (
@@ -337,6 +356,12 @@ const parseRegistration = (
   }
   const registration = registrationSchema.parse(value);
   if (
+    client.format === "kimi" &&
+    registration.transport !== undefined &&
+    registration.transport !== "stdio"
+  )
+    throw new TypeError("Expected an stdio registration");
+  if (
     (client.format === "vscode" || client.format === "copilot_cli") &&
     registration.type !== "stdio"
   )
@@ -344,7 +369,9 @@ const parseRegistration = (
   if (client.format === "commandcode" && registration.transport !== "stdio")
     throw new TypeError("Expected an stdio registration");
   if (
-    (client.format === "omp" || client.format === "pi") &&
+    (client.format === "kimi" ||
+      client.format === "omp" ||
+      client.format === "pi") &&
     registration.type !== undefined &&
     registration.type !== "stdio"
   )
@@ -352,36 +379,68 @@ const parseRegistration = (
   return registration;
 };
 
-const remediation =
-  "Run rea setup to refresh this registration, then restart the client.";
+/** A client that rewrites its file from memory must be quit before setup. */
+const remediation = (client: SetupClient): string => {
+  if (client.quitBeforeSetup !== true)
+    return "Run rea setup to refresh this registration, then restart the client.";
+  const name = client.displayName ?? client.name;
+  return `Quit ${name} fully, run rea setup to refresh this registration, then start ${name} again. A running ${name} can rewrite its configuration from memory and drop the registration.`;
+};
 
 const configuredStatus = (
-  client: string,
-  configPath: string,
+  client: SetupClient,
   command: RegistrationCommand,
   state: "aligned" | "stale",
   policyRemediation?: string,
+  packageReference?: string,
 ): ClientRegistrationStatus =>
   state === "aligned"
-    ? { client, config_path: configPath, command, state, remediation: null }
-    : {
-        client,
-        config_path: configPath,
+    ? {
+        client: client.name,
+        config_path: client.configPath,
         command,
+        ...(packageReference === undefined
+          ? {}
+          : { package_reference: packageReference }),
         state,
-        remediation: policyRemediation ?? remediation,
+        remediation: null,
+      }
+    : {
+        client: client.name,
+        config_path: client.configPath,
+        command,
+        ...(packageReference === undefined
+          ? {}
+          : { package_reference: packageReference }),
+        state,
+        remediation: policyRemediation ?? remediation(client),
       };
 
+const exactRegisteredPackageVersion = (
+  packageReference: string | undefined,
+): string | undefined => {
+  if (packageReference === undefined) return undefined;
+  const prefix = `${PRODUCT_IDENTITY.packageName}@`;
+  if (!packageReference.startsWith(prefix)) return undefined;
+  const version = packageReference.slice(prefix.length);
+  return valid(version) === version ? version : undefined;
+};
+
+const packageVersionRemediation = (
+  packageReference: string,
+  client: SetupClient,
+): string =>
+  `This registration requests ${packageReference}, while the current REA CLI package is ${PRODUCT_IDENTITY.packageVersion}. REA does not resolve package-runner requests during doctor; update the registration with rea setup --client ${client.name}, then restart the client.`;
+
 const unavailableStatus = (
-  client: string,
-  configPath: string,
+  client: SetupClient,
   state: "missing" | "invalid",
 ): ClientRegistrationStatus => ({
-  client,
-  config_path: configPath,
+  client: client.name,
+  config_path: client.configPath,
   command: [],
   state,
-  remediation,
+  remediation: remediation(client),
 });
 
 const clientEvidencePresent = async (client: SetupClient): Promise<boolean> => {

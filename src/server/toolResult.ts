@@ -48,7 +48,6 @@ const nativeEvidenceContinuation = (
 /** Immutable encoding and recovery policy shared by one MCP server. */
 export class ToolResultDelivery {
   readonly resultBudgetBytes: number;
-
   constructor(maximumResponseBytes: number) {
     this.resultBudgetBytes = maximumResponseBytes - 1024;
     Object.freeze(this);
@@ -139,7 +138,7 @@ export class ToolResultDelivery {
     const encoded = encodeToolResult(
       structuredContent,
       this.resultBudgetBytes,
-      "text",
+      "error-text",
       targetContent,
     );
     // The transport retains an oversized projected error before replacing it

@@ -25,6 +25,7 @@ export class FakeSetupHost implements SetupHost {
     return skillDestinations(this.homeDirectory, clientIds);
   }
   readonly registrationCommand: readonly string[];
+  registrationCommandBlocker?: string;
   nodeVersion = "24.18.0";
   version: string | undefined = "14.5";
   distribution: LinuxDistribution | undefined;
@@ -51,6 +52,7 @@ export class FakeSetupHost implements SetupHost {
   scopedDoctorHealthy: boolean | undefined;
   linuxDemoRuntimeMissing = false;
   unsupportedHopperVersion = false;
+  hopperLauncherConfigured = false;
 
   constructor(platform: NodeJS.Platform = "darwin") {
     this.platform = platform;
@@ -63,6 +65,9 @@ export class FakeSetupHost implements SetupHost {
     Promise.resolve(this.distribution);
   initialSetupState = async (scope?: DoctorScope) => ({
     ...(this.hopper === undefined ? {} : { hopperPath: this.hopper }),
+    ...(this.hopperLauncherConfigured
+      ? { hopperLauncherConfigured: true }
+      : {}),
     providerEnvironment: {
       ...(this.hopper === undefined
         ? {}

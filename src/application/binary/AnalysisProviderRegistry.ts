@@ -193,7 +193,7 @@ export class AnalysisProviderRegistry {
       return err(new AnalysisCancelledError("open_binary"));
     if (
       request === undefined &&
-      selector !== "auto" &&
+      this.#byId.has(selector) &&
       baseline.length > 0 &&
       baseline.every(
         ({ targetSupport }) => targetSupport.status === "unsupported",
@@ -331,6 +331,10 @@ export class AnalysisProviderRegistry {
         throw new TypeError("Cancelled candidate evaluation disappeared");
       return result.value;
     });
+    const cleanupFailure = evaluations.find(
+      ({ profileError }) => profileError?.cleanupIncomplete === true,
+    )?.profileError;
+    if (cleanupFailure !== undefined) return err(cleanupFailure);
     const statuses = evaluations.map(({ status }) => status);
     const decision = decideAutoProviderSelection(evaluations);
     if (decision.state !== "bound")
@@ -353,24 +357,30 @@ export class AnalysisProviderRegistry {
 const candidateStatus = (
   provider: AnalysisProviderCandidate,
   target: BinaryTarget | undefined,
-): AnalysisProviderCandidateStatus => ({
-  provider: structuredClone(provider.identity()),
-  availability: cloneAvailability(provider.inspectAvailability()),
-  targetSupport:
-    target === undefined
-      ? {
-          status: "unknown",
-          code: null,
-          reason: "No target is open.",
-          diagnostics: {},
-        }
-      : cloneTargetSupport(provider.inspectTargetSupport(target)),
-  selected: false,
-  eligibility: "unevaluated",
-  capabilities: provider
-    .capabilities()
-    .map((capability) => structuredClone(capability)),
-});
+): AnalysisProviderCandidateStatus => {
+  const readiness = provider.inspectReadinessSnapshot?.() ?? {
+    availability: provider.inspectAvailability(),
+    capabilities: provider.capabilities(),
+  };
+  return {
+    provider: structuredClone(provider.identity()),
+    availability: cloneAvailability(readiness.availability),
+    targetSupport:
+      target === undefined
+        ? {
+            status: "unknown",
+            code: null,
+            reason: "No target is open.",
+            diagnostics: {},
+          }
+        : cloneTargetSupport(provider.inspectTargetSupport(target)),
+    selected: false,
+    eligibility: "unevaluated",
+    capabilities: readiness.capabilities.map((capability) =>
+      structuredClone(capability),
+    ),
+  };
+};
 
 const signalIsAborted = (signal: AbortSignal | undefined): boolean =>
   signal?.aborted === true;
