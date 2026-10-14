@@ -72,6 +72,9 @@ export const resolveJavaScriptIntrinsicInvocation = (
   intrinsicPath: (node: t.Node) => readonly string[] | undefined,
   boundIntrinsic: (node: t.Node) => JavaScriptIntrinsicInvocation | undefined,
   intrinsicReadChanged: (node: t.Node, path: readonly string[]) => boolean,
+  memberRead?: (
+    node: t.Node,
+  ) => t.MemberExpression | t.OptionalMemberExpression | undefined,
 ): JavaScriptIntrinsicInvocation | undefined => {
   const visited = new Set<t.Node>();
   let callee: t.Node = node.callee;
@@ -107,19 +110,47 @@ export const resolveJavaScriptIntrinsicInvocation = (
         );
         if (method === "call" || method === "apply") {
           const bound = boundIntrinsic(callee.object);
-          if (bound === undefined) return undefined;
+          // An alias can capture an invocation member read, as in
+          // `const invoke = change.call` — its stored value is the member's
+          // function. Follow the captured read before giving up on a callable.
+          const member:
+            | t.MemberExpression
+            | t.OptionalMemberExpression
+            | undefined =
+            bound === undefined ? memberRead?.(callee.object) : undefined;
+          if (bound === undefined && member === undefined) return undefined;
+          const memberPath: readonly string[] | undefined =
+            member === undefined
+              ? undefined
+              : [
+                  "intrinsic",
+                  "Function",
+                  "prototype",
+                  semanticStaticPropertyKey(member.property, member.computed) ??
+                    "call",
+                ];
           if (explicitReceiver && !t.isExpression(receiver))
-            return { kind: "opaque", path: bound.path, arguments: undefined };
+            return {
+              kind: "opaque",
+              path: bound?.path ?? memberPath ?? ["intrinsic"],
+              arguments: undefined,
+            };
           if (
             bound !== undefined &&
             intrinsicReadChanged(callee, [...bound.path, method])
           )
             return { kind: "opaque", path: bound.path, arguments: undefined };
+          if (
+            member !== undefined &&
+            memberPath !== undefined &&
+            intrinsicReadChanged(member, memberPath)
+          )
+            return { kind: "opaque", path: memberPath, arguments: undefined };
           // Function.prototype.call/apply uses the outer explicit receiver
           // as its callable, even when the member was read from a bound value.
           const callable: t.Node | undefined = explicitReceiver
             ? receiver
-            : callee.object;
+            : (member ?? callee.object);
           if (!t.isExpression(callable)) return undefined;
           receiver = arguments_?.[0];
           explicitReceiver = true;
@@ -135,9 +166,9 @@ export const resolveJavaScriptIntrinsicInvocation = (
       receiver = bound.receiver;
       explicitReceiver = true;
       arguments_ =
-        bound.arguments === undefined
+        bound.arguments === undefined || arguments_ === undefined
           ? undefined
-          : [...bound.arguments, ...(arguments_ ?? [])];
+          : [...bound.arguments, ...arguments_];
       boundPrefixApplied = bound.arguments !== undefined;
     }
     const method = path.length > 3 ? path.at(-1) : undefined;
@@ -151,9 +182,9 @@ export const resolveJavaScriptIntrinsicInvocation = (
               ? undefined
               : boundPrefixApplied
                 ? arguments_
-                : bound.arguments === undefined
+                : bound.arguments === undefined || arguments_ === undefined
                   ? undefined
-                  : [...bound.arguments, ...(arguments_ ?? [])],
+                  : [...bound.arguments, ...arguments_],
         };
       const callable = explicitReceiver
         ? receiver

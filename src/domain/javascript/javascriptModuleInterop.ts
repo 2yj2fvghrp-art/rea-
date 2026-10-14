@@ -28,6 +28,7 @@ import {
 import { semanticPropertyPathKeyMatches } from "./javascriptSemanticPropertyPaths.js";
 import {
   readExactJavaScriptLiteral,
+  semanticStaticPropertyKey,
   unwrapJavaScriptExpression,
 } from "./javascriptAstValues.js";
 
@@ -394,6 +395,7 @@ export const createSemanticModuleInterop = (
           intrinsicPath,
           boundIntrinsic,
           intrinsicReadChanged,
+          capturedInvocationMember,
         );
         if (
           invocation?.kind !== "known" ||
@@ -435,6 +437,32 @@ export const createSemanticModuleInterop = (
           : argumentGroups.toReversed().flat(),
       };
     }
+  };
+
+  // An alias initializer can hold a captured invocation member read, as in
+  // `const invoke = bound.call`. The initializer stores the member's function
+  // value at read time; follow it so the alias remains a usable callable.
+  const capturedInvocationMember = (
+    node: t.Node,
+  ): t.MemberExpression | t.OptionalMemberExpression | undefined => {
+    const current = unwrapJavaScriptExpression(node).node;
+    if (!t.isIdentifier(current)) return undefined;
+    const binding = resolveSemanticBindingState(state, current, current.name);
+    const initializer = semanticStableInitializer(binding, state);
+    if (
+      binding === undefined ||
+      initializer === undefined ||
+      initializer.projection.length !== 0 ||
+      (initializer.node.end ?? Infinity) >= (current.start ?? -1)
+    )
+      return undefined;
+    const member = unwrapJavaScriptExpression(initializer.node).node;
+    if (!t.isMemberExpression(member) && !t.isOptionalMemberExpression(member))
+      return undefined;
+    const key = semanticStaticPropertyKey(member.property, member.computed);
+    return key === "call" || key === "apply" || key === "bind"
+      ? member
+      : undefined;
   };
 
   const activeBoundValues = new WeakSet<t.Node>();
@@ -725,6 +753,7 @@ export const createSemanticModuleInterop = (
         intrinsicPath,
         boundIntrinsic,
         intrinsicReadChanged,
+        capturedInvocationMember,
       ),
     boundIntrinsic,
     staticString,
