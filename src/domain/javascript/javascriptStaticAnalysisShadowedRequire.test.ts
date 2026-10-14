@@ -80,6 +80,14 @@ const shadowedCases = [
     `globalThis.webpackChunkApp.push([[1], { entry(module, exports, require) { require = () => "local"; require("./ghost.cjs"); } }]);`,
   ],
   [
+    "write in an earlier instance field shadows a call in a later field",
+    `var require;\nclass C {\n  first = (require = () => "local");\n  second = require("./ghost.cjs");\n}\nnew C();`,
+  ],
+  [
+    "write and call in the same instance field",
+    `var require;\nclass C {\n  first = (require = () => "local", require("./ghost.cjs"));\n}\nnew C();`,
+  ],
+  [
     "destructured missing property of createRequire",
     `import { createRequire } from "node:module";\nconst { missing: require } = createRequire(import.meta.url);\nrequire?.("./ghost.cjs");`,
   ],
@@ -246,6 +254,21 @@ const loaderCases = [
   [
     "write in an uninstantiated class field does not hide the dependency",
     `var require;\nclass C { value = (require = () => "local"); }\nrequire("./dep.cjs");`,
+    ["./dep.cjs"],
+  ],
+  [
+    "write in a later instance field does not hide an earlier field's call",
+    `var require;\nclass C {\n  first = require("./dep.cjs");\n  second = (require = () => "local");\n}\nnew C();`,
+    ["./dep.cjs"],
+  ],
+  [
+    "instance field write does not hide a call in another class's field",
+    `var require;\nclass A { first = (require = () => "local"); }\nclass B { second = require("./dep.cjs"); }\nnew A();\nnew B();`,
+    ["./dep.cjs"],
+  ],
+  [
+    "instance field write does not hide a call in a class method",
+    `var require;\nclass C {\n  first = (require = () => "local");\n  m() { return require("./dep.cjs"); }\n}\nnew C().m();`,
     ["./dep.cjs"],
   ],
 ];

@@ -579,9 +579,10 @@ const requireWriteFact = (
 /**
  * A write fact textually precedes a call in the same function scope when the
  * call starts at or after the write's end position. A write at program top
- * level precedes calls anywhere after it; a write inside a function body
- * only precedes calls in that same body, since source order cannot establish
- * when the body runs relative to an outer call.
+ * level precedes calls anywhere after it; a write inside a function body or a
+ * class's instance initialization only precedes calls in that same scope,
+ * since source order cannot establish when the scope runs relative to an
+ * outer call.
  */
 const writeFactPrecedesCall = (
   write: RequireWriteFact,
@@ -668,9 +669,12 @@ const writeMustRunBeforeCall = (
  * (e.g. the key of `{ [require("ghost")]() {} }`) executes in the enclosing
  * scope, not inside the method it names, so the walk skips that method. An
  * instance field initializer only runs when the class is instantiated, so a
- * write there is deferred work scoped to its field — not a write at class
- * declaration — which keeps an uninstantiated class from hiding a later
- * dependency. Static field initializers, computed keys, and decorators run
+ * write there is deferred work scoped to its class's instance initialization —
+ * not a write at class declaration — which keeps an uninstantiated class from
+ * hiding a later dependency. Instance field initializers run in textual order
+ * during construction, so a write in one field and a call in a later field
+ * share the class as their scope and the write's position establishes the
+ * order. Static field initializers, computed keys, and decorators run
  * when the class is defined and keep the previous behavior. An incomplete
  * parent chain falls back to null, which keeps the previous positional
  * behavior for that write or call.
@@ -684,8 +688,26 @@ const nearestFunctionNode = (
   while (current !== undefined) {
     if (t.isFunction(current) && !isComputedKeyOf(child, current))
       return current;
-    if (isDeferredInstanceFieldValue(child, current)) return current;
+    if (isDeferredInstanceFieldValue(child, current))
+      return enclosingClassNode(current, state) ?? current;
     child = current;
+    current = state.parentsByNode.get(current);
+  }
+  return null;
+};
+
+/**
+ * The class owning a deferred instance field. A field's parent chain always
+ * passes through its class body to the class itself; on an incomplete chain
+ * the caller falls back to the field node, keeping the previous behavior.
+ */
+const enclosingClassNode = (
+  field: t.Node,
+  state: JavaScriptSemanticAnalysisState,
+): t.Node | null => {
+  let current: t.Node | undefined = state.parentsByNode.get(field);
+  while (current !== undefined) {
+    if (t.isClass(current)) return current;
     current = state.parentsByNode.get(current);
   }
   return null;
