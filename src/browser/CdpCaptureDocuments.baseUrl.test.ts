@@ -194,6 +194,25 @@ describe("DOM metadata document base URLs", () => {
 });
 
 describe("DOM link relation tokens", () => {
+  it("retains links and declarations when CDP encodes empty node values as -1", () => {
+    const value = snapshot();
+    value.documents[0]!.nodes.nodeValue.fill(-1);
+    const result = capture(value);
+    expect(result.nodes).toHaveLength(5);
+    expect(result.nodes.every((node) => node.node_value_length === 0)).toBe(
+      true,
+    );
+    expect(result.urls).toHaveLength(4);
+    expect(result.agentHints).toEqual([
+      {
+        mechanism: "dom_link_rel",
+        declaration: "mcp",
+        url: `${origin}/screens/agent`,
+        trust: "page-declared-untrusted",
+      },
+    ]);
+  });
+
   it.each([" ", "\t", "\n", "\f", "\r"])(
     "recognizes agent relations separated by HTML whitespace: %j",
     (separator) => {

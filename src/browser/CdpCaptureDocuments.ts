@@ -249,7 +249,9 @@ export function* captureDom(
       const parent = rawParents[index];
       const attributeIndexes = numberArray(rawAttributes[index]);
       const nodeName = indexedString(strings, nodeNameIndex);
-      const nodeValue = indexedString(strings, nodeValueIndex);
+      // CDP uses -1 for an absent node value, including ordinary elements.
+      const nodeValue =
+        nodeValueIndex === -1 ? "" : indexedString(strings, nodeValueIndex);
       if (
         nodeType === undefined ||
         nodeName === undefined ||
