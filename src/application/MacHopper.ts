@@ -157,8 +157,19 @@ export const installMacHopper = async (
       const launcherPath = join(destination, "Contents/MacOS/hopper");
       if (!(await host.launcherReady(launcherPath)))
         return { status: "failed", reason: "launcher_missing" };
-      await host.openApplication(destination);
-      return { status: "installed", launcherPath };
+      // Opening the application is a post-install convenience step: the bundle
+      // is already verified, copied, and launcher-checked, so an open failure
+      // must surface as a retained warning instead of discarding the completed
+      // installation as a download failure.
+      let openFailure: string | undefined;
+      try {
+        await host.openApplication(destination);
+      } catch (cause: unknown) {
+        openFailure = `Hopper application open failed: ${failureMessage(cause)}`;
+      }
+      return openFailure === undefined
+        ? { status: "installed", launcherPath }
+        : { status: "installed", launcherPath, cleanupFailure: openFailure };
     })();
   } catch (cause: unknown) {
     // Install-stage failures share the download reason; the stage is cleaned below.
@@ -185,7 +196,12 @@ export const installMacHopper = async (
     }
   }
 
-  return cleanupFailure === undefined ? result : { ...result, cleanupFailure };
+  const warnings = [result.cleanupFailure, cleanupFailure].filter(
+    (message): message is string => message !== undefined,
+  );
+  return warnings.length === 0
+    ? result
+    : { ...result, cleanupFailure: warnings.join("; ") };
 };
 
 /** Compose installer paths and subprocesses from one selected caller context. */

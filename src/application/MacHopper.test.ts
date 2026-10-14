@@ -17,6 +17,8 @@ class FakeMacHopperHost implements MacHopperInstallHost {
   copySucceeds = true;
   launcherSucceeds = true;
   badHash = false;
+  openFails = false;
+  cleanupFails = false;
   unmounts = 0;
   cleanups = 0;
   installs = 0;
@@ -67,11 +69,15 @@ class FakeMacHopperHost implements MacHopperInstallHost {
   launcherReady = () => Promise.resolve(this.launcherSucceeds);
   openApplication = () => {
     this.opens += 1;
-    return Promise.resolve();
+    return this.openFails
+      ? Promise.reject(new Error("automation session denied"))
+      : Promise.resolve();
   };
   cleanup = () => {
     this.cleanups += 1;
-    return Promise.resolve();
+    return this.cleanupFails
+      ? Promise.reject(new Error("dmg busy"))
+      : Promise.resolve();
   };
   destination = () => "/home/user/Applications/Hopper Disassembler.app";
 }
@@ -140,6 +146,33 @@ describe("macOS Hopper installation", () => {
     expect(host.installs).toBe(0);
     expect(host.opens).toBe(0);
     expect(host.unmounts).toBe(1);
+    expect(host.cleanups).toBe(1);
+  });
+
+  it("keeps the completed installation when the final open fails", async () => {
+    const host = new FakeMacHopperHost();
+    host.openFails = true;
+    await expect(installMacHopper({}, host)).resolves.toEqual({
+      status: "installed",
+      launcherPath:
+        "/home/user/Applications/Hopper Disassembler.app/Contents/MacOS/hopper",
+      cleanupFailure:
+        "Hopper application open failed: automation session denied",
+    });
+    expect(host.opens).toBe(1);
+    expect(host.unmounts).toBe(1);
+    expect(host.cleanups).toBe(1);
+  });
+
+  it("retains both the open failure and the DMG cleanup failure", async () => {
+    const host = new FakeMacHopperHost();
+    host.openFails = true;
+    host.cleanupFails = true;
+    const result = await installMacHopper({}, host);
+    expect(result).toMatchObject({ status: "installed" });
+    expect(result.cleanupFailure).toBe(
+      "Hopper application open failed: automation session denied; Hopper DMG cleanup failed: dmg busy",
+    );
     expect(host.cleanups).toBe(1);
   });
 });
