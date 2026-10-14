@@ -30,7 +30,10 @@ import {
   spawnOwnedProviderProcess,
 } from "../process/ProviderProcess.js";
 import { ghidraJavaEnvironment } from "./GhidraInstallation.js";
-import { ghidraJavaLaunch } from "./GhidraJavaLaunch.js";
+import {
+  ghidraJavaLaunch,
+  GhidraLaunchSupportError,
+} from "./GhidraJavaLaunch.js";
 import type { GhidraTransportKind } from "./GhidraTransport.js";
 import {
   snapshotGhidraExtensions,
@@ -127,6 +130,7 @@ export class GhidraLaunchError extends Error {
 const ghidraLaunchCommandOutput = (
   cause: unknown,
 ): AnalysisCapturedOutput | undefined => {
+  if (cause instanceof GhidraLaunchSupportError) cause = cause.ownedFailure;
   if (!(cause instanceof OwnedCommandFailure) || cause.snapshot === null)
     return undefined;
   const snapshot = cause.snapshot;
@@ -391,11 +395,14 @@ export class GhidraHeadlessLauncher implements GhidraLauncher {
       // Command collection already attempted independent cleanup. Transfer its
       // unresolved owner to the client, which must retain private paths until
       // the entire probe tree is verified gone, including after cancellation.
-      if (
-        cause instanceof OwnedCommandFailure &&
-        cause.cleanupOwner !== undefined
-      ) {
-        const owner = cause.cleanupOwner;
+      const ownedFailure =
+        cause instanceof GhidraLaunchSupportError
+          ? cause.ownedFailure
+          : cause instanceof OwnedCommandFailure
+            ? cause
+            : undefined;
+      if (ownedFailure?.cleanupOwner !== undefined) {
+        const owner = ownedFailure.cleanupOwner;
         return err(
           new GhidraLaunchError(
             `${primary.message}; LaunchSupport cleanup remains incomplete`,

@@ -1,10 +1,52 @@
 import { snapshotEnvironment } from "../process/snapshotEnvironment.js";
 import { posix, win32 } from "node:path";
-import { runOwnedCommand } from "../process/OwnedCommand.js";
+import {
+  OwnedCommandFailure,
+  runOwnedCommand,
+} from "../process/OwnedCommand.js";
 import type { spawnOwnedProviderProcess } from "../process/ProviderProcess.js";
 
 /** Complete release configuration and warnings share this retained byte budget. */
 export const GHIDRA_LAUNCH_SUPPORT_OUTPUT_BYTES = 64 * 1024;
+
+/** Keep probe phase and its owned outcome together, including unresolved cleanup. */
+export class GhidraLaunchSupportError extends Error {
+  constructor(
+    readonly phase: "-envvars" | "-vmargs",
+    cause: unknown,
+  ) {
+    super(`Ghidra LaunchSupport ${phase} failed`, { cause });
+    this.name = "GhidraLaunchSupportError";
+  }
+
+  get ownedFailure(): OwnedCommandFailure | undefined {
+    return this.cause instanceof OwnedCommandFailure ? this.cause : undefined;
+  }
+
+  get outcome() {
+    const failure = this.ownedFailure;
+    const snapshot = failure?.snapshot;
+    if (snapshot == null) return undefined;
+    return {
+      stdout: snapshot.stdout.text,
+      stderr: snapshot.stderr.text,
+      stdoutBytes: snapshot.stdout.observedBytes,
+      stderrBytes: snapshot.stderr.observedBytes,
+      stdoutTruncated: snapshot.stdout.observedBytes > snapshot.stdout.bytes,
+      stderrTruncated: snapshot.stderr.observedBytes > snapshot.stderr.bytes,
+      outputTruncated: snapshot.diagnosticTruncated === true,
+      // Cancellation alone does not prove that a kill caused the observed exit.
+      killed:
+        typeof snapshot.signal === "string"
+          ? true
+          : failure?.reason === "process" && snapshot.exitCode != null
+            ? false
+            : null,
+      exitCode: snapshot.exitCode ?? null,
+      signal: snapshot.signal ?? null,
+    };
+  }
+}
 
 /** JVM option environments remove quotes, including quotes inside an option. */
 const jvmEnvironmentArguments = (value: string): readonly string[] => {
@@ -95,28 +137,33 @@ export const ghidraJavaLaunch = async (options: {
   const environment = {
     ...snapshotEnvironment(options.environment, options.platform),
   };
-  const probe = (mode: "-envvars" | "-vmargs") =>
-    runOwnedCommand(
-      {
-        command,
-        arguments: [...supportArguments, mode],
-        runId: options.runId,
-        expectedCommand: command,
-        platform: options.platform,
-        env: environment,
-        hostEnvironment: {},
-      },
-      {
-        timeoutMs: options.timeoutMs,
-        diagnosticBytes: GHIDRA_LAUNCH_SUPPORT_OUTPUT_BYTES,
-      },
-      {
-        ...(options.signal === undefined ? {} : { signal: options.signal }),
-        ...(options.spawnProbe === undefined
-          ? {}
-          : { launcher: options.spawnProbe }),
-      },
-    );
+  const probe = async (mode: "-envvars" | "-vmargs") => {
+    try {
+      return await runOwnedCommand(
+        {
+          command,
+          arguments: [...supportArguments, mode],
+          runId: options.runId,
+          expectedCommand: command,
+          platform: options.platform,
+          env: environment,
+          hostEnvironment: {},
+        },
+        {
+          timeoutMs: options.timeoutMs,
+          diagnosticBytes: GHIDRA_LAUNCH_SUPPORT_OUTPUT_BYTES,
+        },
+        {
+          ...(options.signal === undefined ? {} : { signal: options.signal }),
+          ...(options.spawnProbe === undefined
+            ? {}
+            : { launcher: options.spawnProbe }),
+        },
+      );
+    } catch (cause: unknown) {
+      throw new GhidraLaunchSupportError(mode, cause);
+    }
+  };
   const configuredEnvironment = await probe("-envvars");
   options.onStderr("-envvars", configuredEnvironment.stderr.text);
   for (const line of configuredEnvironment.stdout.text.split(/\r?\n/u)) {

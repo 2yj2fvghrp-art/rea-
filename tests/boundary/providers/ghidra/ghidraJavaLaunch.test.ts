@@ -248,9 +248,12 @@ describe("Ghidra LaunchSupport ownership and limits", () => {
         launched.error,
       );
       expect(failure.diagnostics.failure_cause).toMatchObject({
-        launch_outcome: {
-          truncated: true,
-          [`${stream}_bytes`]: expect.any(Number),
+        cause: {
+          message: expect.stringContaining(mode),
+          command_outcome: {
+            outputTruncated: true,
+            [`${stream}Bytes`]: expect.any(Number),
+          },
         },
       });
       if (!(launched.error instanceof GhidraLaunchError)) throw launched.error;
@@ -278,6 +281,20 @@ describe("Ghidra LaunchSupport ownership and limits", () => {
       expect(launched.ok).toBe(false);
       expect(analysisArguments).toEqual([]);
       expect(probePids).toHaveLength(mode === "-envvars" ? 1 : 2);
+      if (!launched.ok && process.platform === "win32") {
+        const failure = bindGhidraSessionFailure(() => ({}))(
+          "start",
+          launched.error.message,
+          launched.error,
+        );
+        expect(failure.diagnostics.failure_cause).toMatchObject({
+          cause: {
+            cause: {
+              command_outcome: { killed: null, outputTruncated: false },
+            },
+          },
+        });
+      }
       for (const pid of probePids) expect(() => process.kill(pid, 0)).toThrow();
     },
   );
@@ -318,8 +335,7 @@ describe("Ghidra LaunchSupport ownership and limits", () => {
       if (launched.ok || !(launched.error instanceof GhidraLaunchError))
         throw new Error("Expected probe timeout");
       expect(launched.error.cause).toMatchObject({
-        reason: "timeout",
-        cleanupFailure: null,
+        cause: { reason: "timeout", cleanupFailure: null },
       });
       expect(analysisArguments).toEqual([]);
       for (const pid of probePids) expect(() => process.kill(pid, 0)).toThrow();
@@ -344,9 +360,11 @@ describe("Ghidra LaunchSupport diagnostics", () => {
       const cause = failure.diagnostics.failure_cause;
       if (mode === "env-failure") {
         expect(cause).toMatchObject({
-          launch_outcome: {
-            exit_code: 3,
-            stderr: expect.stringContaining(`-envvars: ${warning}`),
+          cause: {
+            command_outcome: {
+              exit_code: 3,
+              stderr: expect.stringContaining(`-envvars: ${warning}`),
+            },
           },
         });
       } else {
@@ -361,9 +379,11 @@ describe("Ghidra LaunchSupport diagnostics", () => {
       }
       if (mode === "vm-failure")
         expect(cause).toMatchObject({
-          launch_outcome: {
-            exit_code: 3,
-            stderr: expect.stringContaining(`-vmargs: ${warning}`),
+          cause: {
+            command_outcome: {
+              exit_code: 3,
+              stderr: expect.stringContaining(`-vmargs: ${warning}`),
+            },
           },
         });
       if (mode === "vm-malformed")
