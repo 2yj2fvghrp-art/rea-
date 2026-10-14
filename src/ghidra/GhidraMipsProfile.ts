@@ -69,13 +69,14 @@ const hasLegacyMipsHeaderShape = (target: BinaryTarget): boolean => {
 };
 
 /**
- * GNU attribute declarations the admitted lanes can model. Target resolution
- * already reconciles the FP tag with an ABI flags record. Without a record the
- * tag is the only FP declaration, so it must be one the declared-ABI lane
- * admits under the default o32 compiler specification: double precision or
- * FPXX (or 0, no requirement).
+ * GNU attribute declarations the admitted lanes can model, shared by the
+ * generic MIPS and PSP admissions. Target resolution already reconciles the FP
+ * tag with an ABI flags record. Without a record the tag is the only FP
+ * declaration, so it must be one the declared-ABI lane admits under the
+ * default o32 compiler specification: double precision or FPXX (or 0, no
+ * requirement).
  */
-const gnuAttributesUnsupportedReason = (
+export const ghidraMipsGnuAttributesUnsupportedReason = (
   metadata: MipsElfMetadata,
 ): string | null => {
   const gnu = metadata.gnuAttributes;
@@ -105,7 +106,7 @@ export const ghidraMipsUnsupportedReason = (
   const shared = isGhidraMips16SharedTarget(target);
   if (metadata.elfClass !== 32)
     return "This Ghidra MIPS lane supports ELF32 only; MIPS64 and n64 remain unsupported.";
-  const gnuReason = gnuAttributesUnsupportedReason(metadata);
+  const gnuReason = ghidraMipsGnuAttributesUnsupportedReason(metadata);
   if (gnuReason !== null) return gnuReason;
   if (
     metadata.type !== MIPS_ET_EXEC &&
