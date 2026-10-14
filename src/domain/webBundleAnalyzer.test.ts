@@ -372,6 +372,26 @@ describe("web bundle API classification parity", () => {
         .sort(),
     ).toEqual(["cache-key", "users"]);
   });
+
+  it("keeps undici header-store reads out of endpoint observations", () => {
+    const result = analyzeCapturedWebBundle(
+      inspection(`
+        response.headersList.get("location", true);
+        request.headersList.delete("authorization");
+        request.headersList.get("/header-list");
+        api.get("/api/users");
+      `),
+    );
+    expect(result.observations.endpoints.map(({ value }) => value)).toEqual([
+      "/header-list",
+      "/api/users",
+    ]);
+    expect(
+      result.inferences
+        .filter(({ kind }) => kind === "endpoint_candidate")
+        .map(({ value }) => value),
+    ).toEqual([]);
+  });
 });
 
 describe("web bundle explicit request reference forms", () => {
@@ -774,6 +794,70 @@ describe("web bundle configuration and navigation parity", () => {
     ).toEqual(expected);
   });
 
+  it("classifies proven VS Code extension state reads as non-endpoints", () => {
+    const reads = `
+      context.globalState.get("lastVersion");
+      context.globalState.get("?key");
+      context.globalState.get("%2e");
+      this.workspaceState.get("closedRepositories", []);
+      context?.globalState.get("onboarded");
+      context.globalState.get("/v1/state");
+      context.secrets.get("token");
+      api.get("users");
+    `;
+    const analyze = (source: string) => {
+      const web = analyzeCapturedWebBundle(inspection(source));
+      const staticAnalysis = analyzeJavaScriptStaticSource(source);
+      return {
+        web: {
+          endpoints: web.observations.endpoints
+            .map(({ value }) => value)
+            .sort(),
+          candidates: web.inferences
+            .filter(({ kind }) => kind === "endpoint_candidate")
+            .map(({ value }) => value)
+            .sort(),
+        },
+        application: {
+          endpoints: staticAnalysis.endpoints
+            .filter(({ interpretation }) => interpretation === undefined)
+            .map(({ value }) => value)
+            .sort(),
+          candidates: staticAnalysis.endpoints
+            .filter(({ interpretation }) => interpretation === "candidate")
+            .map(({ value }) => value)
+            .sort(),
+        },
+      };
+    };
+    const proven = {
+      endpoints: ["/v1/state"],
+      candidates: ["token", "users"],
+    };
+    expect(analyze(`const vscode = require("vscode");${reads}`)).toEqual({
+      web: proven,
+      application: proven,
+    });
+    expect(analyze(`import * as vscode from "vscode";${reads}`)).toEqual({
+      web: proven,
+      application: proven,
+    });
+    const unproven = {
+      endpoints: ["%2e", "/v1/state", "?key"],
+      candidates: [
+        "closedRepositories",
+        "lastVersion",
+        "onboarded",
+        "token",
+        "users",
+      ],
+    };
+    expect(analyze(`const vscode = require("./vscode");${reads}`)).toEqual({
+      web: unproven,
+      application: unproven,
+    });
+  });
+
   it("recognizes loadURL endpoints like static analysis", () => {
     const result = analyzeCapturedWebBundle(
       inspection('window.win.loadURL("https://embedded.test/app");'),
@@ -1014,6 +1098,26 @@ describe("web metadata key semantics", () => {
       expect.objectContaining({ name: "valid" }),
     ]);
   });
+});
+
+it("retains WebMCP declarations through optional member and call chaining", () => {
+  const result = analyzeCapturedWebBundle(
+    inspection(`
+      document.modelContext?.registerTool({ name: "optional member" });
+      document.modelContext.registerTool?.({ name: "optional call" });
+    `),
+  );
+
+  expect(result.observations.webmcp_declarations).toEqual([
+    expect.objectContaining({
+      name: "optional member",
+      trust: "page-declared-untrusted",
+    }),
+    expect.objectContaining({
+      name: "optional call",
+      trust: "page-declared-untrusted",
+    }),
+  ]);
 });
 
 it("reads expression-free template dynamic imports as chunk edges", () => {

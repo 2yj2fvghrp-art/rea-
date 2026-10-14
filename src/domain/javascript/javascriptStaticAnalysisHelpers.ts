@@ -561,7 +561,11 @@ const isKeyedCollectionReceiver = (callee: t.Node): boolean => {
     receiver.property,
     receiver.computed,
   );
-  return property === "headers" || property === "searchParams";
+  return (
+    property === "headers" ||
+    property === "headersList" ||
+    property === "searchParams"
+  );
 };
 
 /** A literal endpoint shape or an ambiguous argument of an HTTP-method-named call. */
@@ -619,7 +623,9 @@ export const endpointArgument = (
       (method === "get" || method === "delete") &&
       !isRequestUrlOrPathLiteral(value) &&
       (isKeyedCollectionReceiver(callee) ||
-        (method === "get" && receiverFact === "configuration"))
+        (method === "get" &&
+          (receiverFact === "configuration" ||
+            receiverFact === "extension-state")))
     )
       return undefined;
     return {
@@ -627,10 +633,11 @@ export const endpointArgument = (
       value,
     };
   }
-  // navigator.sendBeacon(url, data) queues a POST to its first argument.
+  // Beacon URLs are endpoint observations, retaining the upstream API support.
   if (name === "sendBeacon" || name.endsWith(".sendBeacon"))
     return literal(stringValue(args[0]));
-  if (name.endsWith("loadURL")) return literal(stringValue(args[0]));
+  if (name === "loadURL" || name.endsWith(".loadURL"))
+    return literal(stringValue(args[0]));
   return undefined;
 };
 
