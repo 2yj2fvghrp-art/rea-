@@ -1,4 +1,5 @@
 import { readFile } from "node:fs/promises";
+import { join, resolve, sep } from "node:path";
 import { expect, it } from "vitest";
 import { parseWabtOutput } from "./WabtOutput.js";
 import { parseWabtWat } from "./WabtWat.js";
@@ -256,10 +257,13 @@ it("extracts escaped WAT import/export forms while retaining multiline producer 
   expect(() => parseWabtWat("(module) unexpected")).toThrow(/Unexpected/u);
 });
 it("keeps exact local, ambiguous URL, computed and unparseable glue distinct", () => {
-  const candidates = ["/app/module.wasm", "/other/module.wasm"];
+  const candidates = [
+    resolve("/app/module.wasm"),
+    resolve("/other/module.wasm"),
+  ];
   const result = associateWasmGlue(
     'fetch("./module.wasm"); new URL("https://example.com/module.wasm?x=1", import.meta.url); fetch(`module.wasm`); fetch(name + ".wasm");',
-    "/app/glue.js",
+    resolve("/app/glue.js"),
     candidates,
   );
   expect(result.parse_status).toBe("complete");
@@ -267,7 +271,7 @@ it("keeps exact local, ambiguous URL, computed and unparseable glue distinct", (
     {
       value: "./module.wasm",
       association: "local-path-candidate",
-      candidate_paths: ["/app/module.wasm"],
+      candidate_paths: [candidates[0]],
     },
     {
       value: "https://example.com/module.wasm?x=1",
@@ -282,3 +286,72 @@ it("keeps exact local, ambiguous URL, computed and unparseable glue distinct", (
     references: [],
   });
 });
+
+it.each([".", `.${sep}.`])(
+  "keeps a selected module's %s components out of local association identity",
+  (dots) => {
+    const app = resolve("/app");
+    const selected = `${app}${sep}${dots}${sep}module.wasm`;
+    const other = resolve("/other/module.wasm");
+    const result = associateWasmGlue(
+      'fetch("./module.wasm"); fetch("https://example.com/module.wasm");',
+      join(app, "glue.js"),
+      [selected, other],
+    );
+    expect(result.parse_status).toBe("complete");
+    expect(result.references).toMatchObject([
+      {
+        value: "./module.wasm",
+        association: "local-path-candidate",
+        candidate_paths: [selected],
+      },
+      {
+        value: "https://example.com/module.wasm",
+        association: "basename-candidates",
+        candidate_paths: [selected, other],
+      },
+    ]);
+  },
+);
+
+it("does not collapse parent traversal when associating selected paths", () => {
+  const app = resolve("/app");
+  const selected = `${app}${sep}link${sep}..${sep}module.wasm`;
+  const other = resolve("/other/module.wasm");
+  expect(
+    associateWasmGlue('fetch("./module.wasm");', join(app, "glue.js"), [
+      selected,
+      other,
+    ]).references,
+  ).toMatchObject([
+    {
+      association: "basename-candidates",
+      candidate_paths: [selected, other],
+    },
+  ]);
+});
+
+it
+  .skipIf(process.platform !== "win32")
+  .each(["\\\\.\\C:\\app", "\\\\?\\C:\\app"])(
+  "preserves the Windows namespace root in %s",
+  (app) => {
+    const other = "C:\\other\\module.wasm";
+    for (const selected of [
+      join(app, "module.wasm"),
+      `${app}\\.\\module.wasm`,
+    ]) {
+      expect(
+        associateWasmGlue('fetch("./module.wasm");', join(app, "glue.js"), [
+          selected,
+          other,
+        ]).references,
+      ).toMatchObject([
+        {
+          association: "local-path-candidate",
+          candidate_paths: [selected],
+        },
+      ]);
+    }
+  },
+);
