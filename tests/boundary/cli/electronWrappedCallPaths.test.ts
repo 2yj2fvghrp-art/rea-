@@ -55,7 +55,8 @@ cliTest(
       expect(
         byId.get(edge.target_node_id)?.observations[0]?.properties.channel,
       ).toBe(edge.properties.channel);
-      expect(edge.properties.conditions).toEqual([
+      expect(edge.properties.bridge_conditions).toEqual([]);
+      expect(edge.properties.handler_conditions).toEqual([
         expect.objectContaining({ expression: "allowed(event)" }),
       ]);
     }
@@ -308,6 +309,47 @@ cliTest(
 
 for (const surface of ["CLI", "stdio MCP"] as const) {
   cliTest(
+    `retains explicit nested contextBridge members after an unknown spread through ${surface}`,
+    async ({ cli }) => {
+      const analyzeBridge = async (api: string) => {
+        const root = await createTestTempDirectory(
+          "rea-electron-spread-bridge-members-",
+        );
+        await writeFixtureFiles(root, {
+          "preload.js": `const { contextBridge } = require("electron");
+            const extra = getExtra();
+            contextBridge.exposeInMainWorld("api", ${api});`,
+        });
+        return analyzeJavaScriptDirectory(surface, cli, root);
+      };
+      const withSpread = await analyzeBridge("{ ...extra, a: { b: 1 }, c: 2 }");
+      const control = await analyzeBridge("{ a: { b: 1 }, c: 2 }");
+
+      const bridgeObservation = (application: typeof withSpread) =>
+        application.graph.nodes
+          .filter((node) => node.kind === "context-bridge-api")
+          .flatMap((node) => node.observations)
+          .find((observation) => observation.properties.api_key === "api");
+      expect(bridgeObservation(withSpread)).toMatchObject({
+        properties: {
+          api_status: "dynamic",
+          members: ["a", "a.b", "c"],
+          unknown_members: 1,
+        },
+      });
+      expect(bridgeObservation(control)).toMatchObject({
+        properties: {
+          api_status: "object-literal",
+          members: ["a", "a.b", "c"],
+          unknown_members: 0,
+        },
+      });
+      expect(withSpread.summary.exposed_api_members).toBe(3);
+      expect(control.summary.exposed_api_members).toBe(3);
+    },
+  );
+
+  cliTest(
     `preserves handler ambiguity and short-circuit factory paths through ${surface}`,
     async ({ cli }) => {
       const root = await createTestTempDirectory("rea-electron-branch-paths-");
@@ -493,5 +535,46 @@ cliTest(
         )
         .map((edge) => edge.properties.channel),
     ).toEqual(["empty:key"]);
+  },
+);
+
+cliTest(
+  "retains bridge and handler conditions on Electron IPC join edges",
+  async ({ cli }) => {
+    const root = await createTestTempDirectory("rea-electron-join-conditions-");
+    await writeFixtureFiles(root, {
+      "preload.js": `const e=require("electron");
+        e.contextBridge.exposeInMainWorld("desktop", {
+          choose: flag
+            ? () => e.ipcRenderer.send("test:copy")
+            : () => e.ipcRenderer.send("test:cut")
+        });`,
+      "main.js": `const e=require("electron");
+        if(!flag)e.ipcMain.on("test:copy",event=>allowed(event)&&event.sender.copy());
+        if(flag)e.ipcMain.on("test:cut",event=>allowed(event)&&event.sender.cut());`,
+    });
+    const { graph } = await analyzeJavaScriptDirectory("CLI", cli, root);
+    const joins = graph.edges.filter(
+      (edge) =>
+        edge.evidence.extractor.operation === "join-electron-wrapper-paths",
+    );
+    expect(joins).toHaveLength(2);
+    for (const [channel, bridgeCondition] of [
+      ["test:copy", "flag"],
+      ["test:cut", "!(flag)"],
+    ]) {
+      const edge = joins.find(
+        (candidate) => candidate.properties.channel === channel,
+      );
+      expect(edge?.properties.bridge_conditions).toEqual([
+        expect.objectContaining({ expression: bridgeCondition }),
+      ]);
+      expect(edge?.properties.handler_conditions).toEqual([
+        expect.objectContaining({
+          expression: channel === "test:copy" ? "!flag" : "flag",
+        }),
+        expect.objectContaining({ expression: "allowed(event)" }),
+      ]);
+    }
   },
 );
