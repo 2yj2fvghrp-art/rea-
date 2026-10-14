@@ -6,10 +6,14 @@ import { WindowsOwnedProcess } from "../windows/WindowsOwnedProcess.js";
 
 import type {
   OwnedProcessGroup,
+  ProcessOwnershipBaseline,
   ProcessCleanupFailure,
   ProcessCleanupResult,
 } from "./ProcessOwnership.js";
-import { prepareProcessOwnershipInspection } from "./ProcessOwnershipObservation.js";
+import {
+  prepareProcessOwnershipInspection,
+  systemProcessOwnershipHost,
+} from "./ProcessOwnershipObservation.js";
 
 const DEFAULT_TERMINATION_GRACE_MS = 250;
 const DEFAULT_KILL_GRACE_MS = 1_000;
@@ -36,6 +40,8 @@ export interface OwnedProviderProcessSpawnOptions {
    * Windows Job Object. Other launchers cannot enforce it and refuse it.
    */
   readonly memoryLimitBytes?: number;
+  /** Sweep exact run-token descendants during POSIX cleanup. */
+  readonly sweepTokenOwnedProcesses?: boolean;
   /** Cancels native ownership preparation before provider process creation. */
   readonly signal?: AbortSignal;
 }
@@ -60,6 +66,8 @@ export interface ProviderProcessHandle extends Pick<
   readonly signalCode: NodeJS.Signals | null;
   /** True once an enforced process memory limit reported an allocation failure. */
   readonly memoryLimitReached?: boolean;
+  /** True if a Windows backpressured stream was destroyed before output drained. */
+  readonly outputIncomplete?: boolean;
   kill(signal?: NodeJS.Signals | number): boolean;
   unref?(): void;
   ref?(): void;
@@ -91,10 +99,12 @@ export interface ProviderProcessExitObservation {
 
 /** Detached diagnostics captured for one supervised provider process. */
 export interface ProviderProcessSnapshot {
-  /** True only when a configured diagnostic budget excluded output bytes. */
+  /** True when retained diagnostics omit bytes due to the budget or provider output loss. */
   readonly diagnosticTruncated?: boolean;
   readonly stdout: {
     readonly text: string;
+    /** True when retained bytes cannot be represented exactly as UTF-8 text. */
+    readonly invalidUtf8?: true;
     /** Bytes retained in text, limited by maxDiagnosticBytes when configured. */
     readonly bytes: number;
     /** All bytes drained from this stream since construction or resetOutput. */
@@ -102,6 +112,8 @@ export interface ProviderProcessSnapshot {
   };
   readonly stderr: {
     readonly text: string;
+    /** True when retained bytes cannot be represented exactly as UTF-8 text. */
+    readonly invalidUtf8?: true;
     /** Bytes retained in text, limited by maxDiagnosticBytes when configured. */
     readonly bytes: number;
     readonly observedBytes: number;
@@ -110,6 +122,8 @@ export interface ProviderProcessSnapshot {
   readonly signal: NodeJS.Signals | null | undefined;
   /** Present only when the process tree reached its enforced memory limit. */
   readonly memoryLimitReached?: true;
+  /** Present when a provider stream was destroyed before all bytes were observed. */
+  readonly outputIncomplete?: true;
 }
 
 /** Resource-safe events emitted without imposing provider protocol semantics. */
@@ -174,6 +188,16 @@ export const spawnOwnedProviderProcess = async (
   await prepareProcessOwnershipInspection(options.signal);
   options.signal?.throwIfAborted();
   const platform = options.platform ?? process.platform;
+  const sweepTokenOwnedProcesses =
+    options.sweepTokenOwnedProcesses === true && platform !== "win32";
+  let captureBaseline: ProcessOwnershipBaseline | undefined;
+  if (sweepTokenOwnedProcesses) {
+    const capture = systemProcessOwnershipHost.captureBaseline;
+    if (capture === undefined)
+      throw new Error("Process ownership baseline is unavailable on this host");
+    captureBaseline = await capture(options.signal);
+    options.signal?.throwIfAborted();
+  }
   const hostEnvironment = options.hostEnvironment ?? process.env;
   const environment = {
     ...hostEnvironment,
@@ -226,6 +250,12 @@ export const spawnOwnedProviderProcess = async (
     leaderPid: pid,
     processGroupId: pid,
     expectedParentPid: process.pid,
+    ...(sweepTokenOwnedProcesses
+      ? {
+          sweepTokenOwnedProcesses: true,
+          captureBaseline: captureBaseline!,
+        }
+      : {}),
     ...(options.expectedCommand === null
       ? {}
       : { expectedCommand: options.expectedCommand ?? options.command }),
@@ -275,7 +305,6 @@ export class ProviderProcessSupervisor {
     this.#recordExit(code, signal);
     this.#outputClosed = true;
     this.#outputClose.resolve(undefined);
-    if (this.#disposeAfterOutputClose) this.dispose();
   };
   readonly #onError = (cause: Error): void => {
     this.#options.onDiagnostic?.({ type: "error", message: cause.message });
@@ -283,7 +312,6 @@ export class ProviderProcessSupervisor {
   #exitObservation: ProviderProcessExitObservation | undefined;
   #stopPromise: Promise<ProviderProcessStopResult> | undefined;
   #disposed = false;
-  #disposeAfterOutputClose = false;
   #maxDiagnosticBytes: number | undefined;
 
   constructor(
@@ -314,8 +342,11 @@ export class ProviderProcessSupervisor {
 
   /** Latest retained output and exit observation, with explicit configured truncation. */
   snapshot(): ProviderProcessSnapshot {
+    const outputIncomplete = this.launch.process.outputIncomplete === true;
     return {
-      ...(this.#diagnosticTruncated ? { diagnosticTruncated: true } : {}),
+      ...(this.#diagnosticTruncated || outputIncomplete
+        ? { diagnosticTruncated: true }
+        : {}),
       stdout: this.#stdout.snapshot(this.#stdoutObservedBytes),
       stderr: this.#stderr.snapshot(this.#stderrObservedBytes),
       exitCode: this.#exitObservation?.code,
@@ -323,6 +354,7 @@ export class ProviderProcessSupervisor {
       ...(this.launch.process.memoryLimitReached === true
         ? { memoryLimitReached: true }
         : {}),
+      ...(outputIncomplete ? { outputIncomplete: true } : {}),
     };
   }
 
@@ -380,13 +412,6 @@ export class ProviderProcessSupervisor {
         ?.unref;
       unref?.call(stream);
     }
-  }
-
-  /** Keep capturing inherited output, then detach listeners when every writer closes. */
-  disposeAfterOutputClose(): void {
-    if (this.#disposed) return;
-    if (this.#outputClosed) this.dispose();
-    else this.#disposeAfterOutputClose = true;
   }
 
   /** Share each stop attempt; incomplete cleanup retains ownership and permits retry. */
@@ -602,11 +627,19 @@ class ProcessOutputCapture {
   }
 
   snapshot(observedBytes: number): ProviderProcessSnapshot["stdout"] {
-    const text = Buffer.concat(this.#chunks, this.#bytes).toString("utf8");
+    const buffer = Buffer.concat(this.#chunks, this.#bytes);
+    const text = buffer.toString("utf8");
+    let invalidUtf8 = false;
+    try {
+      new TextDecoder("utf-8", { fatal: true }).decode(buffer);
+    } catch {
+      invalidUtf8 = true;
+    }
     return {
       text,
       bytes: this.#bytes,
       observedBytes,
+      ...(invalidUtf8 ? { invalidUtf8: true } : {}),
     };
   }
 }

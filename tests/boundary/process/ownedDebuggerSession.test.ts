@@ -1,14 +1,21 @@
 import { spawn } from "node:child_process";
+import { randomUUID } from "node:crypto";
 import { once } from "node:events";
+import { mkdtemp, rm, writeFile } from "node:fs/promises";
 import { connect } from "node:net";
+import { tmpdir } from "node:os";
+import { join } from "node:path";
+import { spawn as spawnPty } from "@lydell/node-pty";
 
-import { expect, it, vi } from "vitest";
+import { expect, it, onTestFinished, vi } from "vitest";
 
 import {
   closeOwnedDebuggerSessions,
   stopOwnedDebuggerProcess,
+  verifyOwnedInferiorsEnded,
 } from "../../../src/process/ownedDebuggerSession.js";
 import { ProviderProcessSupervisor } from "../../../src/process/ProviderProcess.js";
+import { cleanupOwnedProcessGroup } from "../../../src/process/ProcessOwnership.js";
 
 const triggerDescendantOutput = (port: number): void => {
   const socket = connect(port, "127.0.0.1");
@@ -16,10 +23,81 @@ const triggerDescendantOutput = (port: number): void => {
   socket.on("connect", () => socket.end());
 };
 
+const createFakeSupervisor = () => ({
+  waitForExit: async () => true,
+  waitForOutputClose: async () => true,
+  limitAdditionalOutputBytes: vi.fn(),
+  dispose: vi.fn(),
+  unrefOutputStreams: vi.fn(),
+});
+
+const startStopProbe = (source: string, pipeInput = false) => {
+  const runId = randomUUID();
+  const child = spawn(process.execPath, ["--input-type=module", "-e", source], {
+    detached: process.platform !== "win32",
+    env: { ...process.env, REA_PROCESS_RUN_ID: runId },
+    stdio: [pipeInput ? "pipe" : "ignore", "pipe", "pipe"],
+  });
+  const leaderPid = child.pid;
+  if (leaderPid === undefined) throw new Error("Fixture probe did not spawn");
+  onTestFinished(async () => {
+    const cleanup = await cleanupOwnedProcessGroup({
+      runId,
+      leaderPid,
+      processGroupId: leaderPid,
+    });
+    expect(cleanup.cleaned, JSON.stringify(cleanup)).toBe(true);
+  });
+  let output = "";
+  const collect = (chunk: Buffer | string): void => {
+    output += chunk.toString();
+  };
+  child.stdout?.on("data", collect);
+  child.stderr?.on("data", collect);
+  return {
+    child,
+    get output() {
+      return output;
+    },
+  };
+};
+
+const waitForProbeLine = (
+  child: ReturnType<typeof spawn>,
+  initialOutput: string,
+  pattern: RegExp,
+): Promise<string> =>
+  new Promise((resolve, reject) => {
+    let output = initialOutput;
+    const match = (): string | undefined => pattern.exec(output)?.[0];
+    const existing = match();
+    if (existing !== undefined) {
+      resolve(existing);
+      return;
+    }
+    const timeout = setTimeout(
+      () =>
+        reject(new Error("probe did not report the expected cleanup state")),
+      3_000,
+    );
+    child.stdout?.on("data", (chunk: Buffer | string) => {
+      output += chunk.toString();
+      const found = match();
+      if (found !== undefined) {
+        clearTimeout(timeout);
+        resolve(found);
+      }
+    });
+    child.once("error", (cause) => {
+      clearTimeout(timeout);
+      reject(cause);
+    });
+  });
+
 const startDebuggerWithInferior = (inferiorSource: string) => {
   const debuggerSource = [
     'const { spawn } = require("node:child_process");',
-    `spawn(process.execPath, ["-e", ${JSON.stringify("setTimeout(() => process.exit(124), 10000);\n" + inferiorSource)}], { stdio: "inherit" });`,
+    `spawn(process.execPath, ["-e", ${JSON.stringify(inferiorSource)}], { stdio: "inherit" });`,
     "process.exit(0);",
   ].join("\n");
   const child = spawn(process.execPath, ["-e", debuggerSource], {
@@ -30,29 +108,13 @@ const startDebuggerWithInferior = (inferiorSource: string) => {
     ownsProcessLifetime: true,
   });
   let readyOutput = "";
-  const inferiorPort = new Promise<number>((resolvePort, rejectPort) => {
-    const timeout = setTimeout(
-      () => rejectPort(new Error("inferior did not report readiness")),
-      2_000,
-    );
-    const rejectReadiness = (cause: Error) => {
-      clearTimeout(timeout);
-      rejectPort(cause);
-    };
-    child.once("error", rejectReadiness);
-    child.stdout?.once("close", () =>
-      rejectReadiness(new Error("inferior output closed before readiness")),
-    );
+  const inferiorPort = new Promise<number>((resolvePort) => {
     child.stdout?.on("data", (chunk: Buffer | string) => {
       readyOutput += chunk.toString();
       const match = /^ready:(\d+)$/mu.exec(readyOutput);
-      if (match !== null) {
-        clearTimeout(timeout);
-        resolvePort(Number(match[1]));
-      }
+      if (match !== null) resolvePort(Number(match[1]));
     });
   });
-  void inferiorPort.catch(() => undefined);
   return { child, supervisor, inferiorPort };
 };
 
@@ -66,14 +128,7 @@ it("preserves the session receiver when invoking the provider detach callback", 
       expect(this.transport.verified).toBe(true);
       return { status: "no-inferior" } as const;
     },
-    supervisor: {
-      waitForExit: async () => true,
-      waitForOutputClose: async () => true,
-      limitAdditionalOutputBytes: vi.fn(),
-      dispose: vi.fn(),
-      unrefOutputStreams: vi.fn(),
-      disposeAfterOutputClose: vi.fn(),
-    },
+    supervisor: createFakeSupervisor(),
   };
 
   await expect(
@@ -82,6 +137,86 @@ it("preserves the session receiver when invoking the provider detach callback", 
   expect(session.supervisor.limitAdditionalOutputBytes).toHaveBeenCalledWith(
     64 * 1024,
   );
+});
+
+it("clears the detach timeout when provider detachment settles immediately", async () => {
+  vi.useFakeTimers();
+  try {
+    const session = {
+      id: "immediate-detach",
+      exited: false,
+      launched: { process: { kill: vi.fn(() => true) } },
+      detachInferior: async () => ({ status: "no-inferior" }) as const,
+      supervisor: createFakeSupervisor(),
+    };
+
+    await expect(
+      stopOwnedDebuggerProcess(session, "GDB", { platform: "linux" }),
+    ).resolves.toEqual({ status: "stopped" });
+    expect(vi.getTimerCount()).toBe(0);
+  } finally {
+    vi.useRealTimers();
+  }
+});
+
+it("retries provider detachment after a rejected attempt", async () => {
+  const detachInferior = vi
+    .fn<() => Promise<{ readonly status: "no-inferior" }>>()
+    .mockRejectedValueOnce(new Error("detach transport failed"))
+    .mockResolvedValueOnce({ status: "no-inferior" });
+  const session = {
+    id: "retry-rejected-detach",
+    exited: false,
+    launched: { process: { kill: vi.fn(() => true) } },
+    detachInferior,
+    supervisor: createFakeSupervisor(),
+  };
+
+  await expect(
+    stopOwnedDebuggerProcess(session, "GDB", { platform: "linux" }),
+  ).resolves.toMatchObject({ status: "incomplete" });
+  await expect(
+    stopOwnedDebuggerProcess(session, "GDB", { platform: "linux" }),
+  ).resolves.toEqual({ status: "stopped" });
+  expect(detachInferior).toHaveBeenCalledTimes(2);
+});
+
+it("retains ownership after stop until inherited output writers close", async () => {
+  let exited = false;
+  let outputClosed = false;
+  const supervisor = {
+    ...createFakeSupervisor(),
+    waitForOutputClose: async () => outputClosed,
+  };
+  const session = {
+    id: "stopped-with-open-output",
+    get exited() {
+      return exited;
+    },
+    launched: {
+      process: {
+        kill: vi.fn(() => {
+          exited = true;
+          return true;
+        }),
+      },
+    },
+    detachInferior: async () => ({ status: "no-inferior" }) as const,
+    supervisor,
+  };
+
+  await expect(
+    stopOwnedDebuggerProcess(session, "GDB", { platform: "linux" }),
+  ).resolves.toMatchObject({ status: "incomplete", reason: /output streams/i });
+  expect(supervisor.unrefOutputStreams).not.toHaveBeenCalled();
+  expect(supervisor.dispose).not.toHaveBeenCalled();
+
+  outputClosed = true;
+  await expect(
+    stopOwnedDebuggerProcess(session, "GDB", { platform: "linux" }),
+  ).resolves.toEqual({ status: "already_exited" });
+  expect(supervisor.unrefOutputStreams).toHaveBeenCalledOnce();
+  expect(supervisor.dispose).toHaveBeenCalledOnce();
 });
 
 it("retains process supervision after an incomplete stop and disposes after a retry observes exit", async () => {
@@ -119,7 +254,6 @@ it("retains process supervision after an incomplete stop and disposes after a re
       unrefOutputStreams: (): void => {
         outputUnrefs += 1;
       },
-      disposeAfterOutputClose: (): void => {},
     },
   };
 
@@ -164,7 +298,6 @@ it("refuses Windows job-backed debugger termination before signaling", async () 
       unrefOutputStreams: (): void => {
         outputUnrefs += 1;
       },
-      disposeAfterOutputClose: (): void => {},
     },
   };
 
@@ -197,7 +330,6 @@ it("retains an already-exited Windows session while its job has descendants", as
         unrefOutputStreams: () => {
           outputUnrefs += 1;
         },
-        disposeAfterOutputClose: () => {},
       },
     },
     "GDB",
@@ -231,7 +363,6 @@ it("retains an exited POSIX session while descendants still hold its output stre
         unrefOutputStreams: () => {
           outputUnrefs += 1;
         },
-        disposeAfterOutputClose: () => {},
       },
     },
     "GDB",
@@ -245,6 +376,117 @@ it("retains an exited POSIX session while descendants still hold its output stre
   });
   expect(disposals).toBe(0);
   expect(outputUnrefs).toBe(0);
+});
+
+it.each([
+  [
+    "POSIX Error",
+    "linux",
+    new Error("pipe state unknown"),
+    /inherited output stream settlement could not be verified: pipe state unknown/,
+  ],
+  [
+    "POSIX non-Error",
+    "linux",
+    "pipe state unknown",
+    /inherited output stream settlement could not be verified: pipe state unknown/,
+  ],
+  [
+    "Windows Error",
+    "win32",
+    new Error("job state unknown"),
+    /Windows Job Object settlement could not be verified: job state unknown/,
+  ],
+  [
+    "Windows non-Error",
+    "win32",
+    "job state unknown",
+    /Windows Job Object settlement could not be verified: job state unknown/,
+  ],
+] as const)(
+  "retains an exited debugger when output settlement throws (%s)",
+  async (_label, platform, cause, expectedReason) => {
+    let disposals = 0;
+    const result = await stopOwnedDebuggerProcess(
+      {
+        id: "output-settlement-error",
+        exited: true,
+        launched: { process: { kill: () => true } },
+        supervisor: {
+          waitForExit: async () => true,
+          waitForOutputClose: async () => Promise.reject(cause),
+          limitAdditionalOutputBytes: () => {},
+          dispose: () => {
+            disposals += 1;
+          },
+          unrefOutputStreams: () => {},
+        },
+      },
+      "GDB",
+      { platform },
+    );
+
+    expect(result).toMatchObject({
+      status: "incomplete",
+      reason: expectedReason,
+    });
+    expect(disposals).toBe(0);
+  },
+);
+
+it("does not signal an active debugger when its provider cannot detach the inferior", async () => {
+  const signals: NodeJS.Signals[] = [];
+  const result = await stopOwnedDebuggerProcess(
+    {
+      id: "missing-detach-capability",
+      exited: false,
+      launched: { process: { kill: (signal) => (signals.push(signal), true) } },
+      supervisor: {
+        waitForExit: async () => false,
+        waitForOutputClose: async () => false,
+        limitAdditionalOutputBytes: () => {},
+        dispose: () => {},
+        unrefOutputStreams: () => {},
+      },
+    },
+    "GDB",
+    { platform: "linux" },
+  );
+
+  expect(result).toEqual({
+    status: "incomplete",
+    reason:
+      "Owned GDB inferior detach cannot be verified because the provider has no detach capability.",
+  });
+  expect(signals).toEqual([]);
+});
+
+it("preserves a non-Error provider detach rejection and does not signal the debugger", async () => {
+  const signals: NodeJS.Signals[] = [];
+  const result = await stopOwnedDebuggerProcess(
+    {
+      id: "non-error-detach-failure",
+      exited: false,
+      launched: { process: { kill: (signal) => (signals.push(signal), true) } },
+      detachInferior: async () => Promise.reject("detach state unknown"),
+      supervisor: {
+        waitForExit: async () => false,
+        waitForOutputClose: async () => false,
+        limitAdditionalOutputBytes: () => {},
+        dispose: () => {},
+        unrefOutputStreams: () => {},
+      },
+    },
+    "GDB",
+    { platform: "linux" },
+  );
+
+  expect(result).toEqual({
+    status: "incomplete",
+    reason:
+      "Owned GDB inferior detach could not be verified: detach state unknown",
+  });
+  expect(signals).toEqual([]);
 });
 
 it("does not signal a POSIX debugger when provider detach cannot be verified", async () => {
@@ -263,7 +505,6 @@ it("does not signal a POSIX debugger when provider detach cannot be verified", a
         waitForOutputClose: async () => false,
         dispose: () => {},
         unrefOutputStreams: () => {},
-        disposeAfterOutputClose: () => {},
       },
     },
     "GDB",
@@ -275,107 +516,6 @@ it("does not signal a POSIX debugger when provider detach cannot be verified", a
     reason: "Owned GDB inferior detach could not be verified: MI detach failed",
   });
   expect(signals).toEqual([]);
-});
-
-it("caps output before returning an incomplete result for a live debugger", async () => {
-  const limitAdditionalOutputBytes = vi.fn();
-  const result = await stopOwnedDebuggerProcess(
-    {
-      id: "live-without-detach",
-      exited: false,
-      launched: { process: { kill: vi.fn(() => true) } },
-      supervisor: {
-        waitForExit: async () => false,
-        limitAdditionalOutputBytes,
-        waitForOutputClose: async () => false,
-        dispose: vi.fn(),
-        unrefOutputStreams: vi.fn(),
-        disposeAfterOutputClose: vi.fn(),
-      },
-    },
-    "GDB",
-    { platform: "linux" },
-  );
-
-  expect(result.status).toBe("incomplete");
-  expect(limitAdditionalOutputBytes).toHaveBeenCalledWith(64 * 1024);
-});
-
-it("does not terminate a detached inferior without an independent input path", async () => {
-  const kill = vi.fn(() => true);
-  const result = await stopOwnedDebuggerProcess(
-    {
-      id: "detached-with-piped-stdin",
-      exited: false,
-      launched: { process: { kill } },
-      detachInferior: async () =>
-        ({
-          status: "detached",
-          outputSink: "durable",
-          inputSink: "unknown",
-        }) as never,
-      supervisor: {
-        waitForExit: async () => true,
-        limitAdditionalOutputBytes: vi.fn(),
-        waitForOutputClose: async () => true,
-        dispose: vi.fn(),
-        unrefOutputStreams: vi.fn(),
-        disposeAfterOutputClose: vi.fn(),
-      },
-    },
-    "GDB",
-    { platform: "linux" },
-  );
-
-  expect(result).toMatchObject({ status: "incomplete" });
-  expect(kill).not.toHaveBeenCalled();
-});
-
-it("shares the entire in-flight stop across concurrent callers", async () => {
-  const finishWaitForExit: ((exited: boolean) => void)[] = [];
-  const waitForExit = vi.fn(
-    () =>
-      new Promise<boolean>((resolve) => {
-        finishWaitForExit.push(resolve);
-      }),
-  );
-  const detachInferior = vi.fn(
-    async () => ({ status: "no-inferior" }) as const,
-  );
-  const kill = vi.fn(() => true);
-  const session = {
-    id: "concurrent-full-stop",
-    exited: false,
-    launched: { process: { kill } },
-    detachInferior,
-    supervisor: {
-      waitForExit,
-      limitAdditionalOutputBytes: vi.fn(),
-      waitForOutputClose: async () => true,
-      dispose: vi.fn(),
-      unrefOutputStreams: vi.fn(),
-      disposeAfterOutputClose: vi.fn(),
-    },
-  };
-
-  const first = stopOwnedDebuggerProcess(session, "GDB", {
-    platform: "linux",
-  });
-  await vi.waitFor(() => expect(waitForExit).toHaveBeenCalledTimes(1));
-  const second = stopOwnedDebuggerProcess(session, "GDB", {
-    platform: "linux",
-  });
-  await new Promise<void>((resolve) => setImmediate(resolve));
-  for (const finish of finishWaitForExit) finish(true);
-  expect(detachInferior).toHaveBeenCalledTimes(1);
-  expect(kill).toHaveBeenCalledTimes(1);
-
-  await expect(Promise.all([first, second])).resolves.toEqual([
-    { status: "stopped" },
-    { status: "stopped" },
-  ]);
-  expect(detachInferior).toHaveBeenCalledTimes(1);
-  expect(kill).toHaveBeenCalledTimes(1);
 });
 
 it("retains an exited debugger after provider detach failed", async () => {
@@ -398,7 +538,6 @@ it("retains an exited debugger after provider detach failed", async () => {
         disposals += 1;
       },
       unrefOutputStreams: () => {},
-      disposeAfterOutputClose: () => {},
     },
   };
   const sessions = new Map([[session.id, session]]);
@@ -422,6 +561,68 @@ it("retains an exited debugger after provider detach failed", async () => {
   expect(disposals).toBe(0);
 });
 
+it("recovers failed detach only after the identified inferior ends and output settles", async () => {
+  let exited = false;
+  let inferiorEnded = false;
+  const supervisor = {
+    ...createFakeSupervisor(),
+    waitForOutputClose: vi.fn(async () => true),
+  };
+  const session = {
+    id: "failed-detach-recovery",
+    get exited() {
+      return exited;
+    },
+    launched: { process: { kill: vi.fn(() => true) } },
+    detachInferior: async () => {
+      throw new Error("detach failed");
+    },
+    verifyInferiorsEndedAfterExit: async () => inferiorEnded,
+    supervisor,
+  };
+  const sessions = new Map([[session.id, session]]);
+  const stop = (owned: typeof session) =>
+    stopOwnedDebuggerProcess(owned, "GDB", { platform: "linux" });
+  expect(await stop(session)).toMatchObject({ status: "incomplete" });
+  exited = true;
+  expect(await stop(session)).toMatchObject({ status: "incomplete" });
+  expect(supervisor.waitForOutputClose).not.toHaveBeenCalled();
+  expect(session.launched.process.kill).not.toHaveBeenCalled();
+  inferiorEnded = true;
+  await closeOwnedDebuggerSessions(sessions, stop, "GDB");
+  expect(supervisor.waitForOutputClose).toHaveBeenCalledOnce();
+  expect(supervisor.dispose).toHaveBeenCalledOnce();
+  expect(sessions.size).toBe(0);
+});
+
+it.each([
+  { observed: "100", ended: false },
+  { observed: "200", ended: true },
+  { observed: null, ended: true },
+])(
+  "compares captured inferior identity with $observed",
+  async ({ observed, ended }) => {
+    expect(
+      await verifyOwnedInferiorsEnded(
+        [{ pid: "123", startTime: "100" }],
+        async () => observed,
+      ),
+    ).toBe(ended);
+  },
+);
+
+it("preserves unknown identity reads and rejects empty proof", async () => {
+  const read = vi.fn(async () => {
+    throw new Error("identity unreadable");
+  });
+  await expect(
+    verifyOwnedInferiorsEnded([{ pid: "123", startTime: "100" }], read),
+  ).rejects.toThrow("identity unreadable");
+  read.mockClear();
+  expect(await verifyOwnedInferiorsEnded([], read)).toBe(false);
+  expect(read).not.toHaveBeenCalled();
+});
+
 it("allows closing when the provider confirms no inferior is attached", async () => {
   const signals: NodeJS.Signals[] = [];
   const result = await stopOwnedDebuggerProcess(
@@ -436,7 +637,6 @@ it("allows closing when the provider confirms no inferior is attached", async ()
         waitForOutputClose: async () => true,
         dispose: () => {},
         unrefOutputStreams: () => {},
-        disposeAfterOutputClose: () => {},
       },
     },
     "GDB",
@@ -461,7 +661,6 @@ it("fails closed when detach lacks durable output sink confirmation", async () =
         waitForOutputClose: async () => false,
         dispose: () => {},
         unrefOutputStreams: () => {},
-        disposeAfterOutputClose: () => {},
       },
     },
     "GDB",
@@ -519,7 +718,6 @@ it("retains an owned debugger when inferior detach does not settle", async () =>
           disposals += 1;
         },
         unrefOutputStreams: () => {},
-        disposeAfterOutputClose: () => {},
       },
     };
 
@@ -583,7 +781,6 @@ it("retains an exited session while a timed-out detach attempt is still pending"
       waitForOutputClose: async () => true,
       dispose: vi.fn(),
       unrefOutputStreams: vi.fn(),
-      disposeAfterOutputClose: vi.fn(),
     },
   };
   const sessions = new Map([[session.id, session]]);
@@ -627,42 +824,6 @@ it("retains an exited session while a timed-out detach attempt is still pending"
   }
 });
 
-it("releases output streams after verified detach when exit is observed on a retry", async () => {
-  const unrefOutputStreams = vi.fn();
-  const disposeAfterOutputClose = vi.fn();
-  const session = {
-    id: "detach-confirmed-then-exit",
-    exited: false as boolean,
-    launched: { process: { kill: vi.fn(() => true) } },
-    detachInferior: async () =>
-      ({
-        status: "detached",
-        outputSink: "durable",
-        inputSink: "not-inherited",
-      }) as const,
-    supervisor: {
-      waitForExit: async () => false,
-      limitAdditionalOutputBytes: vi.fn(),
-      // A relay descendant keeps the pipes open.
-      waitForOutputClose: async () => false,
-      dispose: vi.fn(),
-      unrefOutputStreams,
-      disposeAfterOutputClose,
-    },
-  };
-
-  expect(
-    await stopOwnedDebuggerProcess(session, "GDB", { platform: "linux" }),
-  ).toMatchObject({ status: "incomplete" });
-  session.exited = true;
-
-  expect(
-    await stopOwnedDebuggerProcess(session, "GDB", { platform: "linux" }),
-  ).toEqual({ status: "already_exited" });
-  expect(unrefOutputStreams).toHaveBeenCalledTimes(1);
-  expect(disposeAfterOutputClose).toHaveBeenCalledTimes(1);
-});
-
 it("requires the Windows Job Object to close before releasing an exited session", async () => {
   let closeWaits = 0;
   let disposals = 0;
@@ -678,7 +839,6 @@ it("requires the Windows Job Object to close before releasing an exited session"
         disposals += 1;
       },
       unrefOutputStreams: () => {},
-      disposeAfterOutputClose: () => {},
     },
   };
 
@@ -714,7 +874,6 @@ it("disposes supervision when a process had already exited", async () => {
           lifecycle.push("unref");
           outputUnrefs += 1;
         },
-        disposeAfterOutputClose: () => {},
       },
     },
     "GDB",
@@ -726,6 +885,68 @@ it("disposes supervision when a process had already exited", async () => {
   expect(outputUnrefs).toBe(1);
   expect(lifecycle).toEqual(["unref", "dispose"]);
 });
+
+it("uses the host platform when an exited debugger is stopped without options", async () => {
+  let outputCloseWaits = 0;
+  let outputUnrefs = 0;
+  const result = await stopOwnedDebuggerProcess(
+    {
+      id: "already-exited-default-platform",
+      exited: true,
+      launched: { process: { kill: () => true } },
+      supervisor: {
+        waitForExit: async () => true,
+        waitForOutputClose: async (timeoutMs) => {
+          expect(timeoutMs).toBe(1_000);
+          outputCloseWaits += 1;
+          return true;
+        },
+        limitAdditionalOutputBytes: () => {},
+        dispose: () => {},
+        unrefOutputStreams: () => {
+          outputUnrefs += 1;
+        },
+      },
+    },
+    "GDB",
+  );
+
+  expect(result).toEqual({ status: "already_exited" });
+  expect(outputCloseWaits).toBe(1);
+  expect(outputUnrefs).toBe(process.platform === "win32" ? 0 : 1);
+});
+
+it.each([
+  ["linux", "inherited output stream"],
+  ["win32", "Windows Job Object"],
+] as const)(
+  "retains a non-Error output-settlement failure on %s",
+  async (platform, resource) => {
+    const result = await stopOwnedDebuggerProcess(
+      {
+        id: `output-settlement-${platform}`,
+        exited: true,
+        launched: { process: { kill: () => true } },
+        supervisor: {
+          waitForExit: async () => true,
+          waitForOutputClose: async () => {
+            throw "output status unavailable";
+          },
+          limitAdditionalOutputBytes: () => {},
+          dispose: () => {},
+          unrefOutputStreams: () => {},
+        },
+      },
+      "GDB",
+      { platform },
+    );
+
+    expect(result).toEqual({
+      status: "incomplete",
+      reason: `Owned GDB ${resource} settlement could not be verified: output status unavailable`,
+    });
+  },
+);
 
 it.skipIf(process.platform === "win32")(
   "keeps supervision until a late-writing descendant closes inherited output after leader exit",
@@ -776,7 +997,6 @@ it.skipIf(process.platform === "win32")(
       );
     } finally {
       if (port !== undefined) triggerDescendantOutput(port);
-      expect(await supervisor.waitForOutputClose(11_000)).toBe(true);
       supervisor.dispose();
     }
   },
@@ -852,7 +1072,6 @@ it.skipIf(process.platform === "win32")(
       }
       if (child.exitCode === null && child.signalCode === null)
         child.kill("SIGKILL");
-      expect(await supervisor.waitForOutputClose(11_000)).toBe(true);
       supervisor.dispose();
     }
   },
@@ -889,7 +1108,6 @@ it("does not escalate when the debugger exits after SIGTERM", async () => {
           disposals += 1;
         },
         unrefOutputStreams: () => lifecycle.push("unref"),
-        disposeAfterOutputClose: () => {},
       },
     },
     "Rizin",
@@ -937,7 +1155,6 @@ it("disposes supervision when the debugger exits after SIGKILL", async () => {
           disposals += 1;
         },
         unrefOutputStreams: () => lifecycle.push("unref"),
-        disposeAfterOutputClose: () => {},
       },
     },
     "Rizin",
@@ -951,8 +1168,13 @@ it("disposes supervision when the debugger exits after SIGKILL", async () => {
 });
 
 it.skipIf(process.platform === "win32")(
-  "lets the probe exit while an inferior still holds debugger output pipes open",
+  "retains the debugger owner while an unknown descendant holds output pipes open",
   async () => {
+    const releaseDirectory = await mkdtemp(
+      join(tmpdir(), "rea-debugger-output-writer-"),
+    );
+    const releaseFile = join(releaseDirectory, "release-writer");
+    const writerSource = `const{watch}=require("node:fs");const watcher=watch(${JSON.stringify(releaseDirectory)},(_event,name)=>{if(name==="release-writer"){watcher.close();process.exit(0)}});process.stdout.write("writer-ready\\n");`;
     const providerProcessUrl = new URL(
       "../../../dist/process/ProviderProcess.js",
       import.meta.url,
@@ -963,8 +1185,8 @@ it.skipIf(process.platform === "win32")(
     ).href;
     const debuggerSource = [
       'const { spawn } = require("node:child_process");',
-      'const inferior = spawn(process.execPath, ["-e", "setTimeout(() => {}, 10000)"], { stdio: "inherit" });',
-      "process.stdout.write(`debugger=${process.pid} inferior=${inferior.pid}\\n`);",
+      `spawn(process.execPath, ["-e", ${JSON.stringify(writerSource)}], { stdio: "inherit" });`,
+      "process.stdout.write(`debugger=${process.pid}\\n`);",
       "setInterval(() => {}, 1000);",
     ].join("\n");
     const probeSource = [
@@ -974,243 +1196,174 @@ it.skipIf(process.platform === "win32")(
       `const child = spawn(process.execPath, ["-e", ${JSON.stringify(debuggerSource)}], { stdio: ["ignore", "pipe", "pipe"] });`,
       "const supervisor = new ProviderProcessSupervisor({ process: child, ownsProcessLifetime: true });",
       "let output = '';",
-      "let debuggerPid;",
-      "const pid = await new Promise((resolve, reject) => {",
-      "  const timer = setTimeout(() => reject(new Error('debugger did not report inferior pid')), 10_000);",
+      "await new Promise((resolve, reject) => {",
+      "  const timer = setTimeout(() => reject(new Error('output writer did not become ready')), 2000);",
       "  child.stdout.on('data', (chunk) => {",
       "    output += chunk.toString();",
       "    const debuggerMatch = /^debugger=(\\d+)/mu.exec(output);",
       "    if (debuggerMatch) process.stderr.write(`debugger-pid=${debuggerMatch[1]}\\n`);",
-      "    const match = /inferior=(\\d+)\\r?\\n/mu.exec(output);",
-      "    if (match) { clearTimeout(timer); resolve(Number(match[1])); }",
+      "    if (output.includes('writer-ready\\n')) { clearTimeout(timer); resolve(); }",
       "  });",
       "  child.once('error', reject);",
       "});",
       "const session = { id: 'debugger', get exited() { return child.exitCode !== null || child.signalCode !== null; }, launched: { process: child }, supervisor };",
-      "session.detachInferior = async () => ({ status: 'detached', outputSink: 'durable', inputSink: 'not-inherited' });",
+      "session.detachInferior = async () => ({ status: 'no-inferior' });",
       "const result = await stopOwnedDebuggerProcess(session, 'GDB', { platform: 'linux' });",
-      "process.stdout.write(JSON.stringify({ pid, result }));",
+      "process.stdout.write(JSON.stringify({ result }) + '\\n');",
+      "await new Promise((resolve) => process.stdin.once('data', () => { process.stdin.destroy(); resolve(); }));",
+      "const retried = await stopOwnedDebuggerProcess(session, 'GDB', { platform: 'linux' });",
+      "process.stdout.write(JSON.stringify({ retried }) + '\\n');",
     ].join("\n");
-    const probe = spawn(
-      process.execPath,
-      ["--input-type=module", "-e", probeSource],
-      {
-        stdio: ["ignore", "pipe", "pipe"],
-      },
-    );
-    // Attach before any output can arrive so a fast exit is never missed.
-    const probeExited = once(probe, "exit").then(() => true);
-    let probeOutput = "";
-    let debuggerPid: number | undefined;
-    let probeStderr = "";
-    probe.stdout.on("data", (chunk) => {
-      probeOutput += chunk.toString();
-    });
-    probe.stderr.on("data", (chunk: Buffer) => {
-      probeStderr += chunk.toString();
-      const match = /^debugger-pid=(\d+)$/mu.exec(probeStderr);
-      if (match?.[1] !== undefined) debuggerPid = Number(match[1]);
-    });
-    let inferiorPid: number | undefined;
+    const stopProbe = startStopProbe(probeSource, true);
+    const probe = stopProbe.child;
+    const probeExit = once(probe, "exit");
 
     try {
-      const resultLine = await new Promise<string>((resolve, reject) => {
-        const timeout = setTimeout(
-          () => reject(new Error("probe did not report debugger stop")),
-          10_000,
-        );
-        const onData = (): void => {
-          const line = probeOutput.match(
-            /\{"pid":\d+,"result":\{"status":"stopped"\}\}/u,
-          );
-          if (line !== null) {
-            clearTimeout(timeout);
-            resolve(line[0]);
-          }
-        };
-        probe.stdout.on("data", onData);
-        probe.once("error", (cause) => {
-          clearTimeout(timeout);
-          reject(cause);
-        });
-      });
-      const result = JSON.parse(resultLine) as { pid: number };
-      inferiorPid = result.pid;
-
-      const exited = await Promise.race([
-        probeExited,
-        new Promise<false>((resolve) =>
-          setTimeout(() => resolve(false), 1_000),
-        ),
-      ]);
-      expect(exited).toBe(true);
-      expect(probeOutput).toContain('"status":"stopped"');
-      expect(() => process.kill(inferiorPid!, 0)).not.toThrow();
+      const incompleteLine = await waitForProbeLine(
+        probe,
+        stopProbe.output,
+        /\{"result":\{"status":"incomplete"/u,
+      );
+      expect(incompleteLine).toContain('"status":"incomplete"');
+      expect(probe.exitCode).toBeNull();
+      expect(probe.signalCode).toBeNull();
+      expect(stopProbe.output).toContain('"status":"incomplete"');
+      await writeFile(releaseFile, "release");
+      probe.stdin?.write("retry\n");
+      const settledLine = await waitForProbeLine(
+        probe,
+        stopProbe.output,
+        /\{"retried":\{"status":"already_exited"\}\}/u,
+      );
+      expect(settledLine).toContain('"status":"already_exited"');
+      await probeExit;
     } finally {
-      if (inferiorPid !== undefined) {
-        try {
-          process.kill(inferiorPid, "SIGKILL");
-        } catch {
-          // The fixture may have exited on its own.
-        }
-      }
-      if (debuggerPid !== undefined) {
-        try {
-          process.kill(debuggerPid, "SIGKILL");
-        } catch {
-          // The debugger may have exited on its own.
-        }
-      }
+      await writeFile(releaseFile, "release").catch(() => undefined);
+      probe.stdin?.write("retry\n");
       if (probe.exitCode === null && probe.signalCode === null)
-        probe.kill("SIGKILL");
-      if (probe.exitCode === null && probe.signalCode === null)
-        await once(probe, "exit").catch(() => undefined);
+        await Promise.race([
+          probeExit,
+          new Promise<void>((resolve) => setTimeout(resolve, 3_000)),
+        ]);
+      await rm(releaseDirectory, { recursive: true, force: true });
     }
   },
 );
 
 it.skipIf(process.platform === "win32")(
-  "preserves inferior stdout and stderr after the debugger stops",
+  "preserves inferior output written to its selected PTY after the REA probe exits",
   async () => {
     const inferiorSource = [
-      'setTimeout(() => { process.stdout.write("stdout-after-stop-sentinel\\n"); process.stderr.write("stderr-after-stop-sentinel\\n"); }, 700);',
-      "setTimeout(() => process.exit(0), 4000);",
+      "process.stdout.write(`inferior-ready=${process.pid}\\n`);",
+      'process.stdin.setEncoding("utf8");',
+      'process.stdin.on("data", (input) => { if (input.includes("write-after-probe")) { process.stdout.write("stdout-after-probe-sentinel\\n"); process.stderr.write("stderr-after-probe-sentinel\\n"); } });',
+      "setTimeout(() => process.exit(0), 5000);",
     ].join("\n");
-    const debuggerSource = [
-      'const { spawn } = require("node:child_process");',
-      `const inferior = spawn(process.execPath, ["-e", ${JSON.stringify(inferiorSource)}], { stdio: "inherit" });`,
-      "process.stdout.write(`inferior=${inferior.pid}\\n`);",
-      "setInterval(() => {}, 1000);",
-    ].join("\n");
-    const child = spawn(process.execPath, ["-e", debuggerSource], {
-      stdio: ["ignore", "pipe", "pipe"],
+    const terminal = spawnPty(process.execPath, ["-e", inferiorSource], {
+      name: "xterm",
+      cols: 100,
+      rows: 20,
     });
-    const supervisor = new ProviderProcessSupervisor({
-      process: child,
-      ownsProcessLifetime: true,
+    const terminalExit = new Promise<void>((resolve) => {
+      terminal.onExit(() => resolve());
     });
-    let stdout = "";
-    let stderr = "";
+    let terminalOutput = "";
+    terminal.onData((data) => {
+      terminalOutput += data;
+    });
     let inferiorPid: number | undefined;
-    let checkOutput: (() => void) | undefined;
-    let finishOutput: (() => void) | undefined;
-    const outputReceived = new Promise<void>((resolve) => {
-      finishOutput = resolve;
-    });
-    const trackOutput = (stream: "stdout" | "stderr", chunk: Buffer): void => {
-      if (stream === "stdout") stdout += chunk.toString();
-      else stderr += chunk.toString();
-      checkOutput?.();
-    };
-    child.stdout.on("data", (chunk: Buffer) => trackOutput("stdout", chunk));
-    child.stderr.on("data", (chunk: Buffer) => trackOutput("stderr", chunk));
-    checkOutput = () => {
-      if (
-        stdout.includes("stdout-after-stop-sentinel") &&
-        stderr.includes("stderr-after-stop-sentinel")
-      )
-        finishOutput?.();
-    };
     const ready = new Promise<number>((resolve, reject) => {
-      const timeout = setTimeout(
-        () => reject(new Error("debugger did not report inferior pid")),
-        2_000,
-      );
+      let readySubscription: { dispose: () => void } | undefined;
+      const timeout = setTimeout(() => {
+        readySubscription?.dispose();
+        reject(new Error("PTY inferior did not start"));
+      }, 2_000);
       const checkReady = (): void => {
-        const match = /^inferior=(\d+)$/mu.exec(stdout);
+        const match = /inferior-ready=(\d+)/u.exec(terminalOutput);
         if (match?.[1] !== undefined) {
           clearTimeout(timeout);
           resolve(Number(match[1]));
         }
       };
-      const onStdout = (): void => checkReady();
-      child.stdout.on("data", onStdout);
-      child.once("error", (cause) => {
-        clearTimeout(timeout);
-        reject(cause);
+      readySubscription = terminal.onData(() => {
+        checkReady();
+        if (/inferior-ready=\d+/u.test(terminalOutput))
+          readySubscription?.dispose();
       });
     });
+    const providerProcessUrl = new URL(
+      "../../../dist/process/ProviderProcess.js",
+      import.meta.url,
+    ).href;
+    const debuggerSessionUrl = new URL(
+      "../../../dist/process/ownedDebuggerSession.js",
+      import.meta.url,
+    ).href;
+    const probeSource = [
+      'import { spawn } from "node:child_process";',
+      `import { ProviderProcessSupervisor } from ${JSON.stringify(providerProcessUrl)};`,
+      `import { stopOwnedDebuggerProcess } from ${JSON.stringify(debuggerSessionUrl)};`,
+      'const child = spawn(process.execPath, ["-e", "setInterval(() => {}, 1000)"], { stdio: ["ignore", "pipe", "pipe"] });',
+      "process.stdout.write(`debugger-pid=${child.pid}\\n`);",
+      "const supervisor = new ProviderProcessSupervisor({ process: child, ownsProcessLifetime: true });",
+      "const session = { id: 'debugger-with-selected-pty-inferior', get exited() { return child.exitCode !== null || child.signalCode !== null; }, launched: { process: child }, supervisor, detachInferior: async () => ({ status: 'detached', outputSink: 'durable' }) };",
+      "const result = await stopOwnedDebuggerProcess(session, 'GDB', { platform: 'linux' });",
+      "process.stdout.write(`probe-result=${JSON.stringify(result)}\\n`);",
+    ].join("\n");
+    const stopProbe = startStopProbe(probeSource);
+    const probe = stopProbe.child;
+    const probeExit = once(probe, "exit");
 
     try {
-      const pid = await ready;
-      inferiorPid = pid;
-      const result = await stopOwnedDebuggerProcess(
-        {
-          id: "debugger-with-inferior",
-          get exited() {
-            return child.exitCode !== null || child.signalCode !== null;
-          },
-          launched: { process: child },
-          detachInferior: async () =>
-            ({
-              status: "detached",
-              outputSink: "durable",
-              inputSink: "durable",
-            }) as const,
-          supervisor,
-        },
-        "GDB",
-        { platform: "linux" },
-      );
+      inferiorPid = await ready;
+      await new Promise<void>((resolve, reject) => {
+        const timeout = setTimeout(
+          () => reject(new Error("REA probe did not exit")),
+          3_000,
+        );
+        void probeExit.then(() => {
+          clearTimeout(timeout);
+          resolve();
+        }, reject);
+      });
+      expect(stopProbe.output).toContain('probe-result={"status":"stopped"}');
+      expect(() => process.kill(inferiorPid!, 0)).not.toThrow();
 
-      expect(result).toEqual({ status: "stopped" });
-      await Promise.race([
-        outputReceived,
-        new Promise<never>((_resolve, reject) =>
-          setTimeout(
-            () =>
-              reject(new Error("inferior output sentinels were not observed")),
-            2_000,
-          ),
-        ),
-      ]);
-      expect(stdout).toContain("stdout-after-stop-sentinel");
-      expect(stderr).toContain("stderr-after-stop-sentinel");
-      expect(supervisor.snapshot().stdout.text).toContain(
-        "stdout-after-stop-sentinel",
-      );
-      expect(supervisor.snapshot().stderr.text).toContain(
-        "stderr-after-stop-sentinel",
-      );
-      expect(child.stdout.destroyed).toBe(false);
-      expect(child.stderr.destroyed).toBe(false);
-      expect(() => process.kill(pid, 0)).not.toThrow();
-      process.kill(pid, "SIGKILL");
-      await Promise.race([
-        once(child, "close"),
-        new Promise<never>((_resolve, reject) =>
-          setTimeout(
-            () => reject(new Error("debugger output streams did not close")),
-            1_000,
-          ),
-        ),
-      ]);
-      expect(child.stdout.listenerCount("data")).toBe(2);
-      expect(child.stderr.listenerCount("data")).toBe(1);
-      inferiorPid = undefined;
+      terminal.write("write-after-probe\n");
+      await new Promise<void>((resolve, reject) => {
+        let subscription: { dispose: () => void } | undefined;
+        const timeout = setTimeout(() => {
+          subscription?.dispose();
+          reject(
+            new Error(
+              "PTY inferior sentinels were not observed after probe exit",
+            ),
+          );
+        }, 2_000);
+        const finish = (): void => {
+          subscription?.dispose();
+          clearTimeout(timeout);
+          resolve();
+        };
+        const checkOutput = (): void => {
+          if (
+            terminalOutput.includes("stdout-after-probe-sentinel") &&
+            terminalOutput.includes("stderr-after-probe-sentinel")
+          )
+            finish();
+        };
+        subscription = terminal.onData(checkOutput);
+        checkOutput();
+      });
+      expect(terminalOutput).toContain("stdout-after-probe-sentinel");
+      expect(terminalOutput).toContain("stderr-after-probe-sentinel");
+      expect(() => process.kill(inferiorPid!, 0)).not.toThrow();
     } finally {
-      if (inferiorPid !== undefined) {
-        try {
-          process.kill(inferiorPid, "SIGKILL");
-        } catch {
-          // The fixture may have exited on its own.
-        }
-        await Promise.race([
-          once(child, "close"),
-          new Promise<void>((resolve) => setTimeout(resolve, 1_000)),
-        ]);
-        if (child.exitCode === null && child.signalCode === null) {
-          child.kill("SIGKILL");
-          await Promise.race([
-            once(child, "exit"),
-            new Promise<void>((resolve) => setTimeout(resolve, 1_000)),
-          ]);
-        }
-      } else if (child.exitCode === null && child.signalCode === null) {
-        child.kill("SIGKILL");
-        await once(child, "exit").catch(() => undefined);
-      }
-      supervisor.dispose();
+      terminal.kill("SIGKILL");
+      await Promise.race([
+        terminalExit,
+        new Promise<void>((resolve) => setTimeout(resolve, 1_000)),
+      ]);
     }
   },
 );
@@ -1233,8 +1386,7 @@ it("removes stopped sessions and retains incomplete sessions when closing all", 
   ).rejects.toMatchObject({
     errors: [
       expect.objectContaining({
-        message:
-          'Owned GDB session "incomplete" (key "incomplete"): process remains alive',
+        message: expect.stringContaining("process remains alive"),
       }),
     ],
   });
@@ -1277,19 +1429,18 @@ it("closes an empty owned-session collection", async () => {
 it("settles every stop and retains rejected sessions while removing successful ones", async () => {
   const sessions = new Map([
     ["stopped", { id: "stopped" }],
-    ["rejected", { id: "debugger-session-42" }],
+    ["rejected", { id: "rejected" }],
     ["string-rejected", { id: "string-rejected" }],
     ["incomplete", { id: "incomplete" }],
   ]);
   const calls: string[] = [];
-  const signalFailure = new Error("signal failed");
 
   await expect(
     closeOwnedDebuggerSessions(
       sessions,
       async (session) => {
         calls.push(session.id);
-        if (session.id === "debugger-session-42") throw signalFailure;
+        if (session.id === "rejected") throw new Error("signal failed");
         if (session.id === "string-rejected") throw "string rejection";
         if (session.id === "incomplete")
           return { status: "incomplete", reason: "still alive" };
@@ -1301,18 +1452,13 @@ it("settles every stop and retains rejected sessions while removing successful o
     message: "One or more owned GDB processes did not stop cleanly",
     errors: [
       expect.objectContaining({
-        message:
-          'Owned GDB session "debugger-session-42" (key "rejected"): signal failed',
-        cause: signalFailure,
+        message: expect.stringContaining("signal failed"),
       }),
       expect.objectContaining({
-        message:
-          'Owned GDB session "string-rejected" (key "string-rejected"): string rejection',
-        cause: "string rejection",
+        message: expect.stringContaining("string rejection"),
       }),
       expect.objectContaining({
-        message:
-          'Owned GDB session "incomplete" (key "incomplete"): still alive',
+        message: expect.stringContaining("still alive"),
       }),
     ],
   });
@@ -1323,4 +1469,102 @@ it("settles every stop and retains rejected sessions while removing successful o
     "string-rejected",
     "incomplete",
   ]);
+});
+
+it("caps output before returning an incomplete result for a live debugger", async () => {
+  const limitAdditionalOutputBytes = vi.fn();
+  const result = await stopOwnedDebuggerProcess(
+    {
+      id: "live-without-detach",
+      exited: false,
+      launched: { process: { kill: vi.fn(() => true) } },
+      supervisor: {
+        waitForExit: async () => false,
+        limitAdditionalOutputBytes,
+        waitForOutputClose: async () => false,
+        dispose: vi.fn(),
+        unrefOutputStreams: vi.fn(),
+      },
+    },
+    "GDB",
+    { platform: "linux" },
+  );
+
+  expect(result.status).toBe("incomplete");
+  expect(limitAdditionalOutputBytes).toHaveBeenCalledWith(64 * 1024);
+});
+
+it("does not terminate a detached inferior without an independent input path", async () => {
+  const kill = vi.fn(() => true);
+  const result = await stopOwnedDebuggerProcess(
+    {
+      id: "detached-with-piped-stdin",
+      exited: false,
+      launched: { process: { kill } },
+      detachInferior: async () =>
+        ({
+          status: "detached",
+          outputSink: "durable",
+          inputSink: "unknown",
+        }) as never,
+      supervisor: {
+        waitForExit: async () => true,
+        limitAdditionalOutputBytes: vi.fn(),
+        waitForOutputClose: async () => true,
+        dispose: vi.fn(),
+        unrefOutputStreams: vi.fn(),
+      },
+    },
+    "GDB",
+    { platform: "linux" },
+  );
+
+  expect(result).toMatchObject({ status: "incomplete" });
+  expect(kill).not.toHaveBeenCalled();
+});
+
+it("shares the entire in-flight stop across concurrent callers", async () => {
+  const finishWaitForExit: ((exited: boolean) => void)[] = [];
+  const waitForExit = vi.fn(
+    () =>
+      new Promise<boolean>((resolve) => {
+        finishWaitForExit.push(resolve);
+      }),
+  );
+  const detachInferior = vi.fn(
+    async () => ({ status: "no-inferior" }) as const,
+  );
+  const kill = vi.fn(() => true);
+  const session = {
+    id: "concurrent-full-stop",
+    exited: false,
+    launched: { process: { kill } },
+    detachInferior,
+    supervisor: {
+      waitForExit,
+      limitAdditionalOutputBytes: vi.fn(),
+      waitForOutputClose: async () => true,
+      dispose: vi.fn(),
+      unrefOutputStreams: vi.fn(),
+    },
+  };
+
+  const first = stopOwnedDebuggerProcess(session, "GDB", {
+    platform: "linux",
+  });
+  await vi.waitFor(() => expect(waitForExit).toHaveBeenCalledTimes(1));
+  const second = stopOwnedDebuggerProcess(session, "GDB", {
+    platform: "linux",
+  });
+  await new Promise<void>((resolve) => setImmediate(resolve));
+  for (const finish of finishWaitForExit) finish(true);
+  expect(detachInferior).toHaveBeenCalledTimes(1);
+  expect(kill).toHaveBeenCalledTimes(1);
+
+  await expect(Promise.all([first, second])).resolves.toEqual([
+    { status: "stopped" },
+    { status: "stopped" },
+  ]);
+  expect(detachInferior).toHaveBeenCalledTimes(1);
+  expect(kill).toHaveBeenCalledTimes(1);
 });

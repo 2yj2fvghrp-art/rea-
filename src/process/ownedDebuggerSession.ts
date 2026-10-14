@@ -1,3 +1,7 @@
+import { readFile } from "node:fs/promises";
+
+import { parseLinuxProcessStartTime } from "./ProcessOwnershipObservation.js";
+
 /** Result of terminating one debugger process owned by this application. */
 export type OwnedDebuggerStopResult =
   | { readonly status: "stopped" | "already_exited" }
@@ -12,11 +16,59 @@ export type OwnedDebuggerDetachResult =
       readonly outputSink: "durable";
       readonly inputSink: "durable" | "not-inherited";
     };
+export interface OwnedInferiorIdentity {
+  readonly pid: string;
+  readonly startTime: string;
+}
+
+export type ProcessStartTimeReader = (pid: string) => Promise<string | null>;
+
+const readLinuxProcessStartTime: ProcessStartTimeReader = async (pid) => {
+  if (process.platform !== "linux")
+    throw new Error(
+      "Inferior process identity verification requires Linux /proc.",
+    );
+  let stat: string;
+  try {
+    stat = await readFile(`/proc/${pid}/stat`, "utf8");
+  } catch (cause: unknown) {
+    if (
+      typeof cause === "object" &&
+      cause !== null &&
+      "code" in cause &&
+      cause.code === "ENOENT"
+    )
+      return null;
+    throw cause;
+  }
+  const startTime = parseLinuxProcessStartTime(stat);
+  if (startTime === undefined)
+    throw new Error(`Inferior PID ${pid} has an unreadable process identity.`);
+  return startTime;
+};
+
+/** Confirm only that every previously identified inferior process has ended. */
+export const verifyOwnedInferiorsEnded = async (
+  identities: Iterable<OwnedInferiorIdentity>,
+  readStartTime: ProcessStartTimeReader = readLinuxProcessStartTime,
+): Promise<boolean> => {
+  let foundIdentity = false;
+  for (const identity of identities) {
+    foundIdentity = true;
+    const observed = await readStartTime(identity.pid);
+    if (observed === identity.startTime) return false;
+  }
+  return foundIdentity;
+};
+
 const detachAttempts = new WeakMap<
   object,
   Promise<OwnedDebuggerDetachResult>
 >();
-const detachOutcomes = new WeakMap<object, "confirmed" | "unconfirmed">();
+const detachOutcomes = new WeakMap<
+  object,
+  "confirmed" | "unconfirmed" | "inferior-ended"
+>();
 const stopAttempts = new WeakMap<object, Promise<OwnedDebuggerStopResult>>();
 
 const isVerifiedDetachResult = (
@@ -78,6 +130,8 @@ const waitForInferiorDetach = async (
 interface OwnedDebuggerProcess {
   readonly id: string;
   readonly exited: boolean;
+  readonly inferiorStateUnknown?: () => boolean;
+  readonly verifyInferiorsEndedAfterExit?: () => Promise<boolean>;
   readonly launched: {
     readonly process: { kill(signal: NodeJS.Signals): boolean };
   };
@@ -91,7 +145,6 @@ interface OwnedDebuggerProcess {
     unrefOutputStreams(): void;
     /** Cap bytes retained after debugger shutdown while continuing to drain. */
     limitAdditionalOutputBytes(maxBytes: number): void;
-    disposeAfterOutputClose(): void;
     dispose(): void;
   };
 }
@@ -102,19 +155,11 @@ const finishExitedDebuggerSession = async (
   platform: NodeJS.Platform,
   status: "stopped" | "already_exited",
 ): Promise<OwnedDebuggerStopResult> => {
-  // A verified detach already made the output sink safe to release, even when
-  // the exit was only observed on a later retry and reports `already_exited`.
-  const detachConfirmed = detachOutcomes.get(session) === "confirmed";
   try {
     session.supervisor.limitAdditionalOutputBytes(
       MAX_LATE_DEBUGGER_OUTPUT_BYTES,
     );
     if (!(await session.supervisor.waitForOutputClose(1_000))) {
-      if (status === "stopped" || detachConfirmed) {
-        session.supervisor.unrefOutputStreams();
-        session.supervisor.disposeAfterOutputClose();
-        return { status };
-      }
       return {
         status: "incomplete",
         reason:
@@ -150,11 +195,25 @@ const performOwnedDebuggerStop = async (
         status: "incomplete",
         reason: `Owned ${debuggerName} inferior detach is still pending after the process exited.`,
       };
-    if (detachOutcomes.get(session) === "unconfirmed")
-      return {
-        status: "incomplete",
-        reason: `Owned ${debuggerName} inferior detach was not verified before the process exited; ownership is retained.`,
-      };
+    const detachOutcome = detachOutcomes.get(session);
+    if (
+      detachOutcome === "unconfirmed" ||
+      (detachOutcome === undefined && session.inferiorStateUnknown?.() === true)
+    ) {
+      try {
+        if ((await session.verifyInferiorsEndedAfterExit?.()) !== true)
+          return {
+            status: "incomplete",
+            reason: `Owned ${debuggerName} inferior disposition was not verified before the debugger exited, and no owner proof confirms the identified inferior processes have ended.`,
+          };
+        detachOutcomes.set(session, "inferior-ended");
+      } catch (cause: unknown) {
+        return {
+          status: "incomplete",
+          reason: `Owned ${debuggerName} inferior process identity could not be verified after debugger exit: ${cause instanceof Error ? cause.message : String(cause)}`,
+        };
+      }
+    }
     return finishExitedDebuggerSession(
       session,
       debuggerName,
