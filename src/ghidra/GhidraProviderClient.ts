@@ -35,6 +35,7 @@ import {
 } from "../domain/analysisErrorCore.js";
 import type { AnalysisError } from "../domain/analysisErrorBase.js";
 import type { EvidenceLocation } from "../domain/evidence.js";
+import type { RelationshipCoverage } from "../domain/relationshipCoverage.js";
 import { jsonValueSchema, type JsonValue } from "../domain/jsonValue.js";
 import { ProviderAdapterError } from "../domain/providerAdapterError.js";
 import { err, ok, type Result } from "../domain/result.js";
@@ -71,6 +72,7 @@ import {
   isGhidraMipsSoftFloatTarget,
 } from "./GhidraMipsProfile.js";
 import { ghidraRiscvLimitations } from "./GhidraRiscvProfile.js";
+import { ghidraPeCodeViewLimitations } from "./GhidraPeProfile.js";
 import { unverifiedGhidraBuildLimitation } from "./GhidraInstallationPolicy.js";
 import { GhidraHeadlessLauncher } from "./GhidraLauncher.js";
 import { attestGhidraNativeLoadImage } from "./GhidraLoadImageAttest.js";
@@ -88,7 +90,6 @@ import {
   healthLimitations,
   windowsP0Limitations,
   limitationsFor,
-  relationshipCoverageFor,
 } from "./GhidraProviderCapabilities.js";
 import type { GhidraSessionError } from "./GhidraSessionError.js";
 import {
@@ -548,6 +549,7 @@ export const createGhidraProviderClient = (input: {
   // Replaced by the reported outcome once the session handshake is checked.
   const seedLimitations: string[] = [...ghidraSeedLimitations(seeds)];
   const pdbLimitations: string[] = [];
+  let pdbLoaded = false;
   // Replaced by the reported storage outcome once the handshake is checked.
   const softFloatLimitations: string[] = [
     ...ghidraMipsSoftFloatLimitations(softFloat),
@@ -676,12 +678,14 @@ export const createGhidraProviderClient = (input: {
     operation: AnalysisOperation,
     info: GhidraSessionInfo,
   ): Promise<AnalysisError | undefined> => {
-    if (target.format === "pe")
+    if (target.format === "pe") {
+      pdbLoaded = info.pdb?.loaded === true;
       pdbLimitations.splice(
         0,
         pdbLimitations.length,
         ...ghidraPdbLimitations(info.pdb),
       );
+    }
     const softFloatReason = ghidraMipsSoftFloatFailure(
       softFloat,
       info.mips_soft_float_storage,
@@ -734,6 +738,7 @@ export const createGhidraProviderClient = (input: {
     ...ghidraExtensionLimitations(extensions),
     ...seedLimitations,
     ...pdbLimitations,
+    ...ghidraPeCodeViewLimitations(target, pdbLoaded),
     ...(releaseLimitation === undefined ? [] : [releaseLimitation]),
   ];
   const nativeAotOwner =
@@ -750,8 +755,8 @@ export const createGhidraProviderClient = (input: {
     rawResult: JsonValue,
     observationLimitations: readonly string[] = [],
     locations: readonly EvidenceLocation[] = [],
+    relationshipCoverage?: RelationshipCoverage,
   ) => {
-    const relationshipCoverage = relationshipCoverageFor(operation);
     return createAnalysisExecution(normalized, committedProfile.provider, {
       rawResult,
       locations,
@@ -855,12 +860,14 @@ export const createGhidraProviderClient = (input: {
       let normalized: JsonValue;
       let observationLimitations: readonly string[] = [];
       let observationLocations: readonly EvidenceLocation[] = [];
+      let relationshipCoverage: RelationshipCoverage | undefined;
       if (isGhidraFunctionOperation(operation)) {
         const result = parseGhidraFunctionResult(operation, called.value);
         if (!result.ok) return result;
         normalized = result.value.value;
         observationLimitations = result.value.limitations;
         observationLocations = result.value.locations ?? [];
+        relationshipCoverage = result.value.relationshipCoverage;
       } else {
         const result = parseGhidraInventoryResult(operation, called.value);
         if (!result.ok) return result;
@@ -956,6 +963,7 @@ export const createGhidraProviderClient = (input: {
           called.value,
           observationLimitations,
           observationLocations,
+          relationshipCoverage,
         ),
       );
     },
