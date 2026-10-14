@@ -4,6 +4,7 @@ import { join } from "node:path";
 import { promisify } from "node:util";
 
 import { expect, it } from "vitest";
+import { buildBinary } from "plist";
 
 import {
   classifyAndHashRoot,
@@ -50,5 +51,55 @@ it("rejects a root path replaced between its initial stat and open", async () =>
   ).rejects.toMatchObject({
     reason: "integrity",
     message: `Root artifact changed before inventory: ${path}`,
+  });
+});
+
+it("keeps unavailable container traversal distinct from observed root bytes", async () => {
+  const root = await createTestTempDirectory("rea-artifact-root-scope-");
+  const path = join(root, "fixture.pkg");
+  // The recognized XAR prefix selects PKG inventory; no child decoder is installed.
+  await writeFile(path, Buffer.from("xar!fixture"));
+  const inventory = await inventoryArtifact(path);
+  expect(inventory.manifest).toMatchObject({
+    root_format: "pkg",
+    node_count: 1,
+    occurrence_count: 1,
+    edge_count: 0,
+  });
+  expect(inventory.occurrences[0]?.hash_status).toBe("verified");
+  expect(inventory.coverage).toEqual({
+    scope: "container-entries",
+    status: "unknown",
+  });
+});
+
+it("keeps root ASAR selection separate from nested XML content", async () => {
+  const root = await createTestTempDirectory("rea-xml-asar-root-");
+  const path = join(root, "state.asar");
+  await writeFile(path, '<?xml version="1.0"?><plist><dict/></plist>');
+  const inventory = await inventoryArtifact(path);
+  expect(inventory.manifest.root_format).toBe("file");
+  expect(inventory.occurrences[0]).toMatchObject({
+    artifact_kind: "resource",
+    artifact_format: "file",
+  });
+  const nested = await inventoryArtifact(root);
+  expect(
+    nested.occurrences.find((entry) => entry.logical_path === "state.asar"),
+  ).toMatchObject({
+    artifact_kind: "plist",
+    artifact_format: "plist",
+  });
+});
+
+it("retains binary plist magic for an ASAR-named root", async () => {
+  const root = await createTestTempDirectory("rea-binary-asar-root-");
+  const path = join(root, "state.asar");
+  await writeFile(path, buildBinary({ value: "binary plist" }));
+  const inventory = await inventoryArtifact(path);
+  expect(inventory.manifest.root_format).toBe("plist");
+  expect(inventory.occurrences[0]).toMatchObject({
+    artifact_kind: "plist",
+    artifact_format: "plist",
   });
 });
