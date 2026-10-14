@@ -47,16 +47,16 @@ export const parseJebMcpEndpoint = (
           "Embedding credentials in the JEB MCP endpoint is not supported; configure authentication with the engine",
       }),
     );
+  if (url.pathname !== "/mcp" && url.pathname !== "/mcp/")
+    return err(
+      new AnalysisInputError("jeb_mcp_endpoint", {
+        cause: "JEB MCP endpoint must use the /mcp route",
+      }),
+    );
   if (urlDeclaresQueryOrFragment(url))
     return err(
       new AnalysisInputError("jeb_mcp_endpoint", {
         cause: "JEB MCP endpoint query strings and fragments are not supported",
-      }),
-    );
-  if (url.pathname !== "/mcp")
-    return err(
-      new AnalysisInputError("jeb_mcp_endpoint", {
-        cause: "JEB MCP endpoint path must be exactly /mcp",
       }),
     );
   return ok(url);
