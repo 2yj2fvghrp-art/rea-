@@ -193,6 +193,25 @@ describe("compact advertised input schema", () => {
       expect(compact(input)).toBe(canonical(input));
   });
 
+  it("does not reintroduce unsupported dialect keywords in reduced schemas", () => {
+    let nested: Record<string, unknown> = { type: "string" };
+    for (let level = 0; level < 12; level += 1)
+      nested = { type: "object", properties: { child: nested } };
+    // The inline form exceeds this budget, so the schema is reduced.
+    const { schema, presentation } = compactAdvertisedInputSchema(
+      {
+        $schema: "https://json-schema.org/draft/2020-12/schema",
+        type: "object",
+        properties: { deep: nested },
+        dependentRequired: { detail: ["target"] },
+      },
+      600,
+    );
+    expect(presentation).toBe("reduced");
+    expect(schema.$schema).toBe("https://json-schema.org/draft/2020-12/schema");
+    expect(schema).not.toHaveProperty("dependentRequired");
+  });
+
   it("keeps unconstrained JSON values explicit for client type inference", () => {
     const { schema } = compactAdvertisedInputSchema(
       {

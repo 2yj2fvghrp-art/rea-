@@ -378,12 +378,24 @@ const reduceToShallowProperties = (
   const properties = isSchemaObject(schema.properties) ? schema.properties : {};
   const description = [
     typeof schema.description === "string" ? schema.description : undefined,
+    ...Object.entries(
+      isSchemaObject(schema.dependentRequired)
+        ? schema.dependentRequired
+        : isSchemaObject(schema.dependencies)
+          ? schema.dependencies
+          : {},
+    ).flatMap(([property, partners]) =>
+      Array.isArray(partners) &&
+      partners.every((partner) => typeof partner === "string")
+        ? [
+            `When ${property} is provided, also provide ${partners.join(" and ")}.`,
+          ]
+        : [],
+    ),
     REDUCED_ANNOTATION,
   ]
     .filter((text) => text !== undefined)
     .join(" ");
-  const $schema =
-    typeof schema.$schema === "string" ? { $schema: schema.$schema } : {};
   const shallow = Object.fromEntries(
     Object.entries(properties).map(([name, value]) => {
       const types = detectedTypes(value, schema);
@@ -399,7 +411,7 @@ const reduceToShallowProperties = (
     }),
   );
   return {
-    ...$schema,
+    ...(typeof schema.$schema === "string" ? { $schema: schema.$schema } : {}),
     type: "object",
     description,
     properties: shallow,
@@ -408,9 +420,6 @@ const reduceToShallowProperties = (
       : {}),
     ...(typeof schema.minProperties === "number"
       ? { minProperties: schema.minProperties }
-      : {}),
-    ...(isSchemaObject(schema.dependentRequired)
-      ? { dependentRequired: { ...schema.dependentRequired } }
       : {}),
     // Without its patternProperties, a closed object would reject names
     // the canonical schema accepts, so it stays open.
