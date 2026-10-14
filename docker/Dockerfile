@@ -25,7 +25,7 @@ RUN mkdir -p /opt/jadx \
 ENV REA_JADX_MCP_JAR=/opt/jadx/jadx-headless-mcp-0.7.1-all.jar
 
 # x-release-please-start-version
-RUN npm install -g rea-agents@6.4.0
+RUN npm install -g rea-agents@6.5.0
 # x-release-please-end
 
 # Chromium build for the playwright-core version rea-agents installed, so a

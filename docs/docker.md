@@ -74,6 +74,20 @@ docker run --rm --memory 3g -e GHIDRA_HEADLESS_MAXMEM=2G -v /absolute/host/targe
 
 See [installation](installation.md) for the other Ghidra memory settings.
 
+JADX gets no heap setting from REA. Inside a container, Java's default heap is
+a quarter of the container limit, so `--memory 3g` leaves JADX about 768 MiB.
+That is enough for small APKs. A large APK can then fail during load with
+`load failed: Java heap space`; a 74 MB APK with about 28,000 classes did. Raise
+the container limit and set the JADX heap explicitly:
+
+```bash
+docker run --rm --memory 6g -e REA_JADX_HEAP_MIB=4096 -v /absolute/host/targets:/targets:ro rea inspect-android-package /targets/app.apk
+```
+
+Keep the heap below the container limit, because the JVM also uses native
+memory. See [Android analysis](android-analysis.md) for `REA_JADX_HEAP_MIB` and
+the other JADX settings.
+
 ## Browsers
 
 The image sets `REA_BROWSER_EXECUTABLE` to its Chromium build. It also sets
