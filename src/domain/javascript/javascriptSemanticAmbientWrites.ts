@@ -16,7 +16,7 @@ import {
   type JavaScriptSemanticAnalysisState,
 } from "./javascriptSemanticState.js";
 import { isImportMetaUrl } from "./javascriptStaticAnalysisHelpers.js";
-import { semanticMutationInitializers } from "./javascriptSemanticMutationInitializers.js";
+import { semanticReadInitializers } from "./javascriptSemanticMutationInitializers.js";
 
 const GLOBAL_OBJECT_NAMES = ["globalThis", "global", "window", "self"];
 
@@ -44,8 +44,8 @@ type AmbientProjection = AmbientPath | undefined;
 
 /**
  * Follow local object identities without equating shallow copies with their
- * sources. Write lookup retains every visible initializer: reassigning an alias
- * later cannot erase a possible earlier mutation. Intrinsic reads stay strict.
+ * sources. Write lookup follows each alias at its actual read, retaining all
+ * possible initializers when ordering is uncertain. Intrinsic reads stay strict.
  */
 const createAmbientPathResolver = (
   state: JavaScriptSemanticAnalysisState,
@@ -129,11 +129,8 @@ const createAmbientPathResolver = (
         const initializers = possibleWrites
           ? capture === undefined
             ? binding.initializers
-            : semanticMutationInitializers(
-                binding,
-                capture,
-                state.parentsByNode,
-              ).initializers
+            : semanticReadInitializers(binding, root, state.parentsByNode)
+                .initializers
           : stable === undefined
             ? []
             : [stable];

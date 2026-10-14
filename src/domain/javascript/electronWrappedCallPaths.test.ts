@@ -157,9 +157,15 @@ describe("wrapped contextBridge exposure methods", () => {
         },
         api_key: "isolatedApi",
         members: ["ping"],
-        resolution_basis: "wrapper-substitution",
+        api_status: "object-literal",
       }),
     );
+    // A directly observed object literal retains its source fact even when
+    // symbolic tracing also visits the call with a dynamic world ID.
+    expect(result.electron.context_bridge_apis).toHaveLength(1);
+    expect(
+      result.electron.context_bridge_apis[0]?.resolution_basis,
+    ).toBeUndefined();
     expect(result.parse_status).toBe("partial");
   });
 
