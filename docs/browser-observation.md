@@ -299,6 +299,12 @@ missing or malformed collection. Invalid resource entries are omitted with
 incomplete coverage, while valid resources from that frame and other frames
 remain available. Comparing an incomplete resource inventory cannot prove
 addition, removal, or equality; a complete empty inventory can prove removal.
+Resource records require a nonempty type and a string MIME type; absent or
+malformed required fields are recorded as omissions instead of invented defaults.
+An explicitly empty MIME type is valid. The optional content size may be absent;
+an invalid supplied size remains unknown with incomplete resource coverage while
+the resource's other facts are retained. Zero and nonnegative fractional sizes
+are preserved.
 
 CDP discovery, connection, and commands wait for the peer or caller cancellation;
 a stalled peer can leave an operation waiting. WebSocket messages remain subject

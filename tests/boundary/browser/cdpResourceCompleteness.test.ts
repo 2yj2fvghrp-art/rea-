@@ -22,7 +22,10 @@ type ResourceMode =
   | "empty";
 
 const startBrowser = async () => {
-  const state = { mode: "valid" as ResourceMode };
+  const state = {
+    mode: "valid" as ResourceMode,
+    peerFields: undefined as Record<string, unknown> | undefined,
+  };
   const browser = await startFakeCdpBrowser({
     commandResult(command, origin) {
       if (command.method !== "Page.getResourceTree") return undefined;
@@ -31,6 +34,7 @@ const startBrowser = async () => {
         type: "Script",
         mimeType: "text/javascript",
         contentSize: 128,
+        ...(name === "peer.js" ? state.peerFields : undefined),
       });
       let resources: unknown = [resource("keep.js"), resource("peer.js")];
       if (state.mode === "missing") resources = undefined;
@@ -88,6 +92,80 @@ const compareResources = (
   ).dimensions.resources;
 
 describe("resource inventory omissions through CDP", () => {
+  it.each([
+    { fields: { type: undefined }, retained: false },
+    { fields: { type: null }, retained: false },
+    { fields: { type: 17 }, retained: false },
+    { fields: { type: "" }, retained: false },
+    { fields: { mimeType: undefined }, retained: false },
+    { fields: { mimeType: null }, retained: false },
+    { fields: { mimeType: 17 }, retained: false },
+    { fields: { contentSize: -1 }, retained: true },
+    { fields: { contentSize: null }, retained: true },
+    { fields: { contentSize: "128" }, retained: true },
+  ])(
+    "keeps malformed resource fields uncertain: $fields",
+    async ({ fields, retained }) => {
+      const { state, inspect, origin } = await startBrowser();
+      const before = await inspect();
+      state.peerFields = fields;
+      const after = await inspect();
+      for (const [left, right] of [
+        [before, after],
+        [after, before],
+        [after, after],
+      ] as const)
+        expect(compareResources(left, right)).toMatchObject({
+          status: "unknown",
+          total_changes: 0,
+          changes: [],
+        });
+      expect(after.completeness.excluded).toContainEqual({
+        section: "resources",
+        reason: "invalid_protocol_value",
+        count: 1,
+      });
+      expect(after.resources.map(({ url }) => url).sort()).toEqual(
+        retained
+          ? [origin + "/keep.js", origin + "/peer.js"]
+          : [origin + "/keep.js"],
+      );
+      if (retained)
+        expect(
+          after.resources.find(({ url }) => url.endsWith("/peer.js")),
+        ).toMatchObject({
+          type: "Script",
+          mime_type: "text/javascript",
+          content_size: null,
+        });
+    },
+  );
+
+  it.each([
+    {
+      fields: { type: "Other", mimeType: "", contentSize: undefined },
+      size: null,
+    },
+    { fields: { contentSize: 0 }, size: 0 },
+    { fields: { contentSize: 1.5 }, size: 1.5 },
+  ])(
+    "accepts valid optional and empty fields: $fields",
+    async ({ fields, size }) => {
+      const { state, inspect } = await startBrowser();
+      state.peerFields = fields;
+      const capture = await inspect();
+      expect(capture.resources).toHaveLength(2);
+      expect(
+        capture.resources.find(({ url }) => url.endsWith("/peer.js"))
+          ?.content_size,
+      ).toBe(size);
+      expect(capture.completeness.unavailable_sections).not.toContain(
+        "resources",
+      );
+      expect(compareResources(capture, capture).status).toBe("unchanged");
+    },
+  );
+
   it.each([
     "missing",
     "null",
@@ -154,8 +232,14 @@ describe("resource uncertainty in public CLI Evidence", () => {
     const before = join(root, "before.json");
     const after = join(root, "after.json");
     await writeFile(before, JSON.stringify({ inspection: await inspect() }));
-    for (const mode of ["invalid-entry", "empty"] as const) {
+    for (const { mode, fields } of [
+      { mode: "invalid-entry", fields: undefined },
+      { mode: "valid", fields: { type: undefined } },
+      { mode: "valid", fields: { contentSize: -1 } },
+      { mode: "empty", fields: undefined },
+    ] as const) {
       state.mode = mode;
+      state.peerFields = fields;
       await writeFile(after, JSON.stringify({ inspection: await inspect() }));
       expect(
         await runCliJson(["compare-web-captures", before, after, "--json"]),
