@@ -96,7 +96,9 @@ const registerOverviewCommands = (
               signal,
               {
                 summary: options.summary,
-                evidenceOut: options.evidenceOut,
+                ...(options.evidenceOut === undefined
+                  ? {}
+                  : { evidenceOut: options.evidenceOut }),
               },
             ),
           ),
