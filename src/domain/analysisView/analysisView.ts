@@ -50,6 +50,13 @@ import {
   managedViewContextSchema,
 } from "./managedArtifactView.js";
 import {
+  projectManagedMemberView,
+  managedMemberViewRequestSchema,
+  managedMemberViewItemSchema,
+  managedMemberSummarySchema,
+  managedMemberViewContextSchema,
+} from "./managedMemberView.js";
+import {
   projectWasmArtifactView,
   wasmViewRequestSchema,
   wasmViewItemSchema,
@@ -208,6 +215,7 @@ export const analysisViewRequestSchema = z.discriminatedUnion("kind", [
   machoViewRequestSchema,
   evmViewRequestSchema,
   managedViewRequestSchema,
+  managedMemberViewRequestSchema,
   androidViewRequestSchema,
   apiSurfaceViewSchema,
   captureViewRequestSchema,
@@ -328,6 +336,7 @@ const viewResultBase = {
     "inspect_macho",
     "inspect_evm_interface",
     "inspect_managed_artifact",
+    "inspect_managed_members",
     "inspect_web_network_capture",
     "inspect_android_package",
     "inspect_pcap_capture",
@@ -396,6 +405,13 @@ export const managedArtifactSummaryViewResultSchema = z.strictObject({
   summary: managedSummarySchema,
 });
 
+/** Selected member identity and coverage without unrelated row inventories. */
+export const managedMemberSummaryViewResultSchema = z.strictObject({
+  ...summaryViewResultBase,
+  parent_operation: z.literal("inspect_managed_members"),
+  summary: managedMemberSummarySchema,
+});
+
 /** Exact historical capture summary, with no body or member-inventory payload. */
 export const webNetworkCaptureSummaryViewResultSchema = z.strictObject({
   ...summaryViewResultBase,
@@ -446,6 +462,7 @@ export const analysisViewResultSchema = z.discriminatedUnion("kind", [
       machoSummarySchema,
       evmSummarySchema,
       managedSummarySchema,
+      managedMemberSummarySchema,
       captureSummarySchema,
       androidPackageSummarySchema,
       pcapSummarySchema,
@@ -528,6 +545,14 @@ export const analysisViewResultSchema = z.discriminatedUnion("kind", [
     ...viewResultBase,
     ...managedViewContextSchema.shape,
     parent_operation: z.literal("inspect_managed_artifact"),
+  }),
+  z.strictObject({
+    kind: z.literal("managed-members"),
+    view: managedMemberViewRequestSchema,
+    item: managedMemberViewItemSchema,
+    ...viewResultBase,
+    ...managedMemberViewContextSchema.shape,
+    parent_operation: z.literal("inspect_managed_members"),
   }),
   z.strictObject({
     kind: z.literal("android"),
@@ -623,6 +648,10 @@ export type UnsignedAnalysisView =
       "view_digest"
     >
   | Omit<
+      Extract<AnalysisViewResult, { readonly kind: "managed-members" }>,
+      "view_digest"
+    >
+  | Omit<
       Extract<AnalysisViewResult, { readonly kind: "android" }>,
       "view_digest"
     >
@@ -674,7 +703,7 @@ const unsupportedParent = (
   new AnalysisUnsupportedTargetError(
     INSPECT_ANALYSIS_VIEW_OPERATION,
     parentArtifactPath(parent),
-    `Parent Evidence operation ${JSON.stringify(parent.operation)} does not support analysis views. Use completed binary layout, JavaScript application, native function, artifact inventory/inspection, WASM, Mach-O, EVM, managed artifact, Android package, Dart AOT, or web network capture Evidence.`,
+    `Parent Evidence operation ${JSON.stringify(parent.operation)} does not support analysis views. Use completed binary layout, JavaScript application, native function, artifact inventory/inspection, WASM, Mach-O, EVM, managed artifact/member, Android package, Dart AOT, or web network capture Evidence.`,
   );
 
 const parentArtifactPath = (parent: AnalysisViewParent): string => {
@@ -704,6 +733,7 @@ const retainedViewProjectors = new Map<string, typeof projectWasmArtifactView>([
   ["inspect_macho", projectMachoView],
   ["inspect_evm_interface", projectEvmInterfaceView],
   ["inspect_managed_artifact", projectManagedArtifactView],
+  ["inspect_managed_members", projectManagedMemberView],
   ["inspect_android_package", projectAndroidPackageView],
   ["inspect_dart_aot", projectDartAotView],
   ["inspect_artifact", projectArtifactInventoryView],

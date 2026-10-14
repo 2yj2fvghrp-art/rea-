@@ -34,11 +34,8 @@ export const registerManagedTools = (
     execute: async (operation, parameters, executionOptions) => {
       if (!isManagedToolName(operation))
         return analysis.execute(operation, parameters, executionOptions);
-      const { detail: _detail, ...artifactParameters } = parameters;
-      if (
-        operation === "inspect_managed_artifact" &&
-        parameters.detail === "summary"
-      ) {
+      const { detail: _detail, ...analysisParameters } = parameters;
+      if (parameters.detail === "summary") {
         const ready = requireAnalysisViewRetention(operation, {
           recordEvidence: options.recordEvidence,
           evidenceById: options.evidenceById,
@@ -69,9 +66,7 @@ export const registerManagedTools = (
         path,
         operation,
         executionOptions?.signal,
-        operation === "inspect_managed_artifact"
-          ? artifactParameters
-          : parameters,
+        analysisParameters,
       );
       if (execution.ok && typeof requestedPath === "string")
         selectedManagedPath = requestedPath;
@@ -81,8 +76,7 @@ export const registerManagedTools = (
   registerEvidenceTools(server, MANAGED_TOOL_CONTRACTS, {
     ...options,
     analysisForAdmission,
-    projectEvidence: (operation, parameters, evidence) =>
-      operation === "inspect_managed_artifact" &&
+    projectEvidence: (_operation, parameters, evidence) =>
       parameters.detail === "summary"
         ? summarizeRetainedAnalysis(evidence, {
             recordEvidence: options.recordEvidence,

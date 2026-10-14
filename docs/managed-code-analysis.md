@@ -81,6 +81,56 @@ including the existing `inspect-analysis-view` CLI. Session record lifetime and
 export/import semantics remain unchanged. A server without Evidence retention
 rejects selected summary before analysis; complete delivery remains available.
 
+### Member summaries and pages
+
+For questions about selected types or their coverage, call
+`inspect_managed_members` with `detail: "summary"` and optional `type_names`.
+Omitted or `complete` detail keeps the existing complete response. Summary
+delivery retains that same complete Evidence and returns a linked
+`inspect_analysis_view` summary containing artifact identity, module/MVID,
+selection and unmatched names, metadata status, collection and method-body status counts, member
+coverage/issues and independent user-string coverage/issues.
+
+Page the original rows using the summary's `normalized_result.parent_evidence_id`:
+
+```json
+{
+  "source": {
+    "kind": "retained-evidence",
+    "evidence_id": "<parent_evidence_id>"
+  },
+  "view": {
+    "kind": "managed-members",
+    "collection": "methods",
+    "offset": 0,
+    "limit": 8
+  }
+}
+```
+
+Collections are `types`, `exported_types`, `fields`, `methods`, `member_refs`,
+`call_edges`, `field_accesses`, and `user_strings`. Pages keep original ordering,
+tokens, signatures, complete method-body facts and literal values. MemberRefs
+remain assembly-wide even for an unmatched type selection. Counts describe
+returned rows; page exhaustion does not establish complete source coverage.
+Historical unexamined exported types or user strings keep null counts and null
+page items with `source_collection_available: false`, distinct from empty arrays.
+User-string coverage remains independent of member/body coverage.
+
+Views authenticate the original Evidence and do not reopen the assembly. Export
+the complete parent with the existing Evidence bundle tools for later sessions.
+For the CLI, save the complete `inspect-managed-members` Evidence, then supply a
+JSON file to `rea inspect-analysis-view request.json --json`, with
+`source: {"kind":"inline","evidence":<complete Evidence>}` and either
+`view: {"kind":"summary"}` or the member page above. This avoids passing large
+Evidence through command-line arguments. The one-shot inspection CLI continues
+to return complete Evidence; it does not create a persistent retention session.
+
+Summary delivery changes the immediate response, not the parser's work or its
+retention costs. A server without retention rejects summary before analysis;
+transport and parser resource limits still apply. Smaller responses alone do
+not establish lower whole-task token usage, latency or memory.
+
 ## Shipped scope
 
 The canonical parser admits PE/CLI bytes and their metadata/CIL without loading
