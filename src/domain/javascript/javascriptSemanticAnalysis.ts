@@ -782,6 +782,16 @@ function* collectDefinitionsSteps(
         hasConditionalInitializer(readAncestors())
       )
         state.conditionalInitializers.add(node.init);
+      // A later assignment inside a branch is not proof the binding was written.
+      // Plain `=` stores the right-hand node as the initializer.
+      if (
+        (t.isAssignmentExpression(node) || t.isUpdateExpression(node)) &&
+        hasConditionalInitializer(readAncestors())
+      ) {
+        state.conditionalInitializers.add(node);
+        if (t.isAssignmentExpression(node))
+          state.conditionalInitializers.add(node.right);
+      }
       if (
         t.isAssignmentExpression(node) ||
         t.isUpdateExpression(node) ||

@@ -360,6 +360,11 @@ const evaluateBinding = (
   const initializer = binding.initializers[0];
   if (initializer === undefined)
     return { status: "unknown", reason: "Missing binding initializer." };
+  if (context.state.conditionalInitializers.has(initializer.node))
+    return {
+      status: "unknown",
+      reason: `Binding ${binding.name} is conditionally initialized.`,
+    };
   const position = context.bindings.size;
   const callerDependence = context.dependence.lowest;
   context.dependence.lowest = CALLER_INDEPENDENT;
