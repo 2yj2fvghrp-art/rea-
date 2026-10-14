@@ -68,7 +68,7 @@ msgstr "通过N0zoM1z0*10十月2026"
 #: website/public/examples/dino-lab/index.html:477
 #: website/public/faq/index.html:575
 #: website/public/first-investigation/index.html:536
-#: website/public/get-started/index.html:1814
+#: website/public/get-started/index.html:1819
 #: website/public/guides/browser/index.html:509
 #: website/public/guides/index.html:284
 #: website/public/guides/javascript/index.html:505
@@ -2923,9 +2923,9 @@ msgstr "终端机"
 #: website/public/get-started/index.html:1621
 #: website/public/get-started/index.html:1640
 #: website/public/get-started/index.html:1662
-#: website/public/get-started/index.html:1700
-#: website/public/get-started/index.html:1730
-#: website/public/get-started/index.html:1751
+#: website/public/get-started/index.html:1705
+#: website/public/get-started/index.html:1735
+#: website/public/get-started/index.html:1756
 msgctxt "page:get-started/index.html"
 msgid "Copy"
 msgstr "复制"
@@ -3132,7 +3132,7 @@ msgid ""
 msgstr "{ph0}所有系统：{ph1}把文件夹拖进终端窗口，也能显示路径。"
 
 #: website/public/get-started/index.html:970
-#: website/public/get-started/index.html:1723
+#: website/public/get-started/index.html:1728
 msgctxt "page:get-started/index.html"
 msgid "In a terminal, put quotes around a path that contains spaces."
 msgstr "在终端里，包含空格的路径需要加引号。"
@@ -3273,18 +3273,18 @@ msgid ""
 " existing installation or offers an installation plan for your approval."
 msgstr "在 macOS 或 Linux 上连接 Hopper。运行上面的 setup 命令，它会检测已有安装，或提出安装计划供你确认。"
 
-#: website/public/get-started/index.html:1681
+#: website/public/get-started/index.html:1686
 msgctxt "page:get-started/index.html"
 msgid "Getting help"
 msgstr "寻求帮助"
 
-#: website/public/get-started/index.html:1683
+#: website/public/get-started/index.html:1688
 msgctxt "page:get-started/index.html"
 msgid "If your agent doesn't see REA"
 msgstr "助手看不到 REA 工具时"
 
 #. {ph0}: <code>doctor</code>
-#: website/public/get-started/index.html:1684
+#: website/public/get-started/index.html:1689
 #, python-brace-format
 msgctxt "page:get-started/index.html"
 msgid ""
@@ -3292,22 +3292,22 @@ msgid ""
 "{ph0}; for Codex:"
 msgstr "配置后重启或重新连接客户端。用 {ph0} 检查 REA 连接。以 Codex 为例："
 
-#: website/public/get-started/index.html:1695
+#: website/public/get-started/index.html:1700
 msgctxt "page:get-started/index.html"
 msgid "If a provider needs attention"
 msgstr "分析后端出现问题时"
 
-#: website/public/get-started/index.html:1696
+#: website/public/get-started/index.html:1701
 msgctxt "page:get-started/index.html"
 msgid "Check the provider you're using. For Ghidra:"
 msgstr "检查正在使用的分析后端。以 Ghidra 为例："
 
-#: website/public/get-started/index.html:1699
+#: website/public/get-started/index.html:1704
 msgctxt "page:get-started/index.html"
 msgid "Check one provider"
 msgstr "检查一个分析后端"
 
-#: website/public/get-started/index.html:1711
+#: website/public/get-started/index.html:1716
 msgctxt "page:get-started/index.html"
 msgid "The report gives the failed check and a suggested next step."
 msgstr "报告会列出失败的检查和建议的下一步。"
@@ -3316,7 +3316,7 @@ msgstr "报告会列出失败的检查和建议的下一步。"
 #. {ph1}: </a >
 #. {ph2}: <span>
 #. {ph3}: </span>
-#: website/public/get-started/index.html:1776
+#: website/public/get-started/index.html:1781
 #, python-brace-format
 msgctxt "page:get-started/index.html"
 msgid ""
@@ -3327,7 +3327,7 @@ msgstr "{ph0}REA FAQ{ph1}{ph2}关于更新、助手和分析的常见解答。{p
 #. {ph1}: </a >
 #. {ph2}: <span >
 #. {ph3}: </span >
-#: website/public/get-started/index.html:1780
+#: website/public/get-started/index.html:1785
 #, python-brace-format
 msgctxt "page:get-started/index.html"
 msgid ""
@@ -3339,7 +3339,7 @@ msgstr "{ph0}选择调查指南{ph1}{ph2}二进制、Electron 应用和浏览器
 #. {ph1}: </a >
 #. {ph2}: <span>
 #. {ph3}: </span>
-#: website/public/get-started/index.html:1787
+#: website/public/get-started/index.html:1792
 #, python-brace-format
 msgctxt "page:get-started/index.html"
 msgid ""
@@ -3351,7 +3351,7 @@ msgstr "{ph0}GitHub issues{ph1}{ph2}附上命令与诊断结果，反馈问题�
 #. {ph1}: </a >
 #. {ph2}: <span>
 #. {ph3}: </span>
-#: website/public/get-started/index.html:1791
+#: website/public/get-started/index.html:1796
 #, python-brace-format
 msgctxt "page:get-started/index.html"
 msgid ""
@@ -3422,12 +3422,12 @@ msgctxt "page:get-started/index.html"
 msgid "Copy CLI installation command"
 msgstr "复制CLI安装命令"
 
-#: website/public/get-started/index.html:1700
+#: website/public/get-started/index.html:1705
 msgctxt "page:get-started/index.html"
 msgid "Copy provider diagnosis command"
 msgstr "复制提供者诊断命令"
 
-#: website/public/get-started/index.html:1814
+#: website/public/get-started/index.html:1819
 msgctxt "page:get-started/index.html"
 msgid "Back to top"
 msgstr "回到顶部"
@@ -9949,7 +9949,7 @@ msgstr "指南"
 #: website/public/examples/dino-lab/index.html:469
 #: website/public/faq/index.html:567
 #: website/public/first-investigation/index.html:528
-#: website/public/get-started/index.html:1806
+#: website/public/get-started/index.html:1811
 #: website/public/guides/browser/index.html:501
 #: website/public/guides/index.html:276
 #: website/public/guides/javascript/index.html:497
@@ -9970,7 +9970,7 @@ msgstr "源代码"
 #: website/public/examples/dino-lab/index.html:470
 #: website/public/faq/index.html:568
 #: website/public/first-investigation/index.html:529
-#: website/public/get-started/index.html:1807
+#: website/public/get-started/index.html:1812
 #: website/public/guides/browser/index.html:502
 #: website/public/guides/index.html:277
 #: website/public/guides/javascript/index.html:498
@@ -9991,7 +9991,7 @@ msgstr "MIT 许可证"
 #: website/public/examples/dino-lab/index.html:471
 #: website/public/faq/index.html:569
 #: website/public/first-investigation/index.html:530
-#: website/public/get-started/index.html:1808
+#: website/public/get-started/index.html:1813
 #: website/public/guides/browser/index.html:503
 #: website/public/guides/index.html:278
 #: website/public/guides/javascript/index.html:499
@@ -10012,7 +10012,7 @@ msgstr "加入社区"
 #: website/public/examples/dino-lab/index.html:472
 #: website/public/faq/index.html:570
 #: website/public/first-investigation/index.html:531
-#: website/public/get-started/index.html:1809
+#: website/public/get-started/index.html:1814
 #: website/public/guides/browser/index.html:504
 #: website/public/guides/index.html:279
 #: website/public/guides/javascript/index.html:500
@@ -12940,19 +12940,19 @@ msgid ""
 "Node.js:"
 msgstr "macOS 或 Linux 准备好 Node.js 后，也可以使用 curl 安装："
 
-#: website/public/get-started/index.html:1688
+#: website/public/get-started/index.html:1693
 msgctxt "page:get-started/index.html"
 msgid ""
 "Use the client check in step 3 with your setup ID. In editor clients, enable"
 " REA in MCP settings and allow its tools in the agent chat."
 msgstr "在第 3 步的检查命令中填写你的 setup ID。使用编辑器时，在 MCP 设置中启用 REA，并在助手聊天中允许使用它的工具。"
 
-#: website/public/get-started/index.html:1716
+#: website/public/get-started/index.html:1721
 msgctxt "page:get-started/index.html"
 msgid "Windows, WSL and paths with spaces"
 msgstr "Windows、WSL 与含空格的路径"
 
-#: website/public/get-started/index.html:1717
+#: website/public/get-started/index.html:1722
 msgctxt "page:get-started/index.html"
 msgid ""
 "Use Windows PowerShell for Windows clients and analysis tools. If your agent"
@@ -12962,17 +12962,17 @@ msgstr ""
 "Windows 客户端和分析工具使用 Windows PowerShell。如果编程助手在 WSL 内运行，就在那个 Linux 环境中安装 "
 "Node.js 和 REA，并使用 Linux 路径。无界面 provider 与 REA 在同一个系统环境中运行。"
 
-#: website/public/get-started/index.html:1726
+#: website/public/get-started/index.html:1731
 msgctxt "page:get-started/index.html"
 msgid "Windows setup command:"
 msgstr "Windows setup 命令："
 
-#: website/public/get-started/index.html:1743
+#: website/public/get-started/index.html:1748
 msgctxt "page:get-started/index.html"
 msgid "Update or remove REA"
 msgstr "更新或移除 REA"
 
-#: website/public/get-started/index.html:1744
+#: website/public/get-started/index.html:1749
 msgctxt "page:get-started/index.html"
 msgid ""
 "To refresh your agent connection, run the latest setup command again, review"
@@ -12981,7 +12981,7 @@ msgstr "要更新编程助手的连接，重新运行最新版 setup，查看并
 
 #. {ph0}: <code>rea update</code>
 #. {ph1}: <code>npx rea-agents@latest uninstall</code>
-#: website/public/get-started/index.html:1762
+#: website/public/get-started/index.html:1767
 #, python-brace-format
 msgctxt "page:get-started/index.html"
 msgid ""
@@ -12993,7 +12993,7 @@ msgstr "全局安装的 CLI 用 {ph0} 更新。使用 {ph1} 移除 REA 的客户
 #. href="https://github.com/morluto/rea/blob/main/docs/installation.md#diagnose-
 #. update-and-remove" >
 #. {ph1}: </a >
-#: website/public/get-started/index.html:1768
+#: website/public/get-started/index.html:1773
 #, python-brace-format
 msgctxt "page:get-started/index.html"
 msgid "{ph0}Update and uninstall details{ph1}"
@@ -13026,8 +13026,8 @@ msgstr "复制 Windows REA setup 命令"
 #: website/public/get-started/index.html:1319
 #: website/public/get-started/index.html:1640
 #: website/public/get-started/index.html:1662
-#: website/public/get-started/index.html:1730
-#: website/public/get-started/index.html:1751
+#: website/public/get-started/index.html:1735
+#: website/public/get-started/index.html:1756
 msgctxt "page:get-started/index.html"
 msgid "Copy command"
 msgstr "复制命令"
@@ -13671,6 +13671,16 @@ msgid ""
 "From the built checkout, run {ph0} and {ph1} instead of the {ph2} commands "
 "below."
 msgstr "在已构建的源码目录中，运行 {ph0} 和 {ph1}，不要使用下方的 {ph2} 命令。"
+
+#. {ph0}: <code>rea</code>
+#. {ph1}: <code>"$HOME/.local/bin/rea" setup</code>
+#: website/public/get-started/index.html:1677
+#, python-brace-format
+msgctxt "page:get-started/index.html"
+msgid ""
+"If your shell can't find {ph0}, use the executable path printed by the "
+"installer. On Linux, the default setup command is {ph1}."
+msgstr "如果终端找不到 {ph0}，请使用安装器打印的可执行文件路径。在 Linux 上，默认的设置命令是 {ph1}。"
 
 #~ msgctxt "page:index.html"
 #~ msgid "Play the reconstruction"

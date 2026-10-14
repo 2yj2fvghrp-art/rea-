@@ -71,7 +71,7 @@ msgstr "Oleh N0zoM1z0 · 10 Oktober 2026"
 #: website/public/examples/dino-lab/index.html:477
 #: website/public/faq/index.html:575
 #: website/public/first-investigation/index.html:536
-#: website/public/get-started/index.html:1814
+#: website/public/get-started/index.html:1819
 #: website/public/guides/browser/index.html:509
 #: website/public/guides/index.html:284
 #: website/public/guides/javascript/index.html:505
@@ -3337,9 +3337,9 @@ msgstr "Terminal"
 #: website/public/get-started/index.html:1621
 #: website/public/get-started/index.html:1640
 #: website/public/get-started/index.html:1662
-#: website/public/get-started/index.html:1700
-#: website/public/get-started/index.html:1730
-#: website/public/get-started/index.html:1751
+#: website/public/get-started/index.html:1705
+#: website/public/get-started/index.html:1735
+#: website/public/get-started/index.html:1756
 msgctxt "page:get-started/index.html"
 msgid "Copy"
 msgstr "Salin"
@@ -3570,7 +3570,7 @@ msgstr ""
 "muncul."
 
 #: website/public/get-started/index.html:970
-#: website/public/get-started/index.html:1723
+#: website/public/get-started/index.html:1728
 msgctxt "page:get-started/index.html"
 msgid "In a terminal, put quotes around a path that contains spaces."
 msgstr "Di terminal, beri tanda kutip di sekitar jalur yang berisi spasi."
@@ -3727,18 +3727,18 @@ msgstr ""
 " itu mendeteksi instalasi yang ada atau menawarkan rencana instalasi untuk "
 "persetujuan Anda."
 
-#: website/public/get-started/index.html:1681
+#: website/public/get-started/index.html:1686
 msgctxt "page:get-started/index.html"
 msgid "Getting help"
 msgstr "Mendapatkan bantuan"
 
-#: website/public/get-started/index.html:1683
+#: website/public/get-started/index.html:1688
 msgctxt "page:get-started/index.html"
 msgid "If your agent doesn't see REA"
 msgstr "Jika agen Anda tidak melihat REA"
 
 #. {ph0}: <code>doctor</code>
-#: website/public/get-started/index.html:1684
+#: website/public/get-started/index.html:1689
 #, python-brace-format
 msgctxt "page:get-started/index.html"
 msgid ""
@@ -3748,22 +3748,22 @@ msgstr ""
 "Mulai ulang atau sambungkan kembali klien setelah pengaturan. Periksa "
 "koneksi REA-nya dengan {ph0}; untuk Codex :"
 
-#: website/public/get-started/index.html:1695
+#: website/public/get-started/index.html:1700
 msgctxt "page:get-started/index.html"
 msgid "If a provider needs attention"
 msgstr "Jika penyedia membutuhkan perhatian"
 
-#: website/public/get-started/index.html:1696
+#: website/public/get-started/index.html:1701
 msgctxt "page:get-started/index.html"
 msgid "Check the provider you're using. For Ghidra:"
 msgstr "Periksa penyedia yang Anda gunakan. Untuk Ghidra :"
 
-#: website/public/get-started/index.html:1699
+#: website/public/get-started/index.html:1704
 msgctxt "page:get-started/index.html"
 msgid "Check one provider"
 msgstr "Periksa satu penyedia"
 
-#: website/public/get-started/index.html:1711
+#: website/public/get-started/index.html:1716
 msgctxt "page:get-started/index.html"
 msgid "The report gives the failed check and a suggested next step."
 msgstr ""
@@ -3774,7 +3774,7 @@ msgstr ""
 #. {ph1}: </a >
 #. {ph2}: <span>
 #. {ph3}: </span>
-#: website/public/get-started/index.html:1776
+#: website/public/get-started/index.html:1781
 #, python-brace-format
 msgctxt "page:get-started/index.html"
 msgid ""
@@ -3787,7 +3787,7 @@ msgstr ""
 #. {ph1}: </a >
 #. {ph2}: <span >
 #. {ph3}: </span >
-#: website/public/get-started/index.html:1780
+#: website/public/get-started/index.html:1785
 #, python-brace-format
 msgctxt "page:get-started/index.html"
 msgid ""
@@ -3801,7 +3801,7 @@ msgstr ""
 #. {ph1}: </a >
 #. {ph2}: <span>
 #. {ph3}: </span>
-#: website/public/get-started/index.html:1787
+#: website/public/get-started/index.html:1792
 #, python-brace-format
 msgctxt "page:get-started/index.html"
 msgid ""
@@ -3815,7 +3815,7 @@ msgstr ""
 #. {ph1}: </a >
 #. {ph2}: <span>
 #. {ph3}: </span>
-#: website/public/get-started/index.html:1791
+#: website/public/get-started/index.html:1796
 #, python-brace-format
 msgctxt "page:get-started/index.html"
 msgid ""
@@ -3891,12 +3891,12 @@ msgctxt "page:get-started/index.html"
 msgid "Copy CLI installation command"
 msgstr "Salin perintah instalasi CLI"
 
-#: website/public/get-started/index.html:1700
+#: website/public/get-started/index.html:1705
 msgctxt "page:get-started/index.html"
 msgid "Copy provider diagnosis command"
 msgstr "Salin perintah diagnosis penyedia"
 
-#: website/public/get-started/index.html:1814
+#: website/public/get-started/index.html:1819
 msgctxt "page:get-started/index.html"
 msgid "Back to top"
 msgstr "Kembali ke atas"
@@ -10911,7 +10911,7 @@ msgstr "Panduan"
 #: website/public/examples/dino-lab/index.html:469
 #: website/public/faq/index.html:567
 #: website/public/first-investigation/index.html:528
-#: website/public/get-started/index.html:1806
+#: website/public/get-started/index.html:1811
 #: website/public/guides/browser/index.html:501
 #: website/public/guides/index.html:276
 #: website/public/guides/javascript/index.html:497
@@ -10932,7 +10932,7 @@ msgstr "Kode sumber"
 #: website/public/examples/dino-lab/index.html:470
 #: website/public/faq/index.html:568
 #: website/public/first-investigation/index.html:529
-#: website/public/get-started/index.html:1807
+#: website/public/get-started/index.html:1812
 #: website/public/guides/browser/index.html:502
 #: website/public/guides/index.html:277
 #: website/public/guides/javascript/index.html:498
@@ -10953,7 +10953,7 @@ msgstr "Lisensi MIT"
 #: website/public/examples/dino-lab/index.html:471
 #: website/public/faq/index.html:569
 #: website/public/first-investigation/index.html:530
-#: website/public/get-started/index.html:1808
+#: website/public/get-started/index.html:1813
 #: website/public/guides/browser/index.html:503
 #: website/public/guides/index.html:278
 #: website/public/guides/javascript/index.html:499
@@ -10974,7 +10974,7 @@ msgstr "Gabung komunitas"
 #: website/public/examples/dino-lab/index.html:472
 #: website/public/faq/index.html:570
 #: website/public/first-investigation/index.html:531
-#: website/public/get-started/index.html:1809
+#: website/public/get-started/index.html:1814
 #: website/public/guides/browser/index.html:504
 #: website/public/guides/index.html:279
 #: website/public/guides/javascript/index.html:500
@@ -14272,7 +14272,7 @@ msgstr ""
 "Di macOS atau Linux, kamu juga bisa menggunakan penginstal curl setelah "
 "menyiapkan Node.js:"
 
-#: website/public/get-started/index.html:1688
+#: website/public/get-started/index.html:1693
 msgctxt "page:get-started/index.html"
 msgid ""
 "Use the client check in step 3 with your setup ID. In editor clients, enable"
@@ -14282,12 +14282,12 @@ msgstr ""
 "editor, aktifkan REA di pengaturan MCP dan izinkan alatnya dalam percakapan "
 "agen."
 
-#: website/public/get-started/index.html:1716
+#: website/public/get-started/index.html:1721
 msgctxt "page:get-started/index.html"
 msgid "Windows, WSL and paths with spaces"
 msgstr "Windows, WSL, dan jalur yang mengandung spasi"
 
-#: website/public/get-started/index.html:1717
+#: website/public/get-started/index.html:1722
 msgctxt "page:get-started/index.html"
 msgid ""
 "Use Windows PowerShell for Windows clients and analysis tools. If your agent"
@@ -14299,17 +14299,17 @@ msgstr ""
 "gunakan jalur Linux di sana. Penyedia tanpa antarmuka grafis berjalan pada "
 "host yang sama dengan REA."
 
-#: website/public/get-started/index.html:1726
+#: website/public/get-started/index.html:1731
 msgctxt "page:get-started/index.html"
 msgid "Windows setup command:"
 msgstr "Perintah penyiapan Windows:"
 
-#: website/public/get-started/index.html:1743
+#: website/public/get-started/index.html:1748
 msgctxt "page:get-started/index.html"
 msgid "Update or remove REA"
 msgstr "Perbarui atau hapus REA"
 
-#: website/public/get-started/index.html:1744
+#: website/public/get-started/index.html:1749
 msgctxt "page:get-started/index.html"
 msgid ""
 "To refresh your agent connection, run the latest setup command again, review"
@@ -14320,7 +14320,7 @@ msgstr ""
 
 #. {ph0}: <code>rea update</code>
 #. {ph1}: <code>npx rea-agents@latest uninstall</code>
-#: website/public/get-started/index.html:1762
+#: website/public/get-started/index.html:1767
 #, python-brace-format
 msgctxt "page:get-started/index.html"
 msgid ""
@@ -14334,7 +14334,7 @@ msgstr ""
 #. href="https://github.com/morluto/rea/blob/main/docs/installation.md#diagnose-
 #. update-and-remove" >
 #. {ph1}: </a >
-#: website/public/get-started/index.html:1768
+#: website/public/get-started/index.html:1773
 #, python-brace-format
 msgctxt "page:get-started/index.html"
 msgid "{ph0}Update and uninstall details{ph1}"
@@ -14367,8 +14367,8 @@ msgstr "Salin perintah penyiapan REA untuk Windows"
 #: website/public/get-started/index.html:1319
 #: website/public/get-started/index.html:1640
 #: website/public/get-started/index.html:1662
-#: website/public/get-started/index.html:1730
-#: website/public/get-started/index.html:1751
+#: website/public/get-started/index.html:1735
+#: website/public/get-started/index.html:1756
 msgctxt "page:get-started/index.html"
 msgid "Copy command"
 msgstr "Salin perintah"
@@ -15086,6 +15086,18 @@ msgid ""
 msgstr ""
 "Dari direktori kode sumber yang sudah dibangun, jalankan {ph0} dan {ph1} "
 "alih-alih perintah {ph2} di bawah."
+
+#. {ph0}: <code>rea</code>
+#. {ph1}: <code>"$HOME/.local/bin/rea" setup</code>
+#: website/public/get-started/index.html:1677
+#, python-brace-format
+msgctxt "page:get-started/index.html"
+msgid ""
+"If your shell can't find {ph0}, use the executable path printed by the "
+"installer. On Linux, the default setup command is {ph1}."
+msgstr ""
+"Jika shell tidak menemukan {ph0}, gunakan jalur file eksekusi yang "
+"ditampilkan installer. Di Linux, perintah penyiapan default adalah {ph1}."
 
 #~ msgctxt "page:index.html"
 #~ msgid "Play the reconstruction"
