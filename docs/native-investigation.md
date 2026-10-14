@@ -483,9 +483,10 @@ Debugging must be allowed for the user (Developer Tools access).
 `inspect_signature` reports `hardened_runtime` and the raw `entitlements`, not a
 debugger-attach decision. For a hardened-runtime target, check whether the
 entitlements contain `com.apple.security.get-task-allow`. A `null`
-`hardened_runtime` leaves the signing state unknown; `null` `entitlements` means
-no entitlement plist was parsed. These signing facts help diagnose an LLDB
-`debugger-attach-denied` result but do not establish whether this user can attach.
+`hardened_runtime` leaves the hardened-runtime status unknown; `null`
+`entitlements` means no entitlement plist was parsed. These signing facts help
+diagnose an LLDB `debugger-attach-denied` result but do not establish whether
+this user can attach.
 
 ## Provider and verification boundaries
 
