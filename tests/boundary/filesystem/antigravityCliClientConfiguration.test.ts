@@ -44,6 +44,7 @@ describe("Antigravity CLI configuration paths", () => {
       configPath: join("/home/a", ".gemini", "config", "mcp_config.json"),
       markerPath: join("/home/a", ".gemini", "antigravity-cli"),
       format: "json",
+      evidencePath: join("/home/a", ".gemini", "antigravity-cli"),
     });
     expect(antigravityCliPath("/home/a")?.configPath).toBe(
       antigravityIdePath("/home/a")?.configPath,
@@ -167,5 +168,43 @@ describe("Antigravity CLI JSON registration", () => {
     const parsed = JSON.parse(await readFile(client.configPath, "utf8"));
     expect(parsed.mcpServers.other).toEqual({ command: "other-server" });
     expect(parsed.mcpServers.rea).toBeUndefined();
+  });
+});
+
+describe("Antigravity CLI detection", () => {
+  const statusFor = async (home: string) =>
+    (
+      await readClientRegistrationStatuses(home, undefined, {
+        platform: process.platform,
+        environment: {},
+      })
+    ).find(({ client }) => client === "antigravity_cli");
+
+  it("stays undetected on an IDE-only home with the shared configuration", async () => {
+    const home = await createTestTempDirectory("rea-antigravity-ide-only-");
+    await mkdir(join(home, ".gemini", "config"), { recursive: true });
+    await writeFile(
+      join(home, ".gemini", "config", "mcp_config.json"),
+      JSON.stringify({ mcpServers: { other: { command: "other-server" } } }),
+    );
+
+    await expect(statusFor(home)).resolves.toBeUndefined();
+    expect(
+      (
+        await readClientRegistrationStatuses(home, undefined, {
+          platform: process.platform,
+          environment: {},
+        })
+      ).find(({ client }) => client === "antigravity"),
+    ).toBeDefined();
+  });
+
+  it("is detected from its own marker on a CLI-only home", async () => {
+    const home = await createTestTempDirectory("rea-antigravity-cli-only-");
+    await mkdir(join(home, ".gemini", "antigravity-cli"), { recursive: true });
+
+    await expect(statusFor(home)).resolves.toMatchObject({
+      state: "missing",
+    });
   });
 });
