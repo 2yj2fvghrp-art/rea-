@@ -26,8 +26,11 @@ export const createManagedConformanceOracleSupport = (context) => {
 
 async function runManagedAppManifestSelfTest(context) {
   const sample = await context.fixture("manifest-self-test.exe", {
-    methodName: "PinnedSemanticSlice",
-    ilBody: context.defaultIlBody,
+    methods: [
+      { name: "FirstSemanticSlice", body: Buffer.from([0x06, 0x2a]) },
+      { name: "PinnedSemanticSlice", body: context.defaultIlBody },
+      { name: "UnselectedSemanticSlice", body: Buffer.from([0x06, 0x2a]) },
+    ],
   });
   const artifact = inspectManagedArtifactBytes(
     sample.bytes,
@@ -39,49 +42,91 @@ async function runManagedAppManifestSelfTest(context) {
     sample.target,
     context.memberLimits,
   );
-  const method = members.methods[0];
+  const method = members.methods[1];
   assert.ok(method);
-  const summary = await context.verifyManagedAppManifest(
-    {
-      label: "source-owned manifest verifier self-test",
-      target: {
-        path: sample.path,
-        sha256: sample.target.sha256,
-        mvid: artifact.module?.mvid,
-        assembly_name: artifact.assembly?.name,
-        runtime_family: artifact.classification.runtime_family,
-        managed_architecture: artifact.classification.managed_architecture,
+  const manifest = {
+    label: "source-owned manifest verifier self-test",
+    target: {
+      path: sample.path,
+      sha256: sample.target.sha256,
+      mvid: artifact.module?.mvid,
+      assembly_name: artifact.assembly?.name,
+      runtime_family: artifact.classification.runtime_family,
+      managed_architecture: artifact.classification.managed_architecture,
+    },
+    methods: [
+      {
+        label: "pinned-semantic-slice",
+        token: method.token,
+        signature_sha256: method.signature.raw_sha256,
+        il_size: method.body.il_size,
+        il_sha256: method.body.il_sha256,
+        normalized_il_sha256: method.body.normalized_il_sha256,
       },
-      methods: [
+    ],
+    application_graph: {
+      expected_node_kinds: [
+        "artifact",
+        "managed-assembly",
+        "managed-module",
+        "managed-type",
+        "managed-method",
+      ],
+      feature_traces: [
         {
-          label: "pinned-semantic-slice",
-          token: method.token,
-          signature_sha256: method.signature.raw_sha256,
-          il_size: method.body.il_size,
-          il_sha256: method.body.il_sha256,
-          normalized_il_sha256: method.body.normalized_il_sha256,
+          label: "trace pinned method by name",
+          method_token: method.token,
+          seed: "PinnedSemanticSlice",
+          match: "exact",
+          min_matched_seeds: 1,
         },
       ],
-      application_graph: {
-        expected_node_kinds: [
-          "artifact",
-          "managed-assembly",
-          "managed-module",
-          "managed-type",
-          "managed-method",
-        ],
-        feature_traces: [
-          {
-            label: "trace pinned method by name",
-            method_token: method.token,
-            seed: "PinnedSemanticSlice",
-            match: "exact",
-            min_matched_seeds: 1,
-          },
-        ],
-      },
     },
-    join(context.workspace, "source-owned-managed-app-manifest.json"),
+  };
+  const manifestPath = join(
+    context.workspace,
+    "source-owned-managed-app-manifest.json",
+  );
+  const summary = await context.verifyManagedAppManifest(
+    manifest,
+    manifestPath,
+  );
+  assert.equal(summary.application_graph.projections.length, 1);
+  const projection = summary.application_graph.projections[0];
+  assert.equal(projection.summary.methods, 1);
+  assert.equal(projection.method_token, "0x06000002");
+  assert.deepEqual(projection.member_selection, {
+    method_tokens: ["0x06000002"],
+    selection_stage: "post-inspection",
+  });
+  assert.equal(projection.coverage.status, "partial");
+  const first = members.methods[0];
+  assert.ok(first);
+  const firstRow = await context.verifyManagedAppManifest(
+    {
+      ...manifest,
+      methods: [
+        {
+          token: first.token,
+          signature_sha256: first.signature.raw_sha256,
+          il_size: first.body.il_size,
+          il_sha256: first.body.il_sha256,
+          normalized_il_sha256: first.body.normalized_il_sha256,
+        },
+      ],
+      application_graph: { expected_node_kinds: ["managed-method"] },
+    },
+    manifestPath,
+  );
+  assert.equal(
+    firstRow.application_graph.projections[0].method_token,
+    "0x06000001",
+  );
+  assert.equal(firstRow.application_graph.projections[0].summary.methods, 1);
+  const rejections = await verifyManifestRejections(
+    context,
+    manifest,
+    manifestPath,
   );
   return {
     verified: true,
@@ -89,7 +134,70 @@ async function runManagedAppManifestSelfTest(context) {
     methods: summary.methods.length,
     applicationGraph: summary.application_graph ?? null,
     target: summary.target,
+    selection_checks: 2,
+    rejection_checks: rejections,
   };
+}
+
+async function verifyManifestRejections(context, manifest, manifestPath) {
+  const cases = [
+    ...[
+      ["sha256", "0".repeat(64), /target sha256 mismatch/u],
+      ["mvid", "00000000-0000-0000-0000-000000000000", /target MVID mismatch/u],
+      ["assembly_name", "Other.Assembly", /assembly name mismatch/u],
+      ["runtime_family", "dotnet-framework", /runtime family mismatch/u],
+      ["managed_architecture", "x64", /managed architecture mismatch/u],
+    ].map(([field, value, error]) => ({
+      manifest: { ...manifest, target: { ...manifest.target, [field]: value } },
+      error,
+    })),
+    ...[
+      ["signature_sha256", "0".repeat(64), /signature sha256 mismatch/u],
+      ["il_size", manifest.methods[0].il_size + 1, /IL size mismatch/u],
+      ["il_sha256", "0".repeat(64), /IL sha256 mismatch/u],
+      [
+        "normalized_il_sha256",
+        "0".repeat(64),
+        /normalized IL sha256 mismatch/u,
+      ],
+      ["token", "0x06000004", /was not returned by the member inspector/u],
+      ["token", "0x06000000", /invalid row id/u],
+    ].map(([field, value, error]) => ({
+      manifest: {
+        ...manifest,
+        methods: [{ ...manifest.methods[0], [field]: value }],
+      },
+      error,
+    })),
+    {
+      manifest: {
+        ...manifest,
+        application_graph: {
+          feature_traces: [
+            { method_token: "0x06000002", seed: "UnselectedSemanticSlice" },
+          ],
+        },
+      },
+      error: /matched 0 seeds/u,
+    },
+    {
+      manifest: {
+        ...manifest,
+        application_graph: {
+          feature_traces: [
+            { method_token: "0x06000003", seed: "UnselectedSemanticSlice" },
+          ],
+        },
+      },
+      error: /must also be declared in manifest.methods/u,
+    },
+  ];
+  for (const { manifest: invalid, error } of cases)
+    await assert.rejects(
+      context.verifyManagedAppManifest(invalid, manifestPath),
+      error,
+    );
+  return cases.length;
 }
 
 async function runOptionalManagedAppManifest(context) {
