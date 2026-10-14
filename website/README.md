@@ -297,7 +297,10 @@ The homepage pairs a short introduction with the installation prompt and
 ordinary setup command. Get started is the primary action; a second link goes
 straight to the first interactive example. Short Showcases and Blog descriptions
 below those actions keep both reading paths available. The introduction and
-setup retain the original equal-width desktop columns. The setup-guide link
+setup retain the original equal-width desktop columns. Platform links go
+directly to the Windows, macOS and Linux steps in Get started; the optional
+curl installer is listed separately and links to its on-site instructions.
+The setup-guide link
 starts on its own line. A full-width definition and three steps explain the
 workflow, followed by a short transition into the dinosaur and Calculator
 cases. The detailed manual/agent comparison is folded,

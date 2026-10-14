@@ -618,6 +618,10 @@ pre code {
   min-width: 0;
   font-size: 0.875rem;
 }
+.code-inline .copy-button {
+  flex-shrink: 0;
+  white-space: nowrap;
+}
 .section {
   padding-block: 3.8rem;
   border-top: 1px solid var(--line);
@@ -1800,8 +1804,16 @@ pre code {
   gap: 0.6rem 1.25rem;
   font-size: 0.85rem;
 }
-.home-install-resources a:first-child::after {
-  content: " →";
+.home-install-resources > span {
+  color: var(--muted);
+}
+.home-install-resources a {
+  white-space: nowrap;
+}
+.home-other-install-options {
+  margin-top: 0.65rem;
+  color: var(--muted);
+  font-size: 0.85rem;
 }
 .home-question {
   margin-block: 0 1.8rem;
@@ -2396,6 +2408,9 @@ pre code {
     grid-column: 1 / -1;
     justify-self: start;
   }
+  .home-install-resources > span {
+    flex-basis: 100%;
+  }
   .expert-analysis-grid {
     grid-template-columns: minmax(0, 1fr);
   }
@@ -2796,9 +2811,6 @@ html[dir="rtl"] .percent-display {
 html[dir="rtl"] .terminal-prompt {
   font-family: inherit;
   text-align: start;
-}
-html[dir="rtl"] .home-install-resources a:first-child::after {
-  content: " ←";
 }
 html[dir="rtl"] .breadcrumb,
 html[dir="rtl"] .brand-name {

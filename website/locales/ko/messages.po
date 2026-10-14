@@ -68,11 +68,11 @@ msgstr "여N0zoM1z0·10 월 2026"
 #: website/public/examples/dino-lab/index.html:475
 #: website/public/faq/index.html:573
 #: website/public/first-investigation/index.html:534
-#: website/public/get-started/index.html:1792
+#: website/public/get-started/index.html:1796
 #: website/public/guides/browser/index.html:507
 #: website/public/guides/index.html:282
 #: website/public/guides/javascript/index.html:503
-#: website/public/guides/native/index.html:509 website/public/index.html:1213
+#: website/public/guides/native/index.html:509 website/public/index.html:1222
 #: website/public/showcase/aegis/index.html:808
 #: website/public/showcase/ctf/index.html:777
 #: website/public/showcase/dx-ball/index.html:785
@@ -3080,9 +3080,9 @@ msgstr "터미널"
 #: website/public/get-started/index.html:1604
 #: website/public/get-started/index.html:1623
 #: website/public/get-started/index.html:1645
-#: website/public/get-started/index.html:1679
-#: website/public/get-started/index.html:1709
-#: website/public/get-started/index.html:1730
+#: website/public/get-started/index.html:1683
+#: website/public/get-started/index.html:1713
+#: website/public/get-started/index.html:1734
 msgctxt "page:get-started/index.html"
 msgid "Copy"
 msgstr "복사"
@@ -3296,7 +3296,7 @@ msgid ""
 msgstr "{ph0}모든 시스템:{ph1} 폴더를 터미널 창으로 드래그하면 해당 경로가 나타납니다."
 
 #: website/public/get-started/index.html:968
-#: website/public/get-started/index.html:1702
+#: website/public/get-started/index.html:1706
 msgctxt "page:get-started/index.html"
 msgid "In a terminal, put quotes around a path that contains spaces."
 msgstr "터미널에서 공백이 포함된 경로 주위에 따옴표를 넣습니다."
@@ -3438,18 +3438,18 @@ msgid ""
 msgstr ""
 "에 연결Hopper에macOS또는Linux. 위의 설치 명령을 실행;그것은 기존의 설치를 감지하거나 승인을 위해 설치 계획을 제공합니다."
 
-#: website/public/get-started/index.html:1660
+#: website/public/get-started/index.html:1664
 msgctxt "page:get-started/index.html"
 msgid "Getting help"
 msgstr "도움 받기"
 
-#: website/public/get-started/index.html:1662
+#: website/public/get-started/index.html:1666
 msgctxt "page:get-started/index.html"
 msgid "If your agent doesn't see REA"
 msgstr "에이전트가 표시되지 않는 경우 REA"
 
 #. {ph0}: <code>doctor</code>
-#: website/public/get-started/index.html:1663
+#: website/public/get-started/index.html:1667
 #, python-brace-format
 msgctxt "page:get-started/index.html"
 msgid ""
@@ -3457,22 +3457,22 @@ msgid ""
 "{ph0}; for Codex:"
 msgstr "설치 후 클라이언트를 다시 시작하거나 다시 연결합니다. 그 확인 REA 연결 {ph0};를 위해 Codex:"
 
-#: website/public/get-started/index.html:1674
+#: website/public/get-started/index.html:1678
 msgctxt "page:get-started/index.html"
 msgid "If a provider needs attention"
 msgstr "공급자가 주의를 필요로 하는 경우"
 
-#: website/public/get-started/index.html:1675
+#: website/public/get-started/index.html:1679
 msgctxt "page:get-started/index.html"
 msgid "Check the provider you're using. For Ghidra:"
 msgstr "사용 중인 공급자를 확인하십시오. 에 대한Ghidra:"
 
-#: website/public/get-started/index.html:1678
+#: website/public/get-started/index.html:1682
 msgctxt "page:get-started/index.html"
 msgid "Check one provider"
 msgstr "하나의 공급자 확인"
 
-#: website/public/get-started/index.html:1690
+#: website/public/get-started/index.html:1694
 msgctxt "page:get-started/index.html"
 msgid "The report gives the failed check and a suggested next step."
 msgstr "이 보고서는 실패한 확인 및 제안 된 다음 단계를 제공합니다."
@@ -3481,7 +3481,7 @@ msgstr "이 보고서는 실패한 확인 및 제안 된 다음 단계를 제공
 #. {ph1}: </a >
 #. {ph2}: <span>
 #. {ph3}: </span>
-#: website/public/get-started/index.html:1754
+#: website/public/get-started/index.html:1758
 #, python-brace-format
 msgctxt "page:get-started/index.html"
 msgid ""
@@ -3492,7 +3492,7 @@ msgstr "{ph0}REA 제품소개{ph1}{ph2}업데이트,에이전트 및 분석에 �
 #. {ph1}: </a >
 #. {ph2}: <span >
 #. {ph3}: </span >
-#: website/public/get-started/index.html:1758
+#: website/public/get-started/index.html:1762
 #, python-brace-format
 msgctxt "page:get-started/index.html"
 msgid ""
@@ -3504,7 +3504,7 @@ msgstr "{ph0}조사 가이드 선택{ph1}{ph2}바이너리에 대한 작업 예�
 #. {ph1}: </a >
 #. {ph2}: <span>
 #. {ph3}: </span>
-#: website/public/get-started/index.html:1765
+#: website/public/get-started/index.html:1769
 #, python-brace-format
 msgctxt "page:get-started/index.html"
 msgid ""
@@ -3516,7 +3516,7 @@ msgstr "{ph0}GitHub 문제{ph1}{ph2}명령 및 진단 문제를 보고합니다.
 #. {ph1}: </a >
 #. {ph2}: <span>
 #. {ph3}: </span>
-#: website/public/get-started/index.html:1769
+#: website/public/get-started/index.html:1773
 #, python-brace-format
 msgctxt "page:get-started/index.html"
 msgid ""
@@ -3589,12 +3589,12 @@ msgctxt "page:get-started/index.html"
 msgid "Copy CLI installation command"
 msgstr "복사CLI설치 명령"
 
-#: website/public/get-started/index.html:1679
+#: website/public/get-started/index.html:1683
 msgctxt "page:get-started/index.html"
 msgid "Copy provider diagnosis command"
 msgstr "공급자 진단 복사 명령"
 
-#: website/public/get-started/index.html:1792
+#: website/public/get-started/index.html:1796
 msgctxt "page:get-started/index.html"
 msgid "Back to top"
 msgstr "맨 위로"
@@ -5249,9 +5249,9 @@ msgid "{ph0}{ph1}{ph2}{ph3}{ph4}{ph5}{ph6}{ph7}Your coding agent"
 msgstr "{ph0}{ph1}{ph2}{ph3}{ph4}{ph5}{ph6}{ph7}코딩 에이전트"
 
 #: website/public/index.html:254 website/public/index.html:278
-#: website/public/index.html:505 website/public/index.html:586
-#: website/public/index.html:810 website/public/index.html:1122
-#: website/public/index.html:1150
+#: website/public/index.html:514 website/public/index.html:595
+#: website/public/index.html:819 website/public/index.html:1131
+#: website/public/index.html:1159
 msgctxt "page:index.html"
 msgid "Copy"
 msgstr "복사"
@@ -5268,7 +5268,7 @@ msgstr "설정 변경 계획을 확인하고 승인한 뒤 에이전트를 다�
 
 #. {ph0}: <span>
 #. {ph1}: </span>
-#: website/public/index.html:354
+#: website/public/index.html:363
 #, python-brace-format
 msgctxt "page:index.html"
 msgid "{ph0}01{ph1} Decode branches"
@@ -5276,7 +5276,7 @@ msgstr "{ph0}01{ph1} 분기 디코딩"
 
 #. {ph0}: <span>
 #. {ph1}: </span>
-#: website/public/index.html:362
+#: website/public/index.html:371
 #, python-brace-format
 msgctxt "page:index.html"
 msgid "{ph0}02{ph1} Trace calls"
@@ -5284,7 +5284,7 @@ msgstr "{ph0}02{ph1} 추적 호출"
 
 #. {ph0}: <span>
 #. {ph1}: </span>
-#: website/public/index.html:370
+#: website/public/index.html:379
 #, python-brace-format
 msgctxt "page:index.html"
 msgid "{ph0}03{ph1} Recover the rule"
@@ -5294,20 +5294,20 @@ msgstr "{ph0}03{ph1} 규칙 복구"
 #. {ph1}: </span>
 #. {ph2}: <span class="assembly-disclosure" aria-hidden="true" >
 #. {ph3}: </span>
-#: website/public/index.html:381
+#: website/public/index.html:390
 #, python-brace-format
 msgctxt "page:index.html"
 msgid "{ph0}Original x64 · selected instructions{ph1} {ph2}{ph3}"
 msgstr "{ph0}원본 64*선택한 지침{ph1} {ph2}{ph3}"
 
-#: website/public/index.html:423
+#: website/public/index.html:432
 msgctxt "page:index.html"
 msgid "01 · Which branch?"
 msgstr "01*어떤 지점?"
 
 #. {ph0}: <strong>
 #. {ph1}: </strong>
-#: website/public/index.html:424
+#: website/public/index.html:433
 #, python-brace-format
 msgctxt "page:index.html"
 msgid ""
@@ -5315,29 +5315,29 @@ msgid ""
 "these?”"
 msgstr "“{ph0}? -그래?{ph1} 같은 장소에 두 점프. 이들은 어떤 연산자입니까?”"
 
-#: website/public/index.html:428
+#: website/public/index.html:437
 msgctxt "page:index.html"
 msgid "Look up the command IDs, then label the branch."
 msgstr "명령 아이디를 조회 한 다음 브랜치에 레이블을 지정하십시오."
 
-#: website/public/index.html:434
+#: website/public/index.html:443
 msgctxt "page:index.html"
 msgid "Divide ÷"
 msgstr "분÷"
 
-#: website/public/index.html:438
+#: website/public/index.html:447
 msgctxt "page:index.html"
 msgid "Multiply ×"
 msgstr "곱하기×"
 
-#: website/public/index.html:443
+#: website/public/index.html:452
 msgctxt "page:index.html"
 msgid "02 · What do the calls do?"
 msgstr "02 · 호출된 함수는 무엇을 하나요?"
 
 #. {ph0}: <strong >
 #. {ph1}: </strong >
-#: website/public/index.html:444
+#: website/public/index.html:453
 #, python-brace-format
 msgctxt "page:index.html"
 msgid ""
@@ -5345,24 +5345,24 @@ msgid ""
 "value goes in?{ph1}”"
 msgstr "100 은 분명하다. 전화는 단지 주소 일뿐입니다. {ph0}어느 쪽이 나눌까요? 어떤 값이 들어가나요?{ph1}”"
 
-#: website/public/index.html:450
+#: website/public/index.html:459
 msgctxt "page:index.html"
 msgid "Inspect the helpers and trace the stored values."
 msgstr "도우미 함수를 검사하고 저장된 값을 추적합니다."
 
-#: website/public/index.html:460
+#: website/public/index.html:469
 msgctxt "page:index.html"
 msgid "Divide"
 msgstr "나누기"
 
-#: website/public/index.html:465
+#: website/public/index.html:474
 msgctxt "page:index.html"
 msgid "03 · What is the rule?"
 msgstr "03*규칙은 무엇입니까?"
 
 #. {ph0}: <strong>
 #. {ph1}: </strong>
-#: website/public/index.html:466
+#: website/public/index.html:475
 #, python-brace-format
 msgctxt "page:index.html"
 msgid ""
@@ -5370,19 +5370,19 @@ msgid ""
 "after +.”"
 msgstr "\"이 경로는 다른 입력으로 곱합니다. 그래서 {ph0}10%는 200 의 10%를 의미합니다.{ph1} +후”"
 
-#: website/public/index.html:470
+#: website/public/index.html:479
 msgctxt "page:index.html"
 msgid "Name the operands and check both operator paths."
 msgstr "피연산자의 이름을 지정하고 두 연산자 경로를 모두 확인하십시오."
 
-#: website/public/index.html:486 website/public/index.html:413
+#: website/public/index.html:495 website/public/index.html:422
 msgctxt "page:index.html"
 msgid "Illustrative expert reasoning"
 msgstr "예시 전문가 추론"
 
 #. {ph0}: <strong >
 #. {ph1}: </strong >
-#: website/public/index.html:489
+#: website/public/index.html:498
 #, python-brace-format
 msgctxt "page:index.html"
 msgid ""
@@ -5398,87 +5398,87 @@ msgstr "{ph0}당신은 명령을 디코딩 함수 호출을 따라 계산을 재
 #. {ph5}: <i>
 #. {ph6}: </i>
 #. {ph7}: </span >
-#: website/public/index.html:500
+#: website/public/index.html:509
 #, python-brace-format
 msgctxt "page:index.html"
 msgid "{ph0}{ph1}{ph2}{ph3}{ph4}{ph5}{ph6}{ph7}Example prompt · Calculator"
 msgstr "{ph0}{ph1}{ph2}{ph3}{ph4}{ph5}{ph6}{ph7}예제 프롬프트*계산기"
 
-#: website/public/index.html:522
+#: website/public/index.html:531
 msgctxt "page:index.html"
 msgid "Example answer · based on the findings"
 msgstr "예제 답변·결과에 따라"
 
 #. {ph0}: <strong>
 #. {ph1}: </strong>
-#: website/public/index.html:525
+#: website/public/index.html:534
 #, python-brace-format
 msgctxt "page:index.html"
 msgid ""
 "After +, the % button takes {ph0}a percentage of the first number.{ph1}"
 msgstr "+후,%버튼이 걸립니다 {ph0}첫 번째 숫자의 백분율.{ph1}"
 
-#: website/public/index.html:538
+#: website/public/index.html:547
 msgctxt "page:index.html"
 msgid "REA supplies"
 msgstr "REA가 제공하는 정보"
 
-#: website/public/index.html:539
+#: website/public/index.html:548
 msgctxt "page:index.html"
 msgid "The handler’s instructions, decompiled code and calls."
 msgstr "핸들러의 명령,디 컴파일 된 코드 및 호출."
 
-#: website/public/index.html:544
+#: website/public/index.html:553
 msgctxt "page:index.html"
 msgid "Your agent explains"
 msgstr "에이전트가 설명하는 내용"
 
-#: website/public/index.html:545
+#: website/public/index.html:554
 msgctxt "page:index.html"
 msgid "Which branch applies, what it calculates and how to rebuild it."
 msgstr "어떤 분기가 적용되는지,무엇을 계산하고 다시 작성하는 방법."
 
-#: website/public/index.html:569
+#: website/public/index.html:578
 msgctxt "page:index.html"
 msgid "Example 01 · Chrome’s dinosaur game"
 msgstr "예 01·Chrome's 룡 게임"
 
-#: website/public/index.html:570
+#: website/public/index.html:579
 msgctxt "page:index.html"
 msgid "Why does the dinosaur get faster?"
 msgstr "공룡은 왜 점점 빨라질까요?"
 
-#: website/public/index.html:649
+#: website/public/index.html:658
 msgctxt "page:index.html"
 msgid "Play"
 msgstr "시작"
 
-#: website/public/index.html:652
+#: website/public/index.html:661
 msgctxt "page:index.html"
 msgid "Jump ↑"
 msgstr "점프 ↑"
 
-#: website/public/index.html:653
+#: website/public/index.html:662
 msgctxt "page:index.html"
 msgid "Restart"
 msgstr "다시 시작"
 
-#: website/public/index.html:656
+#: website/public/index.html:665
 msgctxt "page:index.html"
 msgid "Speed"
 msgstr "속도"
 
-#: website/public/index.html:666
+#: website/public/index.html:675
 msgctxt "page:index.html"
 msgid "Use the recovered acceleration rule"
 msgstr "복구된 가속 규칙 사용"
 
-#: website/public/index.html:670
+#: website/public/index.html:679
 msgctxt "page:index.html"
 msgid "Original rule: start at 6, then increase toward 13."
 msgstr "원래 규칙:6 에서 시작한 다음 13 으로 늘립니다."
 
-#: website/public/index.html:673
+#: website/public/index.html:682
 msgctxt "page:index.html"
 msgid "Move the slider to set your own speed. Space or Jump clears a cactus."
 msgstr "자신의 속도를 설정하는 슬라이더를 이동합니다. 공간 또는 점프는 선인장을 지 웁니다."
@@ -5489,7 +5489,7 @@ msgstr "자신의 속도를 설정하는 슬라이더를 이동합니다. 공간
 #. {ph3}: </span >
 #. {ph4}: <span class="terminal-cursor" aria-hidden="true">
 #. {ph5}: </span>
-#: website/public/index.html:595
+#: website/public/index.html:604
 #, python-brace-format
 msgctxt "page:index.html"
 msgid ""
@@ -5502,18 +5502,18 @@ msgstr ""
 
 #. {ph0}: <a href="https://wayou.github.io/t-rex-runner/" >
 #. {ph1}: </a >
-#: website/public/index.html:693
+#: website/public/index.html:702
 #, python-brace-format
 msgctxt "page:index.html"
 msgid "Inspected target: {ph0}wayou’s Chromium-derived browser edition{ph1}."
 msgstr "검사 대상: {ph0}와이우의 Chromium-파생 브라우저 에디션{ph1}."
 
-#: website/public/index.html:684
+#: website/public/index.html:693
 msgctxt "page:index.html"
 msgid "Open the speed lab →"
 msgstr "스피드 랩을 엽니다."
 
-#: website/public/index.html:715
+#: website/public/index.html:724
 msgctxt "page:index.html"
 msgid "What each part does"
 msgstr "각 부분이 하는 일"
@@ -5524,7 +5524,7 @@ msgstr "각 부분이 하는 일"
 #. {ph3}: </span >
 #. {ph4}: <span class="flow-note" >
 #. {ph5}: </span >
-#: website/public/index.html:717
+#: website/public/index.html:726
 #, python-brace-format
 msgctxt "page:index.html"
 msgid ""
@@ -5540,7 +5540,7 @@ msgstr ""
 #. {ph3}: </span >
 #. {ph4}: <span class="flow-note" >
 #. {ph5}: </span >
-#: website/public/index.html:724
+#: website/public/index.html:733
 #, python-brace-format
 msgctxt "page:index.html"
 msgid ""
@@ -5556,7 +5556,7 @@ msgstr ""
 #. {ph3}: </span >
 #. {ph4}: <span class="flow-note" >
 #. {ph5}: </span >
-#: website/public/index.html:732
+#: website/public/index.html:741
 #, python-brace-format
 msgctxt "page:index.html"
 msgid ""
@@ -5565,13 +5565,13 @@ msgid ""
 msgstr ""
 "{ph0}03*당신{ph1}{ph2}속도 변경 및 재생{ph3}{ph4}원래 가속을 시도한 다음 자신의 페이스를 선택하십시오.{ph5}"
 
-#: website/public/index.html:690
+#: website/public/index.html:699
 msgctxt "page:index.html"
 msgid "See the script, checks and how to try the analysis"
 msgstr "스크립트,검사 및 분석 시도 방법을 참조하십시오"
 
 #. {ph0}: <code>index.js</code>
-#: website/public/index.html:742
+#: website/public/index.html:751
 #, python-brace-format
 msgctxt "page:index.html"
 msgid ""
@@ -5581,7 +5581,7 @@ msgstr ""
 "REA 로컬 디버깅 연결을 통해 <URL> 브라우저 버전을 검사하고 로드된 버전을 반환했습니다. {ph0},그 원천과 다이제스트를 "
 "포함합니다."
 
-#: website/public/index.html:755
+#: website/public/index.html:764
 msgctxt "page:index.html"
 msgid ""
 "We called the original game’s update function in a controlled browser check,"
@@ -5593,7 +5593,7 @@ msgstr ""
 
 #. {ph0}: <a href="examples/dino-lab/">
 #. {ph1}: </a>
-#: website/public/index.html:761
+#: website/public/index.html:770
 #, python-brace-format
 msgctxt "page:index.html"
 msgid ""
@@ -5608,7 +5608,7 @@ msgstr ""
 #. {ph1}: </a>
 #. {ph2}: <a href="https://wayou.github.io/t-rex-runner/" >
 #. {ph3}: </a >
-#: website/public/index.html:767
+#: website/public/index.html:776
 #, python-brace-format
 msgctxt "page:index.html"
 msgid ""
@@ -5624,41 +5624,41 @@ msgstr ""
 #. {ph1}: </a >
 #. {ph2}: <a href="assets/licenses/dinosaur.txt" >
 #. {ph3}: </a >
-#: website/public/index.html:776
+#: website/public/index.html:785
 #, python-brace-format
 msgctxt "page:index.html"
 msgid ""
 "{ph0}Inspected speed code{ph1} · {ph2}Chromium Authors · BSD license{ph3}"
 msgstr "{ph0}검사된 속도 코드{ph1} · {ph2}Chromium 저자*비스 디 라이센스{ph3}"
 
-#: website/public/index.html:793
+#: website/public/index.html:802
 msgctxt "page:index.html"
 msgid "Example 02 · Windows Calculator"
 msgstr "예 02·Windows계산기"
 
-#: website/public/index.html:794
+#: website/public/index.html:803
 msgctxt "page:index.html"
 msgid "Rebuild Calculator’s % button."
 msgstr "계산기의 % 버튼을 재현해 봅니다."
 
-#: website/public/index.html:899
+#: website/public/index.html:908
 msgctxt "page:index.html"
 msgid "Reset"
 msgstr "초기화"
 
-#: website/public/index.html:907
+#: website/public/index.html:916
 msgctxt "page:index.html"
 msgid "10% of 200 = 20. Then 200 + 20 = 220."
 msgstr "10%의 200=20. 그런 다음 200+20=220."
 
-#: website/public/index.html:910
+#: website/public/index.html:919
 msgctxt "page:index.html"
 msgid "Interactive illustration of the inspected percentage rule."
 msgstr "검사된 백분율 규칙의 대화형 그림입니다."
 
 #. {ph0}: <code>previous = 200</code>
 #. {ph1}: <code>current = 10</code>
-#: website/public/index.html:918
+#: website/public/index.html:927
 #, python-brace-format
 msgctxt "page:index.html"
 msgid "For this example, {ph0} and {ph1}."
@@ -5670,7 +5670,7 @@ msgstr "이 예제에서는, {ph0} 그리고 {ph1}."
 #. {ph3}: </span >
 #. {ph4}: <span class="terminal-cursor" aria-hidden="true">
 #. {ph5}: </span>
-#: website/public/index.html:819
+#: website/public/index.html:828
 #, python-brace-format
 msgctxt "page:index.html"
 msgid ""
@@ -5681,7 +5681,7 @@ msgstr ""
 "{ph0}›{ph1}{ph2}사용 REA 검사 Windows 계산기의%버튼. +와 200 이후의 규칙을 복구 한 다음 둘 다 사용하는 "
 "작은 계산기를 만듭니다.{ph3}{ph4}{ph5}"
 
-#: website/public/index.html:835
+#: website/public/index.html:844
 msgctxt "page:index.html"
 msgid "With +"
 msgstr "+와 함께"
@@ -5689,13 +5689,13 @@ msgstr "+와 함께"
 #. {ph0}: <span>
 #. {ph1}: </span >
 #. {ph2}: <code>10% of 200 = 20 → 200 + 20 = 220</code>
-#: website/public/index.html:836
+#: website/public/index.html:845
 #, python-brace-format
 msgctxt "page:index.html"
 msgid "{ph0}Take 10% of the first number.{ph1}{ph2}"
 msgstr "{ph0}첫 번째 숫자의 10%를 가져 가라.{ph1}{ph2}"
 
-#: website/public/index.html:842
+#: website/public/index.html:851
 msgctxt "page:index.html"
 msgid "With ×"
 msgstr "와×"
@@ -5703,13 +5703,13 @@ msgstr "와×"
 #. {ph0}: <span>
 #. {ph1}: </span>
 #. {ph2}: <code>200 × 0.1 = 20</code>
-#: website/public/index.html:843
+#: website/public/index.html:852
 #, python-brace-format
 msgctxt "page:index.html"
 msgid "{ph0}Turn 10% into 0.1.{ph1}{ph2}"
 msgstr "{ph0}10%를 0.1 로 바꿉니다.{ph1}{ph2}"
 
-#: website/public/index.html:933
+#: website/public/index.html:942
 msgctxt "page:index.html"
 msgid "From the installed app to a working % button"
 msgstr "설치된 앱에서 작동%버튼으로"
@@ -5721,7 +5721,7 @@ msgstr "설치된 앱에서 작동%버튼으로"
 #. {ph4}: <span class="flow-note" >
 #. {ph5}: <code>100</code>
 #. {ph6}: </span >
-#: website/public/index.html:946
+#: website/public/index.html:955
 #, python-brace-format
 msgctxt "page:index.html"
 msgid ""
@@ -5738,7 +5738,7 @@ msgstr ""
 #. {ph3}: </span >
 #. {ph4}: <span class="flow-note" >
 #. {ph5}: </span >
-#: website/public/index.html:954
+#: website/public/index.html:963
 #, python-brace-format
 msgctxt "page:index.html"
 msgid ""
@@ -5749,12 +5749,12 @@ msgstr ""
 "{ph0}03*당신의 에이전트는 그것을 해석{ph1}{ph2}규칙 설명 및 재현{ph3}{ph4}마이크로 소프트의 소스와 지점을 교차 "
 "검사 한 다음 위의+및 200 을 시도하십시오.{ph5}"
 
-#: website/public/index.html:917
+#: website/public/index.html:926
 msgctxt "page:index.html"
 msgid "See the real code and how the answer was checked"
 msgstr "실제 코드 및 답변 확인 방법 보기"
 
-#: website/public/index.html:989
+#: website/public/index.html:998
 msgctxt "page:index.html"
 msgid ""
 "Inspected with REA 4.1.0: Windows Calculator 11.2508.4.0, x64. The readable "
@@ -5774,7 +5774,7 @@ msgstr ""
 #. {ph3}: </a >
 #. {ph4}: <a href="guides/native/">
 #. {ph5}: </a>
-#: website/public/index.html:994
+#: website/public/index.html:1003
 #, python-brace-format
 msgctxt "page:index.html"
 msgid ""
@@ -5782,80 +5782,80 @@ msgid ""
 "{ph4}Native setup guide{ph5}"
 msgstr "{ph0}백분율 구현{ph1} · {ph2}마이크로소프트의 테스트 케이스{ph3} · {ph4}기본 설정 가이드{ph5}"
 
-#: website/public/index.html:1063
+#: website/public/index.html:1072
 msgctxt "page:index.html"
 msgid "Your first investigation"
 msgstr "첫 번째 조사"
 
-#: website/public/index.html:1064
+#: website/public/index.html:1073
 msgctxt "page:index.html"
 msgid "Try REA on a small app."
 msgstr "시도해봐 REA 작은 응용 프로그램에."
 
-#: website/public/index.html:1065
+#: website/public/index.html:1074
 msgctxt "page:index.html"
 msgid ""
 "Download our Notes example, trace its CSV export, and check one changed "
 "input."
 msgstr "우리의 노트 예제를 다운로드,그 추적 CSV 수출,하나의 변경된 입력을 확인합니다."
 
-#: website/public/index.html:1070
+#: website/public/index.html:1079
 msgctxt "page:index.html"
 msgid "Try the guided example"
 msgstr "가이드 예제를 사용해보십시오"
 
-#: website/public/index.html:1087
+#: website/public/index.html:1096
 msgctxt "page:index.html"
 msgid "Native binaries"
 msgstr "기계 코드 프로그램"
 
-#: website/public/index.html:1088
+#: website/public/index.html:1097
 msgctxt "page:index.html"
 msgid ""
 "Inspect functions, strings, references and call relationships in executables"
 " and libraries."
 msgstr "실행 파일 및 라이브러리에서 함수,문자열,참조 및 함수 호출 관계를 검사합니다."
 
-#: website/public/index.html:1092
+#: website/public/index.html:1101
 msgctxt "page:index.html"
 msgid "Native analysis guide"
 msgstr "기계 코드 프로그램 분석 가이드"
 
-#: website/public/index.html:1095
+#: website/public/index.html:1104
 msgctxt "page:index.html"
 msgid "JavaScript & Electron"
 msgstr "JavaScript & Electron"
 
-#: website/public/index.html:1096
+#: website/public/index.html:1105
 msgctxt "page:index.html"
 msgid ""
 "Map modules, routes, IPC and native dependencies from an application folder "
 "or ASAR archive."
 msgstr "응용 프로그램 폴더에서 모듈,경로 및 기본 종속성을 매핑하거나 ASAR 아카이브"
 
-#: website/public/index.html:1100
+#: website/public/index.html:1109
 msgctxt "page:index.html"
 msgid "Application workflows"
 msgstr "애플리케이션 워크플로"
 
-#: website/public/index.html:1103
+#: website/public/index.html:1112
 msgctxt "page:index.html"
 msgid "Browser & runtime activity"
 msgstr "브라우저 및 런타임 활동"
 
-#: website/public/index.html:1104
+#: website/public/index.html:1113
 msgctxt "page:index.html"
 msgid ""
 "Capture selected browser or process activity, then compare the results "
 "across runs."
 msgstr "선택한 브라우저 또는 프로세스 활동을 캡처 한 다음 여러 실행에서 결과를 비교합니다."
 
-#: website/public/index.html:1108
+#: website/public/index.html:1117
 msgctxt "page:index.html"
 msgid "Browser observation guide"
 msgstr "브라우저 관찰 가이드"
 
-#: website/public/index.html:1179
+#: website/public/index.html:1188
 msgctxt "page:index.html"
 msgid "Any questions?"
 msgstr "궁금한 점이 있나요?"
@@ -5884,39 +5884,39 @@ msgctxt "page:index.html"
 msgid "Copy setup command"
 msgstr "설치 명령 복사"
 
-#: website/public/index.html:349
+#: website/public/index.html:358
 msgctxt "page:index.html"
 msgid "Follow the manual Calculator analysis"
 msgstr "수동 계산기 분석을 따르십시오"
 
-#: website/public/index.html:505
+#: website/public/index.html:514
 msgctxt "page:index.html"
 msgid "Copy Calculator percentage question"
 msgstr "복사 계산기 백분율 질문"
 
-#: website/public/index.html:639
+#: website/public/index.html:648
 msgctxt "page:index.html"
 msgid ""
 "Dinosaur mini-game. Use the Jump button or press Space while the game is "
 "focused."
 msgstr "공룡 미니 게임. 게임이 집중되는 동안 점프 버튼을 누르거나 공간을 사용합니다."
 
-#: website/public/index.html:586
+#: website/public/index.html:595
 msgctxt "page:index.html"
 msgid "Copy dinosaur analysis prompt"
 msgstr "복사 공룡 분석 프롬프트"
 
-#: website/public/index.html:856
+#: website/public/index.html:865
 msgctxt "page:index.html"
 msgid "Choose the calculation"
 msgstr "계산 선택"
 
-#: website/public/index.html:810
+#: website/public/index.html:819
 msgctxt "page:index.html"
 msgid "Copy Calculator analysis prompt"
 msgstr "복사 계산기 분석 프롬프트"
 
-#: website/public/index.html:1213
+#: website/public/index.html:1222
 msgctxt "page:index.html"
 msgid "Back to top"
 msgstr "맨 위로"
@@ -10170,11 +10170,11 @@ msgstr "가이드"
 #: website/public/examples/dino-lab/index.html:467
 #: website/public/faq/index.html:565
 #: website/public/first-investigation/index.html:526
-#: website/public/get-started/index.html:1784
+#: website/public/get-started/index.html:1788
 #: website/public/guides/browser/index.html:499
 #: website/public/guides/index.html:274
 #: website/public/guides/javascript/index.html:495
-#: website/public/guides/native/index.html:501 website/public/index.html:1205
+#: website/public/guides/native/index.html:501 website/public/index.html:1214
 #: website/public/showcase/aegis/index.html:800
 #: website/public/showcase/ctf/index.html:769
 #: website/public/showcase/dx-ball/index.html:777
@@ -10191,11 +10191,11 @@ msgstr "소스 코드"
 #: website/public/examples/dino-lab/index.html:468
 #: website/public/faq/index.html:566
 #: website/public/first-investigation/index.html:527
-#: website/public/get-started/index.html:1785
+#: website/public/get-started/index.html:1789
 #: website/public/guides/browser/index.html:500
 #: website/public/guides/index.html:275
 #: website/public/guides/javascript/index.html:496
-#: website/public/guides/native/index.html:502 website/public/index.html:1206
+#: website/public/guides/native/index.html:502 website/public/index.html:1215
 #: website/public/showcase/aegis/index.html:801
 #: website/public/showcase/ctf/index.html:770
 #: website/public/showcase/dx-ball/index.html:778
@@ -10212,11 +10212,11 @@ msgstr "MIT 라이선스"
 #: website/public/examples/dino-lab/index.html:469
 #: website/public/faq/index.html:567
 #: website/public/first-investigation/index.html:528
-#: website/public/get-started/index.html:1786
+#: website/public/get-started/index.html:1790
 #: website/public/guides/browser/index.html:501
 #: website/public/guides/index.html:276
 #: website/public/guides/javascript/index.html:497
-#: website/public/guides/native/index.html:503 website/public/index.html:1207
+#: website/public/guides/native/index.html:503 website/public/index.html:1216
 #: website/public/showcase/aegis/index.html:802
 #: website/public/showcase/ctf/index.html:771
 #: website/public/showcase/dx-ball/index.html:779
@@ -10233,11 +10233,11 @@ msgstr "커뮤니티 참여"
 #: website/public/examples/dino-lab/index.html:470
 #: website/public/faq/index.html:568
 #: website/public/first-investigation/index.html:529
-#: website/public/get-started/index.html:1787
+#: website/public/get-started/index.html:1791
 #: website/public/guides/browser/index.html:502
 #: website/public/guides/index.html:277
 #: website/public/guides/javascript/index.html:498
-#: website/public/guides/native/index.html:504 website/public/index.html:1208
+#: website/public/guides/native/index.html:504 website/public/index.html:1217
 #: website/public/showcase/aegis/index.html:803
 #: website/public/showcase/ctf/index.html:772
 #: website/public/showcase/dx-ball/index.html:780
@@ -10343,27 +10343,27 @@ msgctxt "page:guides/native/index.html"
 msgid "Recovered C · excerpt"
 msgstr "복구 된 C*발췌"
 
-#: website/public/index.html:1020
+#: website/public/index.html:1029
 msgctxt "page:index.html"
 msgid "Showcases →"
 msgstr "전시→"
 
-#: website/public/index.html:749
+#: website/public/index.html:758
 msgctxt "page:index.html"
 msgid "Selected settings from the inspected script"
 msgstr "검사된 스크립트에서 선택한 설정"
 
-#: website/public/index.html:924
+#: website/public/index.html:933
 msgctxt "page:index.html"
 msgid "Readable summary of the % handler"
 msgstr "%처리기의 읽을 수 있는 요약"
 
-#: website/public/index.html:968
+#: website/public/index.html:977
 msgctxt "page:index.html"
 msgid "REA · selected original instructions"
 msgstr "REA·선택한 원래의 지침"
 
-#: website/public/index.html:979
+#: website/public/index.html:988
 msgctxt "page:index.html"
 msgid "Operator IDs · Microsoft’s source"
 msgstr "운영자의 신분증*마이크로 소프트의 소스"
@@ -10980,7 +10980,7 @@ msgstr ""
 #. {ph0}: <span translate="no">Node.js</span>
 #. {ph1}: <a href="get-started/">
 #. {ph2}: </a>
-#: website/public/index.html:299
+#: website/public/index.html:308
 #, python-brace-format
 msgctxt "page:index.html"
 msgid ""
@@ -10995,7 +10995,7 @@ msgstr "처음 또는 누락 {ph0} 아니면 코딩 에이전트? {ph1}단계별
 #. {ph4}: </span >
 #. {ph5}: <span class="terminal-cursor" aria-hidden="true">
 #. {ph6}: </span>
-#: website/public/index.html:514
+#: website/public/index.html:523
 #, python-brace-format
 msgctxt "page:index.html"
 msgid ""
@@ -11004,7 +11004,7 @@ msgid ""
 msgstr "{ph0}›{ph1}{ph2}사용 REA 검사 Windows 계산기 왜 {ph3} 220 줘?{ph4}{ph5}{ph6}"
 
 #. {ph0}: <span translate="no">index.js</span>
-#: website/public/index.html:701
+#: website/public/index.html:710
 #, python-brace-format
 msgctxt "page:index.html"
 msgid "REA · loaded {ph0} · selected lines"
@@ -11018,7 +11018,7 @@ msgstr "REA *로드 {ph0} *선택한 라인"
 #. {ph5}: <span class="flow-note" >
 #. {ph6}: <code>ms-calculator:</code>
 #. {ph7}: </span >
-#: website/public/index.html:937
+#: website/public/index.html:946
 #, python-brace-format
 msgctxt "page:index.html"
 msgid ""
@@ -12321,52 +12321,52 @@ msgctxt "page:index.html"
 msgid "{ph0}Showcases{ph1}"
 msgstr "{ph0}사례{ph1}"
 
-#: website/public/index.html:1014
+#: website/public/index.html:1023
 msgctxt "page:index.html"
 msgid "REA case studies."
 msgstr "REA 사례 연구."
 
-#: website/public/index.html:1024
+#: website/public/index.html:1033
 msgctxt "page:index.html"
 msgid "Android · APK analysis"
 msgstr "안드로이드·APK분석"
 
-#: website/public/index.html:1025
+#: website/public/index.html:1034
 msgctxt "page:index.html"
 msgid "How an authenticator generates a login code"
 msgstr "인증자가 로그인 코드를 생성하는 방법"
 
-#: website/public/index.html:1030
+#: website/public/index.html:1039
 msgctxt "page:index.html"
 msgid "Read the Android case study"
 msgstr "안드로이드 사례 연구 읽기"
 
-#: website/public/index.html:1035
+#: website/public/index.html:1044
 msgctxt "page:index.html"
 msgid "Electron · Feature tracing"
 msgstr "Electron·기능 추적"
 
-#: website/public/index.html:1036
+#: website/public/index.html:1045
 msgctxt "page:index.html"
 msgid "How Notion copies text and HTML"
 msgstr "어떻게 Notion 텍스트 복사"
 
-#: website/public/index.html:1041
+#: website/public/index.html:1050
 msgctxt "page:index.html"
 msgid "Read the Notion case study"
 msgstr "읽Notion사례 연구"
 
-#: website/public/index.html:1046
+#: website/public/index.html:1055
 msgctxt "page:index.html"
 msgid "Native · Reconstruction"
 msgstr "기본*재건"
 
-#: website/public/index.html:1047
+#: website/public/index.html:1056
 msgctxt "page:index.html"
 msgid "DX-Ball's sound-pan calculation"
 msgstr "DX-Ball's 운 팬 계산"
 
-#: website/public/index.html:1052
+#: website/public/index.html:1061
 msgctxt "page:index.html"
 msgid "Read the DX-Ball case study"
 msgstr "읽DX-Ball사례 연구"
@@ -13236,19 +13236,19 @@ msgid ""
 "Node.js:"
 msgstr ""
 
-#: website/public/get-started/index.html:1667
+#: website/public/get-started/index.html:1671
 msgctxt "page:get-started/index.html"
 msgid ""
 "Use the client check in step 3 with your setup ID. In editor clients, enable"
 " REA in MCP settings and allow its tools in the agent chat."
 msgstr ""
 
-#: website/public/get-started/index.html:1695
+#: website/public/get-started/index.html:1699
 msgctxt "page:get-started/index.html"
 msgid "Windows, WSL and paths with spaces"
 msgstr ""
 
-#: website/public/get-started/index.html:1696
+#: website/public/get-started/index.html:1700
 msgctxt "page:get-started/index.html"
 msgid ""
 "Use Windows PowerShell for Windows clients and analysis tools. If your agent"
@@ -13256,17 +13256,17 @@ msgid ""
 "use Linux paths there. Headless providers run on the same host as REA."
 msgstr ""
 
-#: website/public/get-started/index.html:1705
+#: website/public/get-started/index.html:1709
 msgctxt "page:get-started/index.html"
 msgid "Windows setup command:"
 msgstr ""
 
-#: website/public/get-started/index.html:1722
+#: website/public/get-started/index.html:1726
 msgctxt "page:get-started/index.html"
 msgid "Update or remove REA"
 msgstr ""
 
-#: website/public/get-started/index.html:1723
+#: website/public/get-started/index.html:1727
 msgctxt "page:get-started/index.html"
 msgid ""
 "To refresh your agent connection, run the latest setup command again, review"
@@ -13275,7 +13275,7 @@ msgstr ""
 
 #. {ph0}: <code>rea update</code>
 #. {ph1}: <code>rea uninstall</code>
-#: website/public/get-started/index.html:1741
+#: website/public/get-started/index.html:1745
 #, python-brace-format
 msgctxt "page:get-started/index.html"
 msgid ""
@@ -13287,7 +13287,7 @@ msgstr ""
 #. href="https://github.com/morluto/rea/blob/main/docs/installation.md#diagnose-
 #. update-and-remove" >
 #. {ph1}: </a >
-#: website/public/get-started/index.html:1746
+#: website/public/get-started/index.html:1750
 #, python-brace-format
 msgctxt "page:get-started/index.html"
 msgid "{ph0}Update and uninstall details{ph1}"
@@ -13320,8 +13320,8 @@ msgstr ""
 #: website/public/get-started/index.html:1302
 #: website/public/get-started/index.html:1623
 #: website/public/get-started/index.html:1645
-#: website/public/get-started/index.html:1709
-#: website/public/get-started/index.html:1730
+#: website/public/get-started/index.html:1713
+#: website/public/get-started/index.html:1734
 msgctxt "page:get-started/index.html"
 msgid "Copy command"
 msgstr ""
@@ -13520,7 +13520,7 @@ msgid "Then check Ghidra and save its paths for your client:"
 msgstr ""
 
 #. {ph0}: <span translate="no">200 + 10%</span>
-#: website/public/index.html:337
+#: website/public/index.html:346
 #, python-brace-format
 msgctxt "page:index.html"
 msgid "Why does Calculator give 220 for {ph0}?"
@@ -13551,12 +13551,12 @@ msgctxt "page:index.html"
 msgid "See an example ↓"
 msgstr "예제 보기 ↓"
 
-#: website/public/index.html:312
+#: website/public/index.html:321
 msgctxt "page:index.html"
 msgid "How it works"
 msgstr "작동 방식"
 
-#: website/public/index.html:314
+#: website/public/index.html:323
 msgctxt "page:index.html"
 msgid ""
 "Reverse engineering means learning how software works by inspecting the "
@@ -13566,67 +13566,67 @@ msgstr ""
 "리버스 엔지니어링은 프로그램 자체를 살펴보고 소프트웨어의 작동 방식을 이해하는 것입니다. REA를 사용하면 에이전트가 코드를 추적하고 "
 "기능을 설명하며 다시 구현하는 일을 도울 수 있습니다."
 
-#: website/public/index.html:321
+#: website/public/index.html:330
 msgctxt "page:index.html"
 msgid "Ask about one feature"
 msgstr "한 가지 기능 질문하기"
 
-#: website/public/index.html:322
+#: website/public/index.html:331
 msgctxt "page:index.html"
 msgid "Give your agent a program or page and a question."
 msgstr "에이전트에게 프로그램이나 페이지와 질문을 전달하세요."
 
-#: website/public/index.html:325
+#: website/public/index.html:334
 msgctxt "page:index.html"
 msgid "Inspect the program"
 msgstr "프로그램 살펴보기"
 
-#: website/public/index.html:326
+#: website/public/index.html:335
 msgctxt "page:index.html"
 msgid "REA returns code, references and runtime observations."
 msgstr "REA는 코드, 참조 관계, 실행 중 관찰 결과를 반환합니다."
 
-#: website/public/index.html:329
+#: website/public/index.html:338
 msgctxt "page:index.html"
 msgid "Explain it, then try a change"
 msgstr "이해한 뒤 변경해 보기"
 
-#: website/public/index.html:330
+#: website/public/index.html:339
 msgctxt "page:index.html"
 msgid "Your agent uses the findings to explain or rebuild the feature."
 msgstr "에이전트는 조사 결과를 바탕으로 기능을 설명하거나 다시 구현합니다."
 
-#: website/public/index.html:346
+#: website/public/index.html:355
 msgctxt "page:index.html"
 msgid "Follow the instructions step by step"
 msgstr "명령어를 단계별로 따라가기"
 
-#: website/public/index.html:497
+#: website/public/index.html:506
 msgctxt "page:index.html"
 msgid "Ask your agent the same question"
 msgstr "에이전트에게 같은 질문하기"
 
-#: website/public/index.html:710
+#: website/public/index.html:719
 msgctxt "page:index.html"
 msgid ""
 "Start at 6. Add 0.001 each update without a collision, while speed is below "
 "13."
 msgstr "시작 6. 추가 0.001 충돌없이 각 업데이트,속도가 아래에있는 동안 13."
 
-#: website/public/index.html:1015
+#: website/public/index.html:1024
 msgctxt "page:index.html"
 msgid ""
 "Explore a feature in a released app or game, with code and checked results."
 msgstr "출시된 앱이나 게임의 기능을 코드와 검증 결과와 함께 살펴보세요."
 
-#: website/public/index.html:1026
+#: website/public/index.html:1035
 msgctxt "page:index.html"
 msgid ""
 "Trace Aegis's six-digit login code through its released APK, then move a "
 "demo clock to see why it changes every 30 seconds."
 msgstr "Aegis의 배포 APK에서 여섯 자리 로그인 코드를 추적하고 데모 시계를 움직여 30초마다 바뀌는 이유를 확인하세요."
 
-#: website/public/index.html:1037
+#: website/public/index.html:1046
 msgctxt "page:index.html"
 msgid ""
 "Follow Notion's packaged JavaScript to the system clipboard and see how a "
@@ -13634,19 +13634,19 @@ msgid ""
 msgstr ""
 "Notion에 패키징된 JavaScript에서 시스템 클립보드까지 추적하며 복사가 서식 있는 블록 데이터를 보존하는 방식을 살펴보세요."
 
-#: website/public/index.html:1048
+#: website/public/index.html:1057
 msgctxt "page:index.html"
 msgid ""
 "Recover how a ball's position becomes left/right sound in a 1996 Windows "
 "game."
 msgstr "1996년 Windows 게임에서 공의 위치가 좌우 소리로 바뀌는 방식을 복원합니다."
 
-#: website/public/index.html:1079
+#: website/public/index.html:1088
 msgctxt "page:index.html"
 msgid "Choose your target."
 msgstr "조사 대상을 선택하세요."
 
-#: website/public/index.html:1080
+#: website/public/index.html:1089
 msgctxt "page:index.html"
 msgid ""
 "These guides cover setup and a first investigation for each kind of "
@@ -13655,7 +13655,7 @@ msgstr "이 가이드는 소프트웨어 종류별 설정과 첫 조사를 안�
 
 #. {ph0}: <a href="#calculator">
 #. {ph1}: </a>
-#: website/public/index.html:552
+#: website/public/index.html:561
 #, python-brace-format
 msgctxt "page:index.html"
 msgid ""
@@ -13671,13 +13671,13 @@ msgstr "설치된 계산기에서 선택한 어셈블리. 생각과 대답은 �
 #. {ph5}: <i>
 #. {ph6}: </i>
 #. {ph7}: </span >
-#: website/public/index.html:1117
+#: website/public/index.html:1126
 #, python-brace-format
 msgctxt "page:index.html"
 msgid "{ph0}{ph1}{ph2}{ph3}{ph4}{ph5}{ph6}{ph7}Example prompt · Website"
 msgstr "{ph0}{ph1}{ph2}{ph3}{ph4}{ph5}{ph6}{ph7}프롬프트 예*웹 사이트"
 
-#: website/public/index.html:1140
+#: website/public/index.html:1149
 msgctxt "page:index.html"
 msgid "Yes, this one."
 msgstr "예,이 하나."
@@ -13690,7 +13690,7 @@ msgstr "예,이 하나."
 #. {ph5}: <i>
 #. {ph6}: </i>
 #. {ph7}: </span >
-#: website/public/index.html:1145
+#: website/public/index.html:1154
 #, python-brace-format
 msgctxt "page:index.html"
 msgid ""
@@ -13703,7 +13703,7 @@ msgstr "{ph0}{ph1}{ph2}{ph3}{ph4}{ph5}{ph6}{ph7}예제 프롬프트*게임 재�
 #. {ph3}: </span >
 #. {ph4}: <span class="terminal-cursor" aria-hidden="true">
 #. {ph5}: </span>
-#: website/public/index.html:1159
+#: website/public/index.html:1168
 #, python-brace-format
 msgctxt "page:index.html"
 msgid ""
@@ -13716,18 +13716,18 @@ msgstr ""
 
 #. {ph0}: <a href="showcase/dx-ball/">
 #. {ph1}: </a>
-#: website/public/index.html:1168
+#: website/public/index.html:1177
 #, python-brace-format
 msgctxt "page:index.html"
 msgid "{ph0}See the DX-Ball case study →{ph1}"
 msgstr "{ph0}보 DX-Ball 사례 연구→{ph1}"
 
-#: website/public/index.html:1122
+#: website/public/index.html:1131
 msgctxt "page:index.html"
 msgid "Copy website project prompt"
 msgstr "웹 사이트 프로젝트 프롬프트 복사"
 
-#: website/public/index.html:1150
+#: website/public/index.html:1159
 msgctxt "page:index.html"
 msgid "Copy game reconstruction prompt"
 msgstr "복사 게임 재건 프롬프트"
@@ -13739,7 +13739,7 @@ msgstr "복사 게임 재건 프롬프트"
 #. {ph4}: </span >
 #. {ph5}: <span class="terminal-cursor" aria-hidden="true">
 #. {ph6}: </span>
-#: website/public/index.html:1131
+#: website/public/index.html:1140
 #, python-brace-format
 msgctxt "page:index.html"
 msgid ""
@@ -13763,31 +13763,31 @@ msgctxt "page:index.html"
 msgid "{ph0}Blog →{ph1} — methods and reconstruction notes."
 msgstr "{ph0}블로그 →{ph1} — 방법과 소프트웨어 재구현 기록."
 
-#: website/public/index.html:336
+#: website/public/index.html:345
 msgctxt "page:index.html"
 msgid "See the full Calculator investigation"
 msgstr "계산기 조사 전체 보기"
 
-#: website/public/index.html:1112
+#: website/public/index.html:1121
 msgctxt "page:index.html"
 msgid "Try a larger project"
 msgstr "더 큰 프로젝트 시도하기"
 
-#: website/public/index.html:564
+#: website/public/index.html:573
 msgctxt "page:index.html"
 msgid ""
 "Let’s try two examples: change a game’s speed, then rebuild Calculator’s % "
 "button."
 msgstr "두 가지 예제를 해 봅시다. 게임의 속도를 바꾸고, 계산기의 % 버튼을 다시 구현합니다."
 
-#: website/public/index.html:572
+#: website/public/index.html:581
 msgctxt "page:index.html"
 msgid ""
 "The game gets faster as you run. To rebuild it with a speed control, we "
 "first need to find out how the speed changes."
 msgstr "계속 달리면 게임이 빨라집니다. 속도 조절 기능을 넣어 다시 구현하려면 먼저 속도가 어떻게 변하는지 알아야 합니다."
 
-#: website/public/index.html:578
+#: website/public/index.html:587
 msgctxt "page:index.html"
 msgid "1. Ask about the speed"
 msgstr "1. 속도에 대해 질문하기"
@@ -13800,19 +13800,19 @@ msgstr "1. 속도에 대해 질문하기"
 #. {ph5}: <i>
 #. {ph6}: </i>
 #. {ph7}: </span >
-#: website/public/index.html:581
+#: website/public/index.html:590
 #, python-brace-format
 msgctxt "page:index.html"
 msgid ""
 "{ph0}{ph1}{ph2}{ph3}{ph4}{ph5}{ph6}{ph7}Example question · Dinosaur game"
 msgstr "{ph0}{ph1}{ph2}{ph3}{ph4}{ph5}{ph6}{ph7}질문 예시 · 공룡 게임"
 
-#: website/public/index.html:604
+#: website/public/index.html:613
 msgctxt "page:index.html"
 msgid "2. Find the speed rule"
 msgstr "2. 속도 규칙 찾기"
 
-#: website/public/index.html:605
+#: website/public/index.html:614
 msgctxt "page:index.html"
 msgid ""
 "REA lets the agent read the game’s running code. The speed starts at 6 and "
@@ -13821,33 +13821,33 @@ msgstr ""
 "REA를 사용하면 에이전트가 실행 중인 게임의 코드를 읽을 수 있습니다. 속도는 6에서 시작하고, 13 미만인 동안 갱신할 때마다 조금씩"
 " 증가합니다."
 
-#: website/public/index.html:612
+#: website/public/index.html:621
 msgctxt "page:index.html"
 msgid "3. Play the result"
 msgstr "3. 결과물 플레이하기"
 
-#: website/public/index.html:613
+#: website/public/index.html:622
 msgctxt "page:index.html"
 msgid ""
 "We rebuilt that rule in the mini-game below and added a speed slider. Press "
 "Play, then choose your own speed."
 msgstr "아래 미니게임에 이 규칙을 구현하고 속도 슬라이더를 추가했습니다. 시작을 누르고 원하는 속도를 골라 보세요."
 
-#: website/public/index.html:678
+#: website/public/index.html:687
 msgctxt "page:index.html"
 msgid ""
 "Enable JavaScript to play. You can still read the rule and open the source "
 "code below."
 msgstr "플레이하려면 JavaScript를 켜세요. 규칙을 읽고 아래 소스 코드를 펼치는 것은 계속 가능합니다."
 
-#: website/public/index.html:796
+#: website/public/index.html:805
 msgctxt "page:index.html"
 msgid ""
 "The % button does different things after + and ×. Let’s find both rules and "
 "try them in a small calculator."
 msgstr "% 버튼은 + 뒤와 × 뒤에서 다르게 작동합니다. 두 규칙을 찾아 작은 계산기에서 시험해 봅시다."
 
-#: website/public/index.html:802
+#: website/public/index.html:811
 msgctxt "page:index.html"
 msgid "1. Ask about the % button"
 msgstr "1. % 버튼에 대해 질문하기"
@@ -13860,37 +13860,37 @@ msgstr "1. % 버튼에 대해 질문하기"
 #. {ph5}: <i>
 #. {ph6}: </i>
 #. {ph7}: </span >
-#: website/public/index.html:805
+#: website/public/index.html:814
 #, python-brace-format
 msgctxt "page:index.html"
 msgid "{ph0}{ph1}{ph2}{ph3}{ph4}{ph5}{ph6}{ph7}Example question · Calculator"
 msgstr "{ph0}{ph1}{ph2}{ph3}{ph4}{ph5}{ph6}{ph7}질문 예시 · 계산기"
 
-#: website/public/index.html:828
+#: website/public/index.html:837
 msgctxt "page:index.html"
 msgid "2. Find both rules"
 msgstr "2. 두 규칙 찾기"
 
-#: website/public/index.html:829
+#: website/public/index.html:838
 msgctxt "page:index.html"
 msgid ""
 "REA helps the agent read the code behind the % button. It applies two "
 "different rules:"
 msgstr "REA는 에이전트가 % 버튼의 코드를 읽도록 돕습니다. 이 코드는 서로 다른 두 규칙을 적용합니다."
 
-#: website/public/index.html:850
+#: website/public/index.html:859
 msgctxt "page:index.html"
 msgid "3. Try the % button"
 msgstr "3. % 버튼 시험하기"
 
-#: website/public/index.html:851
+#: website/public/index.html:860
 msgctxt "page:index.html"
 msgid "We recreated both rules below. Choose + or ×, press %, then press =."
 msgstr "아래에 두 규칙을 다시 구현했습니다. + 또는 ×를 고르고, %를 누른 뒤 =를 누르세요."
 
 #. {ph0}: <a href="faq/">
 #. {ph1}: </a>
-#: website/public/index.html:1181
+#: website/public/index.html:1190
 #, python-brace-format
 msgctxt "page:index.html"
 msgid "{ph0}Read the FAQ{ph1} — setup and common questions."
@@ -13898,7 +13898,7 @@ msgstr "{ph0}FAQ 읽기{ph1} — 설정과 자주 묻는 질문."
 
 #. {ph0}: <a href="https://discord.gg/GkcryMnJDM">
 #. {ph1}: </a>
-#: website/public/index.html:1184
+#: website/public/index.html:1193
 #, python-brace-format
 msgctxt "page:index.html"
 msgid "{ph0}Join Discord{ph1} — get help and discuss your investigations."
@@ -13906,11 +13906,34 @@ msgstr "{ph0}Discord 참여{ph1} — 도움을 요청하고 조사 내용을 나
 
 #. {ph0}: <a href="https://github.com/morluto/rea/issues/new/choose" >
 #. {ph1}: </a >
-#: website/public/index.html:1188
+#: website/public/index.html:1197
 #, python-brace-format
 msgctxt "page:index.html"
 msgid "{ph0}GitHub issues{ph1} — report a bug or request a feature."
 msgstr "{ph0}GitHub issues{ph1} — 버그 제보와 기능 요청."
+
+#: website/public/index.html:291
+msgctxt "page:index.html"
+msgid "Setup for your platform:"
+msgstr "사용하는 플랫폼의 설정:"
+
+#. {ph0}: <a href="get-started/#curl-installation" >
+#. {ph1}: <span translate="no">curl</span>
+#. {ph2}: </a >
+#: website/public/index.html:302
+#, python-brace-format
+msgctxt "page:index.html"
+msgid "Other install options: {ph0}{ph1} →{ph2}"
+msgstr "다른 설치 방법: {ph0}{ph1} →{ph2}"
+
+#. {ph0}: <code>rea setup</code>
+#: website/public/get-started/index.html:1656
+#, python-brace-format
+msgctxt "page:get-started/index.html"
+msgid ""
+"Follow the setup prompts to connect your agent. If they don't appear, run "
+"{ph0}."
+msgstr "설정 안내에 따라 에이전트를 연결하세요. 안내가 나타나지 않으면 {ph0}를 실행하세요."
 
 #~ msgctxt "page:index.html"
 #~ msgid "Play the reconstruction"
