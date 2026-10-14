@@ -84,8 +84,11 @@ registry metadata or changelog disagrees with that version before creating a tag
 
 ### Compatibility and version selection
 
-For the 6.2 candidate, review the [6.1 to 6.2 migration guide](migration-6.2.md)
-alongside the changelog before publication.
+Before publishing the release under preparation, review its changelog
+breaking-change section and any migration notes that apply to that version.
+Historical notes such as the [6.1 to 6.2 migration guide](migration-6.2.md)
+remain available for that earlier release pair; they do not replace the review
+for the candidate being published.
 
 REA uses Release Please's `always-bump-minor` strategy: every release increments
 minor and resets patch, including releases with breaking changes. For example,
