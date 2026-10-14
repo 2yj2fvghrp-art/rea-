@@ -366,6 +366,17 @@ try {
         .subarray(mapping.file_offset, mapping.file_offset + 16)
         .toString("hex"),
     );
+    const byteSearch = await call("search_bytes", {
+      pattern: memory.bytes_hex,
+      start: procedure.address,
+      end: `0x${(BigInt(procedure.address) + 15n).toString(16)}`,
+    });
+    assert.deepEqual(
+      byteSearch.matches.map(({ address }) => address),
+      [procedure.address],
+    );
+    assert.equal(byteSearch.complete, true);
+    assert.equal(byteSearch.searched.bytes, 16);
     await call("address_name", { address: procedure.address });
     assert.equal(
       await call("procedure_address", { procedure: procedure.value }),
@@ -429,8 +440,9 @@ try {
         name !== "shutdown" &&
         !GHIDRA_MUTATING_OPERATIONS.has(name),
     );
-    assert.ok(
-      expected.every((name) => report.mcpOperations.includes(name)),
+    assert.deepEqual(
+      expected.filter((name) => !report.mcpOperations.includes(name)),
+      [],
       "Packaged verification omitted an admitted operation.",
     );
     const session = await call("binary_session", {});
