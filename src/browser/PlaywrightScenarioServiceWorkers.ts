@@ -220,12 +220,16 @@ export class PlaywrightScenarioServiceWorkers {
             registration_guard_installed: true,
           };
           const serviceWorker = navigator.serviceWorker;
-          const service_worker_detected = serviceWorker.controller !== null ||
-            (await serviceWorker.getRegistrations()).length > 0;
           const registration_guard_installed = ${this.#session === undefined} || (
             Object.hasOwn(serviceWorker.register, Symbol.for(${this.marker})) &&
             typeof globalThis[${this.restoreKey}] === "function"
           );
+          if (!registration_guard_installed) return {
+            service_worker_detected: false,
+            registration_guard_installed,
+          };
+          const service_worker_detected = serviceWorker.controller !== null ||
+            (await serviceWorker.getRegistrations()).length > 0;
           return { service_worker_detected, registration_guard_installed };
         })()`),
         );

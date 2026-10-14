@@ -216,6 +216,14 @@ it("reports an unavailable guard when the live realm is unprotected", async () =
   ).rejects.toMatchObject({
     reason: "service_worker_guard_unavailable",
   });
+  const assertionScript = String(
+    page.evaluate.mock.calls.find(([script]) =>
+      String(script).includes("getRegistrations"),
+    )?.[0] ?? "",
+  );
+  expect(assertionScript.indexOf("registration_guard_installed")).toBeLessThan(
+    assertionScript.indexOf("getRegistrations"),
+  );
   expect(
     mocks.policySend.mock.calls.some(
       ([method]) => method === "Page.addScriptToEvaluateOnNewDocument",
