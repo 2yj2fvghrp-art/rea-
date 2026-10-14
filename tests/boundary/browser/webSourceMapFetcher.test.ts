@@ -1687,6 +1687,16 @@ const input = (overrides: Record<string, unknown> = {}) => {
   });
 };
 
+it("reports an empty selection as included, not unavailable (#3217)", async () => {
+  const result = await fetchWebSourceMaps([], input());
+  expect(result).toMatchObject({
+    status: "included",
+    requested: 0,
+    processed: 0,
+    items: [],
+  });
+});
+
 it("keeps bare original module specifiers unresolved", async () => {
   const result = await fetchWebSourceMaps([request], input(), undefined, {
     fetch: () =>
