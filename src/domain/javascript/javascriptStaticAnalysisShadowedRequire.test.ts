@@ -127,6 +127,14 @@ const shadowedCases = [
     "loader restored by a later createRequire write then shadowed again",
     `import { createRequire } from "node:module";\nlet require = () => "local";\nrequire = createRequire(import.meta.url);\nrequire = otherLoader;\nrequire("./ghost.cjs");`,
   ],
+  [
+    "conditional createRequire write invents no dependency",
+    `import { createRequire } from "node:module";\nlet require = () => "local";\nif (condition) require = createRequire(import.meta.url);\nrequire("./ghost.cjs");`,
+  ],
+  [
+    "var declaration initializer after the createRequire write shadows it",
+    `import { createRequire } from "node:module";\nrequire = createRequire(import.meta.url);\nvar require = () => "local";\nrequire("./ghost.cjs");`,
+  ],
 ];
 
 const loaderCases = [

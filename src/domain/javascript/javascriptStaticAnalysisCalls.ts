@@ -399,7 +399,14 @@ const isDirectCreateRequireBinding = (
   const establishing = binding.initializers
     .filter(
       (initializer) =>
-        isDirectAliasWrite(initializer) && !callBeforeWrite(initializer.node),
+        isDirectAliasWrite(initializer) &&
+        !callBeforeWrite(initializer.node) &&
+        // A conditional write (e.g. `if (x) require = createRequire(u)`)
+        // may never run, so it cannot install the loader: the write must
+        // provably execute before the call. `conditionalInitializers`
+        // covers conditional `var` declarations, but not conditional
+        // assignments, so this branch-alignment check handles both.
+        writeMustRunBeforeCall(initializer.node, node, callFunction, state),
     )
     .at(-1);
   if (establishing === undefined) return false;
@@ -413,11 +420,20 @@ const isDirectCreateRequireBinding = (
   // Any other timing (a call in another function, a deferred field
   // initializer) is unknowable from source order, so the loader is treated
   // as installed, keeping the previous behavior there.
-  const establishingIndex = binding.initializers.indexOf(establishing);
-  const laterWrites = binding.initializers
-    .slice(establishingIndex + 1)
-    .map((initializer) => requireWriteFact(initializer.node, state));
   const establishingFact = requireWriteFact(establishing.node, state);
+  // `initializers` is not in execution order — declaration initializers are
+  // collected before assignment writes — so a later replacement cannot be
+  // found by array index. Compare by write position instead: any write that
+  // takes effect after the establishing write replaces the loader.
+  const laterWrites = binding.initializers
+    .map((initializer) => requireWriteFact(initializer.node, state))
+    .filter(
+      (write) =>
+        write.node !== establishing.node &&
+        (write.endLine > establishingFact.endLine ||
+          (write.endLine === establishingFact.endLine &&
+            write.endColumn > establishingFact.endColumn)),
+    );
   const callBeforeEstablishing =
     establishingFact.endLine > line ||
     (establishingFact.endLine === line && establishingFact.endColumn > column);
