@@ -134,7 +134,9 @@ def special_host_parses(host_port):
 
     A rejected host fails the whole URL, so it has no credentials to remove.
     This mirrors the forbidden-code-point, empty-host, IPv4, IPv6 and port
-    rules; IDNA failures are not modeled and still redact.
+    rules for ASCII hosts. UTS #46 mapping is not modeled: a non-ASCII host
+    may map to an accepted one (fullwidth digits, ideographic full stops,
+    ignored code points), so it is treated as accepted and still redacts.
     """
     if host_port.startswith("["):
         host_end = host_port.find("]") + 1
@@ -149,9 +151,10 @@ def special_host_parses(host_port):
         colon = host_port.find(":")
         host_end = len(host_port) if colon < 0 else colon
         host = unquote_to_bytes(host_port[:host_end]).decode("utf-8", errors="replace")
+        # Mapping never removes ASCII, so these rejections hold either way.
         if host == "" or any(char in FORBIDDEN_DOMAIN_CODE_POINTS for char in host):
             return False
-        if not domain_parses(host.lower()):
+        if host.isascii() and not domain_parses(host.lower()):
             return False
     port = host_port[host_end:]
     if port == "":

@@ -210,6 +210,20 @@ class TransportUserinfoTests(unittest.TestCase):
             with self.subTest(value=value):
                 self.assertEqual(capture.without_userinfo(value), expected)
 
+    def test_unicode_hosts_that_may_map_to_accepted_hosts_remove_userinfo(self):
+        # UTS #46 maps these to 1.2.3.4; mapping is not modeled, so redact.
+        for host in ["%EF%BC%91.2.3.4", "1。2.3.4", "%C2%AD1.2.3.4", "１.2.3.4"]:
+            with self.subTest(host=host):
+                self.assertEqual(
+                    capture.without_userinfo(f"https://user:pw@{host}/"), f"https://{host}/"
+                )
+        text, sidecar, redactions = location(b"https://user:pw@%EF%BC%91.2.3.4/", b"https")
+        self.assertEqual(text, "https://%EF%BC%91.2.3.4/")
+        self.assertEqual(sidecar["state"], "redacted")
+        self.assertEqual(len(redactions), 1)
+        # ASCII rejections still hold for non-ASCII hosts.
+        self.assertEqual(capture.without_userinfo("https://user@１^/"), "https://user@１^/")
+
     def test_trailing_controls_and_spaces_do_not_hide_userinfo(self):
         # WHATWG strips trailing C0 controls and spaces before parsing.
         for suffix in [b" ", b"\x01", b"\x00 \x1f"]:
