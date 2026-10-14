@@ -223,7 +223,7 @@ const staticCallPath = (
       ? stringValue(node.arguments[0])
       : undefined;
   if (name === "fileURLToPath" || name.endsWith(".fileURLToPath"))
-    return staticFileUrlPath(argumentNode(node.arguments[0]));
+    return staticFileUrlPath(node);
   if (name.endsWith(".resolve"))
     return name === "win32.resolve" || name.endsWith(".win32.resolve")
       ? undefined
@@ -245,22 +245,48 @@ const staticCallPath = (
 };
 
 const staticFileUrlPath = (
-  argument: t.Node | undefined,
+  node: t.CallExpression | t.NewExpression,
 ): string | undefined => {
+  const argument = argumentNode(node.arguments[0]);
   if (argument === undefined) return undefined;
   if (isSourceFileUrl(argument)) return sourceRelativeFileUrlPath(argument);
+  const windows = fileUrlWindowsOption(node);
+  if (windows === undefined) return undefined;
   const literal = staticPath(argument);
   if (literal === undefined) return undefined;
   // A literal file URL is a path only after the real decoder. Other strings
   // are not filesystem paths; fileURLToPath would throw on them.
   if (!literal.toLowerCase().startsWith("file:")) return undefined;
   try {
-    const path = fileURLToPath(literal, { windows: false });
-    return path.startsWith("/") ? path : undefined;
+    const path = fileURLToPath(literal, { windows });
+    return windows || path.startsWith("/") ? path : undefined;
   } catch (cause: unknown) {
     void cause;
     return undefined;
   }
+};
+
+/** `false` when omitted, `undefined` when the options are not a static boolean. */
+const fileUrlWindowsOption = (
+  node: t.CallExpression | t.NewExpression,
+): boolean | undefined => {
+  const options = argumentNode(node.arguments[1]);
+  if (options === undefined) return false;
+  if (!t.isObjectExpression(options)) return undefined;
+  let windows: boolean | undefined;
+  for (const property of options.properties) {
+    if (
+      !t.isObjectProperty(property) ||
+      property.computed ||
+      t.isPattern(property.value)
+    )
+      return undefined;
+    const key = semanticStaticPropertyName(property.key, false);
+    if (key !== "windows" || !t.isBooleanLiteral(property.value))
+      return undefined;
+    windows = property.value.value;
+  }
+  return windows ?? false;
 };
 
 /** Project a known source-relative URL through the actual file URL decoder. */
@@ -348,8 +374,9 @@ const isFilesystemPathExpression = (node: t.Node): boolean => {
     if (name === "URL" || name.endsWith(".URL"))
       return isFileIdentity(argumentNode(node.arguments[1]));
     if (name === "fileURLToPath" || name.endsWith(".fileURLToPath")) {
-      const decoded = staticFileUrlPath(argumentNode(node.arguments[0]));
-      if (decoded !== undefined && posix.isAbsolute(decoded)) return true;
+      const decoded = staticFileUrlPath(node);
+      if (decoded !== undefined && isAbsoluteProjectedPath(decoded))
+        return true;
       return node.arguments.some((argument) => {
         const value = argumentNode(argument);
         return value !== undefined && isFilesystemPathExpression(value);
@@ -362,6 +389,11 @@ const isFilesystemPathExpression = (node: t.Node): boolean => {
   }
   return false;
 };
+
+const isAbsoluteProjectedPath = (path: string): boolean =>
+  posix.isAbsolute(path) ||
+  /^[a-z]:[\\/]/iu.test(path) ||
+  path.startsWith("\\\\");
 
 const isDirectoryIdentity = (node: t.Node | undefined): boolean => {
   if (isDirectoryPath(node)) return true;

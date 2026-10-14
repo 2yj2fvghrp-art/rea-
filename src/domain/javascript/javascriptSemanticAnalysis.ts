@@ -779,14 +779,14 @@ function* collectDefinitionsSteps(
         node.init != null &&
         parent !== null &&
         t.isVariableDeclaration(parent, { kind: "var" }) &&
-        hasConditionalInitializer(readAncestors())
+        writeMayBeSkipped(node, readAncestors())
       )
         state.conditionalInitializers.add(node.init);
       // A later assignment inside a branch is not proof the binding was written.
       // Plain `=` stores the right-hand node as the initializer.
       if (
         (t.isAssignmentExpression(node) || t.isUpdateExpression(node)) &&
-        hasConditionalInitializer(readAncestors())
+        writeMayBeSkipped(node, readAncestors())
       ) {
         state.conditionalInitializers.add(node);
         if (t.isAssignmentExpression(node))
@@ -863,21 +863,43 @@ const copyParameterToBody = (input: {
   }
 };
 
-const hasConditionalInitializer = (ancestors: readonly t.Node[]): boolean => {
-  // A hoisted var can remain undefined when control flow skips its initializer.
-  // Conditions outside the owning callable/static block do not govern its body.
+const writeMayBeSkipped = (
+  node: t.Node,
+  ancestors: readonly t.Node[],
+): boolean => {
+  // Ancestors stop at the parent. A condition, loop test, or left operand
+  // always runs. The body, alternate, or right operand can be skipped.
+  let child = node;
   for (let index = ancestors.length - 1; index >= 0; index -= 1) {
-    const node = ancestors[index];
-    if (t.isFunction(node) || t.isProgram(node) || t.isStaticBlock(node))
-      return false;
+    const parent = ancestors[index];
     if (
-      t.isIfStatement(node) ||
-      t.isLoop(node) ||
-      t.isSwitchCase(node) ||
-      t.isTryStatement(node)
+      parent === undefined ||
+      t.isFunction(parent) ||
+      t.isProgram(parent) ||
+      t.isStaticBlock(parent)
     )
-      return true;
+      return false;
+    if (isSkippedBranch(parent, child)) return true;
+    child = parent;
   }
+  return false;
+};
+
+const isSkippedBranch = (parent: t.Node, child: t.Node): boolean => {
+  if (t.isIfStatement(parent) || t.isSwitchCase(parent))
+    return child !== parent.test;
+  if (
+    t.isWhileStatement(parent) ||
+    t.isForStatement(parent) ||
+    t.isForInStatement(parent) ||
+    t.isForOfStatement(parent)
+  )
+    return child === parent.body;
+  if (t.isTryStatement(parent))
+    return child === parent.block || child === parent.handler;
+  if (t.isLogicalExpression(parent)) return child === parent.right;
+  if (t.isConditionalExpression(parent))
+    return child === parent.consequent || child === parent.alternate;
   return false;
 };
 

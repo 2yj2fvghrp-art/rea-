@@ -216,6 +216,25 @@ describe("inert JavaScript path resolution", () => {
     );
   });
 
+  it("honors a static windows option on fileURLToPath", () => {
+    const url = "file:///C:/app/preload.js";
+    assertPathProjection(
+      `fileURLToPath(${JSON.stringify(url)}, { windows: true })`,
+      fileURLToPath(url, { windows: true }),
+      "filesystem-expression",
+    );
+  });
+
+  it("leaves fileURLToPath unknown when its options are not static", () => {
+    expect(
+      staticPath(
+        parseExpression('fileURLToPath("file:///app/preload.js", options)', {
+          sourceType: "module",
+        }),
+      ),
+    ).toBeUndefined();
+  });
+
   it("leaves a non-url fileURLToPath argument unknown", () => {
     expect(
       staticPath(

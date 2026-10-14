@@ -9,6 +9,11 @@ describe("conditionally initialized JavaScript bindings", () => {
     "switch (condition) { case true: var result = 1; }",
     "try { if (!condition) throw 0; var result = 1; } catch (error) {}",
     "let result; if (condition) { result = 1; }",
+    "var result; condition && (result = 1);",
+    "var result; condition || (result = 1);",
+    "var result; condition ?? (result = 1);",
+    "var result; condition ? (result = 1) : 0;",
+    "var result; condition ? 0 : (result = 1);",
   ])("does not treat %s as a definite literal", (declarations) => {
     const analysis = analyzeJavaScriptSemantics(
       `${declarations} function read() { return result; } read();`,
@@ -20,6 +25,15 @@ describe("conditionally initialized JavaScript bindings", () => {
       status: "literal",
       value: 1,
     });
+  });
+
+  it("keeps an assignment on the always-run side exact", () => {
+    const analysis = analyzeJavaScriptSemantics(
+      "var result; (result = 1) && condition; function read() { return result; }",
+    );
+    expect(
+      analysis.bindings.find((entry) => entry.name === "result")?.value,
+    ).toEqual({ status: "literal", value: 1 });
   });
 
   it("keeps an unconditional var initializer exact", () => {
