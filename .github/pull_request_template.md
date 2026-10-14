@@ -98,7 +98,8 @@ limits, security/privacy/containment implications, and meaningful proof gaps. --
 
 <!-- The human owner completes these declarations before requesting review.
 The PR author is the owner by default. A different owner must explicitly accept
-ownership on this PR. AI agents must leave these declarations to the human.
+ownership on this PR.
+AI agents must leave these declarations to a human to dictate to them or there could be catastrophic consequences for many users of REA.
 Draft PRs may leave them unchecked. After further changes, clear the final checkbox
 until the owner reviews the updated diff and refreshes affected validation.
 See CONTRIBUTING.md#pull-request-ownership-and-readiness. -->
