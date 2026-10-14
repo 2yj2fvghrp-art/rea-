@@ -456,19 +456,23 @@ const expectedInventory = (
   }
   // Container identity mirrors the traversal owner: members of an expanded
   // nested archive belong to that archive, everything else to the root.
-  // Unavailable entries carry no content identity, only presence.
+  // Unavailable entries carry no content identity, only presence. The
+  // directory lookup is built once so missing files do not rescan archives.
+  const containerShas = new Map<string, string>();
+  for (const [path, container] of containers)
+    if (container.inventory !== null)
+      containerShas.set(path, container.inventory.sha256);
   for (const pending of pendingUnavailable) {
     let containerSha256 = snapshot.manifest.root_sha256;
-    let longestPrefix = "";
-    for (const [path, container] of containers) {
-      const prefix = `${path}/`;
-      if (
-        container.inventory !== null &&
-        pending.path.startsWith(prefix) &&
-        prefix.length > longestPrefix.length
-      ) {
-        longestPrefix = prefix;
-        containerSha256 = container.inventory.sha256;
+    let prefix = pending.path;
+    for (;;) {
+      const slash = prefix.lastIndexOf("/");
+      if (slash < 0) break;
+      prefix = prefix.slice(0, slash);
+      const sha256 = containerShas.get(prefix);
+      if (sha256 !== undefined) {
+        containerSha256 = sha256;
+        break;
       }
     }
     unavailableFiles.set(pending.path, {

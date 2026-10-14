@@ -1151,8 +1151,22 @@ const readPackageMetadata = (
   if (
     file === undefined ||
     (source !== undefined && file.container_sha256 !== source.container_sha256)
-  )
+  ) {
+    // An inventoried manifest without acquirable bytes leaves the package
+    // entry unknown; falling back to an index file would select a wrong
+    // target while reporting it resolved.
+    const unavailable = input.unavailableFiles?.get(path);
+    if (
+      unavailable !== undefined &&
+      (source === undefined ||
+        unavailable.container_sha256 === source.container_sha256)
+    )
+      return {
+        kind: "unavailable",
+        limitation: `Directory package metadata ${path} exists in the inventoried artifact container but its bytes were unavailable, so the package entry remains unknown.`,
+      };
     return { kind: "absent" };
+  }
   if (!file.text.included)
     return {
       kind: "unavailable",

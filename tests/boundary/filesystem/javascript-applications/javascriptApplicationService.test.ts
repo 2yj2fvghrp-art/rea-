@@ -418,4 +418,59 @@ describe("JavaScript ASAR unpacked companion availability boundary", () => {
       ),
     ).toBe(true);
   });
+
+  it("reports a directory require as unavailable when its package manifest companion is missing", async () => {
+    const root = await createTestTempDirectory("rea-js-asar-missing-manifest-");
+    const source = join(root, "source");
+    await mkdir(join(source, "pkg"), { recursive: true });
+    await writeFile(
+      join(source, "package.json"),
+      '{"name":"manifest-repro","version":"1.0.0","main":"main.js"}\n',
+    );
+    await writeFile(
+      join(source, "main.js"),
+      'const pkg = require("./pkg");\nmodule.exports = pkg;\n',
+    );
+    await writeFile(
+      join(source, "pkg", "package.json"),
+      '{"main": "./entry.js"}\n',
+    );
+    await writeFile(join(source, "pkg", "entry.js"), "module.exports = 1;\n");
+    await writeFile(join(source, "pkg", "index.js"), "module.exports = 2;\n");
+    const archive = join(root, "app.asar");
+    await createPackageWithOptions(source, archive, {
+      unpack: "**/pkg/package.json",
+    });
+    await rm(join(`${archive}.unpacked`, "pkg", "package.json"));
+
+    const result = await analyzeJavaScriptApplication({
+      input_path: archive,
+    });
+    if (!result.ok) throw result.error;
+    const analysis = javascriptApplicationAnalysisResultSchema.parse(
+      result.value.normalized_result,
+    );
+    // The unknown manifest entry must not silently resolve to the index file.
+    expect(
+      analysis.graph.edges.some(
+        ({ properties }) =>
+          properties.specifier === "./pkg" &&
+          properties.resolution_status === "unavailable" &&
+          properties.resolved_path === null,
+      ),
+    ).toBe(true);
+    expect(
+      analysis.graph.edges.some(
+        ({ properties }) =>
+          properties.specifier === "./pkg" &&
+          properties.resolved_path === "pkg/index.js",
+      ),
+    ).toBe(false);
+    expect(analysis.graph.coverage.status).toBe("partial");
+    expect(
+      analysis.graph.limitations.some((limitation) =>
+        limitation.includes("pkg/package.json"),
+      ),
+    ).toBe(true);
+  });
 });
