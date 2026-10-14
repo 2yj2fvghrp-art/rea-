@@ -1,40 +1,26 @@
 import type { EvidenceMcpServer } from "./EvidenceMcpServer.js";
-import type { EvidenceWriter } from "../application/investigation/InvestigationRecordPort.js";
-import type { EvidenceLookup } from "../application/EvidenceInputResolver.js";
-import {
-  requireAnalysisViewRetention,
-  summarizeRetainedAnalysis,
-} from "../application/analysisView/AnalysisViewService.js";
-
 import type { AnalysisOperationPort } from "../application/AnalysisProvider.js";
 import { MANAGED_TOOL_CONTRACTS } from "../contracts/managed/managedToolContracts.js";
-import type { BinaryTarget } from "../domain/binaryTargetTypes.js";
 import { AnalysisInputError } from "../domain/analysisErrorCore.js";
-import { err, ok } from "../domain/result.js";
-import type { Logger } from "pino";
+import { err } from "../domain/result.js";
 import { registerEvidenceTools } from "./registerEvidenceTools.js";
+import {
+  retainedSummaryDelivery,
+  type EvidenceToolFamilyOptions,
+} from "./retainedSummaryDelivery.js";
 import { runManagedProviderExecution } from "../composition/directAnalysis.js";
 import { isManagedToolName } from "../contracts/managed/managedToolContracts.js";
 
-/** Operations whose caller may select a retained summary instead of complete delivery. */
-const summarizesRetainedEvidence = (
-  operation: string,
-  parameters: Readonly<Record<string, unknown>>,
-): boolean =>
-  (operation === "inspect_managed_artifact" ||
-    operation === "inspect_managed_members") &&
-  parameters.detail === "summary";
+/** Operations whose MCP delivery may be a retained summary view. */
+const SUMMARY_DELIVERY: ReadonlySet<string> = new Set([
+  "inspect_managed_artifact",
+  "inspect_managed_members",
+]);
 
 /** Register execution-free managed PE/CLI inspection. */
 export const registerManagedTools = (
   server: EvidenceMcpServer,
-  options: {
-    readonly logger: Logger;
-    readonly activeTarget: (() => BinaryTarget | undefined) | undefined;
-    readonly recordEvidence: EvidenceWriter["recordEvidence"] | undefined;
-    readonly evidenceById?: EvidenceLookup | undefined;
-    readonly withAdmittedAnalysis: import("./analysisAdmission.js").WithAdmittedAnalysis;
-  },
+  options: EvidenceToolFamilyOptions,
 ): void => {
   let selectedManagedPath: string | undefined;
   const analysisForAdmission = (
@@ -44,13 +30,6 @@ export const registerManagedTools = (
       if (!isManagedToolName(operation))
         return analysis.execute(operation, parameters, executionOptions);
       const { detail: _detail, ...providerParameters } = parameters;
-      if (summarizesRetainedEvidence(operation, parameters)) {
-        const ready = requireAnalysisViewRetention(operation, {
-          recordEvidence: options.recordEvidence,
-          evidenceById: options.evidenceById,
-        });
-        if (!ready.ok) return ready;
-      }
       const requestedPath = parameters.path;
       const activeTarget = options.activeTarget?.();
       const path =
@@ -84,13 +63,7 @@ export const registerManagedTools = (
   });
   registerEvidenceTools(server, MANAGED_TOOL_CONTRACTS, {
     ...options,
+    ...retainedSummaryDelivery(SUMMARY_DELIVERY, options),
     analysisForAdmission,
-    projectEvidence: (operation, parameters, evidence) =>
-      summarizesRetainedEvidence(operation, parameters)
-        ? summarizeRetainedAnalysis(evidence, {
-            recordEvidence: options.recordEvidence,
-            evidenceById: options.evidenceById,
-          })
-        : ok(evidence),
   });
 };

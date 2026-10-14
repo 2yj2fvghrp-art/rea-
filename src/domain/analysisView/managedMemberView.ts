@@ -1,7 +1,6 @@
 import { z } from "zod";
 import type { AnalysisError } from "../analysisErrorBase.js";
 import { uniqueSorted } from "../canonicalOrdering.js";
-import { analysisInputErrorFromIssues } from "../inputIssueProjection.js";
 import {
   managedMemberInspectionSchema,
   type ManagedMemberInspection,
@@ -18,6 +17,7 @@ import {
   pageViewCoverage,
 } from "./analysisViewCoverage.js";
 import { managedViewIdentityUnknowns } from "./managedArtifactView.js";
+import { parseAnalysisViewResult } from "./analysisViewParent.js";
 
 const member = managedMemberInspectionSchema.shape;
 
@@ -148,33 +148,22 @@ const validatedReports = new WeakMap<
 >();
 
 /** Validate the parent once per sealed result instead of once per page. */
-const parseMemberReport = ({
-  normalizedResult,
-  sealedResult,
-}: AnalysisViewParent): Result<ManagedMemberInspection, AnalysisError> => {
+const parseMemberReport = (
+  parent: AnalysisViewParent,
+): Result<ManagedMemberInspection, AnalysisError> => {
+  const { normalizedResult } = parent;
   const sealed =
-    sealedResult === true &&
+    parent.sealedResult === true &&
     typeof normalizedResult === "object" &&
     normalizedResult !== null;
   const cached = sealed
     ? validatedReports.get(normalizedResult)?.deref()
     : undefined;
   if (cached !== undefined) return ok(cached);
-  const parsed = managedMemberInspectionSchema.safeParse(normalizedResult);
-  if (!parsed.success)
-    return err(
-      analysisInputErrorFromIssues(
-        "inspect_analysis_view",
-        parsed.error.issues.map((issue) => ({
-          ...issue,
-          path: ["source", "normalized_result", ...issue.path],
-        })),
-        { source: { normalized_result: normalizedResult } },
-        { cause: parsed.error },
-      ),
-    );
-  if (sealed) validatedReports.set(normalizedResult, new WeakRef(parsed.data));
-  return ok(parsed.data);
+  const parsed = parseAnalysisViewResult(managedMemberInspectionSchema, parent);
+  if (parsed.ok && sealed)
+    validatedReports.set(normalizedResult, new WeakRef(parsed.value));
+  return parsed;
 };
 
 /** Everything but the member collections, which are replaced by their counts. */
