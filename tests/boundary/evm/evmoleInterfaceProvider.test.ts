@@ -266,7 +266,7 @@ it.runIf(!unsupportedHost).each(["completed", "malformed-reply"] as const)(
       reason: "injected retained cleanup failure",
       captured_output: { stderr: "worker completed", truncated: false },
       ...(scenario === "malformed-reply"
-        ? { previous_error: { code: "output_failure" } }
+        ? { previous_error: { code: "unreadable_output" } }
         : { previous_error: null }),
     });
     if (scenario === "completed")

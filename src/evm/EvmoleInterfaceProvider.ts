@@ -444,7 +444,12 @@ export class EvmoleInterfaceProvider implements EvmInterfacePort {
         }),
       );
     } catch (cause: unknown) {
-      if (cause instanceof OwnedCommandFailure)
+      // A failure rethrown after retainCleanup carries no owner of its own;
+      // keep the retained worker instead of discarding it.
+      if (
+        cause instanceof OwnedCommandFailure &&
+        cause.cleanupOwner !== undefined
+      )
         processOwner = cause.cleanupOwner;
       let fileFailure: EvmFileSizeFailureEvidence | undefined;
       let markerCleanupFailure: ArtifactReaderFailure | undefined;

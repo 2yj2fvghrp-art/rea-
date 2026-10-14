@@ -215,7 +215,9 @@ it.each(["capinfos", "tshark"] as const)(
       reason: "injected retained cleanup failure",
       previous_error: null,
       captured_output: {
-        stdout: stage === "capinfos" ? CAPINFOS_OUTPUT : TSHARK_JSON,
+        // Retained output is the producer's exact stdout; the capinfos stub
+        // ends its report with a newline.
+        stdout: stage === "capinfos" ? `${CAPINFOS_OUTPUT}\n` : TSHARK_JSON,
         truncated: false,
       },
     });
