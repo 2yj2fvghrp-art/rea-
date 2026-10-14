@@ -72,7 +72,7 @@ describe("onboarding documentation product facts", () => {
     expect(rel).toContain("# REL");
     expect(rel).toContain("node rel.mjs demo");
     expect(rel).toContain("rel/CONNECT_CODEX.md");
-    expect(upstream).toContain("# REA: Reverse Engineer Anything");
+    expect(upstream).toContain("# REE: Reverse Engineer Everything");
   });
 
   it("preserves Persian joiners in links to GitHub-rendered headings", async () => {
