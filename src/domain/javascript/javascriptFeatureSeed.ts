@@ -40,17 +40,6 @@ const seedMatch = (
   node: ApplicationNode,
   seed: ApplicationFeatureSeed,
 ): ApplicationFeatureSeedMatch[] => {
-  if (seed.kind === "node-id")
-    return node.node_id === seed.value
-      ? [
-          {
-            node_id: node.node_id,
-            kind: node.kind,
-            basis: "node-id",
-            field: "node_id",
-          },
-        ]
-      : [];
   if (!kindMatches(node, seed.kind)) return [];
   const requestedEntryPath =
     seed.kind === "api" && "entry_path" in seed ? seed.entry_path : undefined;
@@ -90,9 +79,9 @@ const seedMatch = (
 
 const kindMatches = (
   node: ApplicationNode,
-  kind: Exclude<ApplicationFeatureSeed["kind"], "node-id">,
+  kind: ApplicationFeatureSeed["kind"],
 ): boolean => {
-  if (kind === "string") return true;
+  if (kind === "string" || kind === "node-id") return true;
   if (kind === "route")
     return (
       node.kind === "endpoint" &&
@@ -116,8 +105,10 @@ const kindMatches = (
 
 const candidateFields = (
   node: ApplicationNode,
-  seedKind: Exclude<ApplicationFeatureSeed["kind"], "node-id">,
+  seedKind: ApplicationFeatureSeed["kind"],
 ): CandidateField[] => {
+  if (seedKind === "node-id")
+    return [{ basis: "node-id", field: "node_id", value: node.node_id }];
   const fields: CandidateField[] = [
     ...identityFields(node),
     ...node.observations.flatMap((observation, index) => [
