@@ -1,16 +1,17 @@
 import { accessSync, constants } from "node:fs";
-import { join } from "node:path";
 
 import type { ConfigurationError } from "../domain/configurationErrors.js";
 import { ok, type Result } from "../domain/result.js";
 import { parseEnvironment } from "./environment.js";
 import { homeDirectoryFromEnvironment } from "./homeDirectory.js";
 import type { AppConfig } from "./types.js";
+import {
+  linuxHopperLauncherCandidates,
+  REA_MANAGED_LINUX_HOPPER_LAUNCHER,
+} from "../application/LinuxHopper.js";
 
 const DEFAULT_HOPPER_LAUNCHER_PATH =
   "/Applications/Hopper Disassembler.app/Contents/MacOS/hopper";
-const SYSTEM_LINUX_HOPPER = "/opt/hopper/bin/Hopper";
-
 const executableAvailable = (path: string): boolean => {
   try {
     accessSync(path, constants.X_OK);
@@ -20,15 +21,16 @@ const executableAvailable = (path: string): boolean => {
   }
 };
 
-const defaultHopperLauncherPath = (
+export const defaultHopperLauncherPath = (
   platform: NodeJS.Platform,
   homeDirectory: string,
   executable: (path: string) => boolean = executableAvailable,
 ): string => {
   if (platform !== "linux") return DEFAULT_HOPPER_LAUNCHER_PATH;
-  if (executable(SYSTEM_LINUX_HOPPER)) return SYSTEM_LINUX_HOPPER;
-  const userLocal = join(homeDirectory, ".local/share/rea/hopper/bin/Hopper");
-  return executable(userLocal) ? userLocal : SYSTEM_LINUX_HOPPER;
+  return (
+    linuxHopperLauncherCandidates(homeDirectory).find(executable) ??
+    REA_MANAGED_LINUX_HOPPER_LAUNCHER
+  );
 };
 
 /** Parse provider configuration and runtime prerequisites at the composition root. */

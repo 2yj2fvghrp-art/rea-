@@ -3,6 +3,7 @@ import {
   readClientConfigurationFiles,
   effectiveClientConfiguration,
   readConfigurationText,
+  type ClientConfigurationSource,
 } from "./ClientConfigurationFiles.js";
 import { err, ok, type Result } from "../domain/result.js";
 import {
@@ -19,9 +20,7 @@ import {
   type ClientConfigurationDocument,
 } from "./ClientConfigurationDocument.js";
 import { dshDocument, DshCordisDocument } from "./DshCordisPatch.js";
-import { constants as fsConstants } from "node:fs";
-import { createHash } from "node:crypto";
-import { copyFile, mkdir, rm, writeFile } from "node:fs/promises";
+import { mkdir, rm, writeFile } from "node:fs/promises";
 import { dirname } from "node:path";
 import writeFileAtomic from "write-file-atomic";
 import { clientRegistrationEnvironment } from "./ClientRegistrationEnvironment.js";
@@ -32,14 +31,14 @@ import { MCP_STARTUP_POLICY } from "../mcpStartupPolicy.js";
 import { resolveClientConfigTransactionPath } from "./ClientConfigPath.js";
 import { packageReadTargetChanged } from "./MsixPackageStorage.js";
 import {
-  readRegularFile,
   readRegularFileText,
   RegularFileCleanupFailure,
 } from "./RegularFileRead.js";
-import type {
-  ClientConfigurationFileError,
-  ClientConfigurationSource,
-} from "./ClientConfigurationFiles.js";
+import {
+  preserveRecoveryBackup,
+  selectCurrentRecoveryBackup,
+} from "./SetupRecoveryBackup.js";
+import type { ClientConfigurationFileError } from "./ClientConfigurationFiles.js";
 import type {
   ClientConfigurationInspection,
   ClientConfigurationResult,
@@ -224,7 +223,10 @@ const persistClientConfiguration = async ({
     const selection = await selectCurrentRecoveryBackup(backupPath, original);
     if (!selection.ok) return { status: "failed", reason: "backup" };
     if (
-      !(await preserveConfigBackup(transactionPath, selection.value.backupPath))
+      !(await preserveRecoveryBackup(
+        transactionPath,
+        selection.value.backupPath,
+      ))
     )
       return { status: "failed", reason: "backup" };
     const verified = await selectCurrentRecoveryBackup(backupPath, original);
@@ -593,76 +595,6 @@ const readZcodeFallbackServers = async (
       detail: `${detail} ${cause instanceof Error ? cause.message : String(cause)}`,
     });
   }
-};
-
-const preserveConfigBackup = async (
-  source: string,
-  destination: string,
-): Promise<boolean> => {
-  try {
-    await copyFile(source, destination, fsConstants.COPYFILE_EXCL);
-    return true;
-  } catch (cause: unknown) {
-    return cause instanceof Error && "code" in cause && cause.code === "EEXIST";
-  }
-};
-
-interface RecoveryBackupSelection {
-  readonly backupPath: string;
-  readonly present: boolean;
-}
-
-interface RecoveryBackupSelectionFailure {
-  readonly kind: "unreadable" | "occupied";
-  readonly path: string;
-  readonly detail: string;
-}
-
-const selectCurrentRecoveryBackup = async (
-  firstBackupPath: string,
-  original: string,
-): Promise<Result<RecoveryBackupSelection, RecoveryBackupSelectionFailure>> => {
-  const expected = Buffer.from(original, "utf8");
-  let firstBackup: Buffer | undefined;
-  try {
-    firstBackup = await readRegularFile(firstBackupPath, {
-      symlinks: "reject",
-    });
-  } catch (cause: unknown) {
-    if (cause instanceof RegularFileCleanupFailure) throw cause;
-    if (!isMissing(cause))
-      return err({
-        kind: "unreadable",
-        path: firstBackupPath,
-        detail: `The recovery backup could not be checked: ${errorDetail(cause)}`,
-      });
-  }
-  if (firstBackup === undefined)
-    return ok({ backupPath: firstBackupPath, present: false });
-  if (firstBackup.equals(expected))
-    return ok({ backupPath: firstBackupPath, present: true });
-
-  const digest = createHash("sha256").update(original, "utf8").digest("hex");
-  const recoveryPath = `${firstBackupPath}.${digest}.recovery`;
-  let recovery: Buffer | undefined;
-  try {
-    recovery = await readRegularFile(recoveryPath, { symlinks: "reject" });
-  } catch (cause: unknown) {
-    if (cause instanceof RegularFileCleanupFailure) throw cause;
-    if (!isMissing(cause))
-      return err({
-        kind: "unreadable",
-        path: recoveryPath,
-        detail: `The recovery backup could not be checked: ${errorDetail(cause)}`,
-      });
-  }
-  if (recovery !== undefined && !recovery.equals(expected))
-    return err({
-      kind: "occupied",
-      path: recoveryPath,
-      detail: `The recovery path already contains different data: ${recoveryPath}`,
-    });
-  return ok({ backupPath: recoveryPath, present: recovery !== undefined });
 };
 
 const restoreConfig = async (
