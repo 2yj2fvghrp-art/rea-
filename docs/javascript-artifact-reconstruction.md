@@ -260,6 +260,14 @@ after the existing collection/configuration exclusions; excluded lookup keys do
 not become endpoints merely because they start with `?` or `#`. Original text,
 parameter ordering and fragments are preserved without choosing a base URL,
 decoding or trimming. This is explicit-shape recognition, not full URI validation.
+HTTP(S)/WebSocket path references admit both slash kinds, including root,
+network, dot-relative and mixed-separator spellings such as `\api\users`,
+`\\api.example.test\users`, `.\users` and `..\users`. Their source spelling
+is retained when credential-free; the analysis does not choose a base or resolve
+them to an origin. Captured-web findings remove URL userinfo from relative
+network references through the shared transport URL parser. Ambiguous userinfo
+spellings may use a safe network-reference fallback without publishing its
+temporary parsing scheme or origin.
 HTTP(S)/WebSocket scheme forms without authority slashes, such as
 `https:api.example.test/users`, are also recognized when WHATWG URL parsing
 succeeds without a base. Credential-free arguments retain their original

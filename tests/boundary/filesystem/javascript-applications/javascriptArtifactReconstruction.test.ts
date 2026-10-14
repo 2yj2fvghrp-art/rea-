@@ -89,8 +89,11 @@ it("preserves graph commitments, endpoint certainty and export shapes when consu
     client.get("?page=2&tag=a&tag=b#section");
     client.get("#section");
     client.get("https:api.example.test/users?q=1&tag=a&tag=b#part");
+    client.get(${JSON.stringify(String.raw`..\users?tag=a&tag=b#part`)});
+    client.get(${JSON.stringify(String.raw`\api\users`)});
     new Map().get("?lookup");
     new Map().get("#lookup");
+    new Map().get(${JSON.stringify(String.raw`\lookup`)});
   `,
   );
   const snapshot = await scanCanonicalArtifactInventory(root, {});
@@ -214,7 +217,9 @@ const assertEndpointInterpretations = (
   expect(
     endpointObservations.some(
       ({ properties }) =>
-        properties.value === "?lookup" || properties.value === "#lookup",
+        properties.value === "?lookup" ||
+        properties.value === "#lookup" ||
+        properties.value === String.raw`\lookup`,
     ),
   ).toBe(false);
   const candidates = endpointObservations.filter(
@@ -252,6 +257,12 @@ const assertEndpointInterpretations = (
         confidence: "exact",
       },
       { value: "#section", state: "observed", confidence: "exact" },
+      { value: String.raw`\api\users`, state: "observed", confidence: "exact" },
+      {
+        value: String.raw`..\users?tag=a&tag=b#part`,
+        state: "observed",
+        confidence: "exact",
+      },
       {
         value: "https:api.example.test/users?q=1&tag=a&tag=b#part",
         state: "observed",

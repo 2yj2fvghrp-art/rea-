@@ -376,6 +376,19 @@ describe("web bundle API classification parity", () => {
 
 describe("web bundle explicit request reference forms", () => {
   it("recognizes URL, path, query and fragment forms after excluding lookup receivers", () => {
+    const separators = ["/", "\\"];
+    const paths = separators.flatMap((separator) => [
+      separator,
+      `.${separator}`,
+      `..${separator}`,
+      `${separator}api${separator}users`,
+      `.${separator}users`,
+      `..${separator}users`,
+      ...separators.map(
+        (second) => `${separator}${second}api.example.test${separator}users`,
+      ),
+    ]);
+    const xhrReference = String.raw`..\xhr?tag=a&tag=b#part`;
     const references = [
       "http://api.example.test/users",
       "https://api.example.test/users?q=1#part",
@@ -389,10 +402,10 @@ describe("web bundle explicit request reference forms", () => {
       "HtTpS:/api.example.test/users",
       String.raw`https:\api.example.test\users`,
       "https://[invalid",
-      "//api.example.test/users",
-      "/api/users",
-      "./users",
-      "../users",
+      ...paths,
+      String.raw`/api\users`,
+      String.raw`\api/users`,
+      String.raw`.\api/users?tag=a&tag=b#part`,
       "?",
       "?page=2&tag=a&tag=b#section",
       "#",
@@ -416,6 +429,11 @@ describe("web bundle explicit request reference forms", () => {
       "ftp:api.example.test/users",
       "file:/users",
       "data:text/plain,users",
+      String.raw`...\users`,
+      String.raw`users\child`,
+      String.raw` .\users`,
+      "%5capi%5cusers",
+      ".%5cusers",
     ];
     const source = `
       ${references.map((value) => `api.get(${JSON.stringify(value)});`).join("\n")}
@@ -424,21 +442,28 @@ describe("web bundle explicit request reference forms", () => {
       xhr.open(method, "#view=1");
       xhr.open("GET", "#literal=1");
       xhr.open(method, "https:api.example.test/xhr");
+      xhr.open(method, ${JSON.stringify(xhrReference)});
+      xhr.open("GET", ${JSON.stringify(String.raw`xhr\literal`)});
+      xhr.open(method, ${JSON.stringify(String.raw`xhr\ambiguous`)});
       request("POST", target);
       snackBar.open(message, "X");
       new Map().get("?map-key");
       new Map().get("#map-key");
       new Map().get("https:api.example.test/map-key");
+      new Map().get(${JSON.stringify(String.raw`\\api.example.test\users`)});
       new Headers().delete("?header-key");
       new Headers().delete("#header-key");
+      new Headers().delete(${JSON.stringify(String.raw`..\users`)});
       new URLSearchParams().get("?parameter-key");
       new URLSearchParams().get("#parameter-key");
       response.headers.get("?response-key");
       response.headers.get("#response-key");
+      response.headers.get(${JSON.stringify(String.raw`\api\users`)});
       const config = vscode.workspace.getConfiguration("git");
       config.get("?setting");
       config.get("#setting");
       config.get("https:api.example.test/setting");
+      config.get(${JSON.stringify(String.raw`.\users`)});
       window.open(url, "?window-target");
       window.open(url, "#window-target");
       indexedDB.open(name, "?database-version");
@@ -452,8 +477,15 @@ describe("web bundle explicit request reference forms", () => {
       "#view=1",
       "#literal=1",
       "https:api.example.test/xhr",
+      xhrReference,
+      String.raw`xhr\literal`,
     ].sort();
-    const expectedCandidates = [...ambiguous, "POST", "X"].sort();
+    const expectedCandidates = [
+      ...ambiguous,
+      "POST",
+      "X",
+      String.raw`xhr\ambiguous`,
+    ].sort();
     const web = analyzeCapturedWebBundle(inspection(source));
     expect(web.observations.endpoints.map(({ value }) => value).sort()).toEqual(
       expected,

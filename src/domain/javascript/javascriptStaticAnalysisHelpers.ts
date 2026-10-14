@@ -419,16 +419,13 @@ const isRequestUrlOrPathLiteral = (value: string): boolean =>
 
 /** Explicit request references, classified after receiver-specific exclusions. */
 const isRequestUrlReference = (value: string): boolean => {
-  if (
-    isRequestUrlOrPathLiteral(value) ||
-    value.startsWith("?") ||
-    value.startsWith("#")
-  )
-    return true;
+  // Special HTTP/WS URLs use either slash kind for root/network and dot
+  // references. Recognize the literal prefix without resolving a page base.
+  if (/^(?:[\\/?#]|\.\.?[\\/])/u.test(value)) return true;
   // WHATWG accepts HTTP/WS scheme forms without authority slashes. Parse
   // without a base so bare keys stay ambiguous, and keep the source spelling.
   if (!/^(?:https?|wss?):/iu.test(value)) return false;
-  return URL.parse(value) !== null;
+  return isRequestUrlOrPathLiteral(value) || URL.parse(value) !== null;
 };
 
 /**
