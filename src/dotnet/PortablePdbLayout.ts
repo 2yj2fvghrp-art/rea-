@@ -389,6 +389,7 @@ export const readPortablePdbLayout = (bytes: Buffer): PortablePdbLayout => {
     strings: optionalStream(streams, "#Strings"),
     guid: optionalStream(streams, "#GUID"),
     blob: requireStream(streams, "#Blob"),
+    userStrings: streams.get("#US") ?? null,
     tables: pdbTables,
     rowCounts: pdb.typeSystemRowCounts,
     stringIndexSize: heaps.string,
