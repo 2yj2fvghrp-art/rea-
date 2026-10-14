@@ -10,11 +10,12 @@ import { proofEvidence } from "./ReconstructionObligationLedger.fixture.js";
 
 /**
  * Build a non-canonical bundle by constructing a canonical one and then
- * swapping the order of its `records` array so the manifest arrays no longer
- * match the re-derived canonical form. `parseEvidenceBundle` inside the
- * ledger pipeline will throw `TypeError("Evidence bundle manifests are not
- * canonical")` which, before the fix for #3219, leaked through as
- * `AnalysisProtocolError` → `unreadable_output`.
+ * swapping the order of its `records` array. The resolver accepts the
+ * input shape because the schema allows any EvidenceBundle shape, but
+ * `parseEvidenceBundle` inside the ledger pipeline performs a whole-bundle
+ * canonical comparison that fails when `records` is out of order. This throws
+ * `TypeError("Evidence bundle manifests are not canonical")` which, before the
+ * fix for #3219, leaked through as `AnalysisProtocolError` → `unreadable_output`.
  */
 const nonCanonicalBundle = () => {
   // Two records whose IDs sort in one direction; reverse them so the bundle
@@ -22,28 +23,27 @@ const nonCanonicalBundle = () => {
   const a = proofEvidence("aaa");
   const b = proofEvidence("bbb");
   const canonical = createEvidenceBundle([a, b]);
-  // Reverse records to produce a non-canonical ordering. The manifest arrays
-  // are derived from the original order so they won't match after re-derivation.
+  // Reverse records to produce a non-canonical ordering. While createEvidenceBundle
+  // sorts records before deriving manifest arrays, the out-of-order `records`
+  // array causes the later whole-bundle canonical comparison in
+  // parseEvidenceBundle() to fail.
   return { ...canonical, records: [...canonical.records].reverse() };
 };
 
 describe("build_reconstruction_obligation_ledger non-canonical bundle handling", () => {
   it("returns AnalysisInputError for a non-canonical evidence bundle (issue #3219)", () => {
-    // Construct the raw input with a deliberately non-canonical bundle. We
-    // bypass resolveReconstructionObligationLedgerRequest because the schema
-    // accepts any EvidenceBundle shape; the canonicality check only fires
-    // inside the workflow when parseEvidenceBundle re-authenticates it.
+    // The resolver accepts the shape of the input (the schema allows any
+    // EvidenceBundle shape). The canonicality check fires downstream in
+    // deriveReconstructionObligationCandidates when parseEvidenceBundle()
+    // performs whole-bundle canonical comparison, throwing a TypeError that
+    // the ledger service maps to AnalysisInputError.
     const parsed = resolveReconstructionObligationLedgerRequest({
       evidence_bundle: nonCanonicalBundle(),
       reviewed_obligations: [],
       manifest: { bindings: [], contradictions: [] },
     });
-    if (!parsed.ok) {
-      // If schema-level validation caught it first, that is also acceptable
-      // (it would still surface as AnalysisInputError from requestInputError).
-      expect(parsed.error).toBeInstanceOf(AnalysisInputError);
-      return;
-    }
+    expect(parsed.ok).toBe(true);
+    if (!parsed.ok) throw new Error("Expected request parsing to succeed");
 
     const result = buildReconstructionObligationLedgerEvidenceValidated(
       parsed.value,
@@ -53,7 +53,7 @@ describe("build_reconstruction_obligation_ledger non-canonical bundle handling",
     // AnalysisInputError (→ invalid_request), NOT AnalysisProtocolError
     // (→ unreadable_output).
     expect(result.ok).toBe(false);
-    if (result.ok) return;
+    if (result.ok) throw new Error("Expected err result");
     expect(result.error).toBeInstanceOf(AnalysisInputError);
     if (!(result.error instanceof AnalysisInputError)) return;
     expect(result.error.operation).toBe(
@@ -67,11 +67,13 @@ describe("build_reconstruction_obligation_ledger non-canonical bundle handling",
       reviewed_obligations: [],
       manifest: { bindings: [], contradictions: [] },
     });
-    if (!parsed.ok) return; // schema-level catch; already AnalysisInputError
+    expect(parsed.ok).toBe(true);
+    if (!parsed.ok) throw new Error("Expected request parsing to succeed");
 
     const result = buildReconstructionObligationLedgerEvidenceValidated(
       parsed.value,
     );
+    expect(result.ok).toBe(false);
     if (result.ok) throw new Error("Expected err result");
 
     const error = result.error;
