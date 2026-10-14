@@ -171,6 +171,9 @@ export class ZipArtifactReader implements ArtifactReader {
     this.#reader = new ZipReader(this.#source, {
       checkSignature: true,
       checkOverlappingEntry: true,
+      // Bit 11 and valid Unicode Path fields select UTF-8. Unflagged bytes
+      // otherwise retain ZIP's legacy encoding even when valid as UTF-8.
+      filenameEncoding: "cp437",
       // REA applies its own provider-neutral path validation in scanReader and
       // must preserve that typed failure instead of zip.js rejecting first.
       filenameValidation: "tolerant",

@@ -50,6 +50,8 @@ const legacyControlNames = [
 
 it.each([
   ["legacy CP437", Buffer.from([0x82, 0x2e, 0x74, 0x78, 0x74]), false, "é.txt"],
+  ["legacy bytes also valid as UTF-8", Buffer.from("é.txt"), false, "├⌐.txt"],
+  ["explicit UTF-8", Buffer.from("é.txt"), true, "é.txt"],
   ...legacyControlNames,
   [
     "EFS with leading U+FEFF",
@@ -62,11 +64,12 @@ it.each([
   async (_label, rawName, utf8Flag, logicalPath) => {
     const root = await createTestTempDirectory("rea-zip-decoded-name-");
     const path = join(root, "names.zip");
-    await writeSingleEntryZip(path, "x.txt");
+    const originalName = "x".repeat(rawName.length);
+    await writeSingleEntryZip(path, originalName);
     const archive = await readFile(path);
     await writeFile(
       path,
-      rewriteSingleEntryName(archive, "x.txt", rawName, utf8Flag),
+      rewriteSingleEntryName(archive, originalName, rawName, utf8Flag),
     );
 
     const inventory = await inventoryArtifact(path);
