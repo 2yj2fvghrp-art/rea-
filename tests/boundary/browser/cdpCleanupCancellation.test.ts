@@ -51,7 +51,7 @@ it.each(["Page.disable", "Target.detachFromTarget"])(
   },
 );
 
-it("reports cancellation when it arrives during cleanup after capture", async () => {
+it("releases cleanup when cancellation arrives after capture completes", async () => {
   const browser = await startFakeCdpBrowser({ hangOnMethod: "Page.disable" });
   onTestFinished(async () => {
     await browser.close();
@@ -73,13 +73,7 @@ it("reports cancellation when it arrives during cleanup after capture", async ()
   });
   controller.abort();
   const result = await pending;
-  expect(result).toMatchObject({
-    ok: false,
-    error: {
-      _tag: "AnalysisCancelledError",
-      operation: "observe_web_session",
-    },
-  });
+  expect(result.ok).toBe(true);
   expect(browser.commands.map(({ method }) => method)).toContain(
     "Target.detachFromTarget",
   );

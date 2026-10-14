@@ -22,17 +22,18 @@ export const listJavaScriptRuntimeTargets = async (
   const ready = requireProvider(provider, "list_javascript_runtime_targets");
   if (!ready.ok) return ready;
   const result = await ready.value.listTargets(input, options);
-  if (!result.ok) return result;
-  if (options.signal?.aborted === true)
+  if (result.ok && options.signal?.aborted === true)
     return err(new AnalysisCancelledError("list_javascript_runtime_targets"));
-  return ok(
-    createJavaScriptRuntimeObservationEvidence(
-      "list_javascript_runtime_targets",
-      input,
-      result.value,
-      ready.value.identity(),
-    ),
-  );
+  return result.ok
+    ? ok(
+        createJavaScriptRuntimeObservationEvidence(
+          "list_javascript_runtime_targets",
+          input,
+          result.value,
+          ready.value.identity(),
+        ),
+      )
+    : result;
 };
 
 /** Observe one attach-only Inspector target selected by the request. */
