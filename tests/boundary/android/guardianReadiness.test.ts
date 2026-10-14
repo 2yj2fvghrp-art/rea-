@@ -29,6 +29,29 @@ it("bounds guardian readiness by UTF-8 bytes", async () => {
   expect(stdout.listenerCount("data")).toBe(0);
 });
 
+it("counts readiness bytes across stdout chunks", async () => {
+  const stdout = new PassThrough();
+  const ready = readGuardianReadyLine(stdout);
+
+  stdout.write("a".repeat(2048));
+  stdout.write("b".repeat(2049));
+
+  await expect(ready).rejects.toThrow("exceeded 4 KiB");
+  expect(stdout.listenerCount("data")).toBe(0);
+});
+
+it("counts the newline toward the 4 KiB readiness limit", async () => {
+  const withinLimit = new PassThrough();
+  const accepted = readGuardianReadyLine(withinLimit);
+  withinLimit.write(`${"a".repeat(4095)}\n`);
+  await expect(accepted).resolves.toBe("a".repeat(4095));
+
+  const overLimit = new PassThrough();
+  const rejected = readGuardianReadyLine(overLimit);
+  overLimit.write(`${"a".repeat(4096)}\n`);
+  await expect(rejected).rejects.toThrow("exceeded 4 KiB");
+});
+
 it("rejects invalid UTF-8 before accepting a guardian path", async () => {
   const stdout = new PassThrough();
   const ready = readGuardianReadyLine(stdout);
