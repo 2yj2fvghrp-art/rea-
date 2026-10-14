@@ -325,7 +325,8 @@ selected engine. See [provider selection](cli.md#choose-a-provider).
 On Linux, REA's shared process supervisor requires a procps-compatible `ps`
 on REA's `PATH` for ownership checks before launching a child. Ghidra, JADX,
 firmware tools and static JavaScript/Electron analysis use these checks.
-Install `procps` or put another procps-compatible `ps` on `PATH` before
+Install your distribution's `procps` or `procps-ng` package, or put another
+procps-compatible `ps` on `PATH` before
 running those workflows. A missing or incompatible command causes a refusal
 before the supervised child starts.
 
