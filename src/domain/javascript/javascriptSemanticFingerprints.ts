@@ -198,9 +198,8 @@ const normalizedNodeToken = (node: t.Node, parent: t.Node | null): string => {
     primitiveAttribute(node, "optional"),
     primitiveAttribute(node, "async"),
     primitiveAttribute(node, "generator"),
-    // These flags change the yielded/returned value without changing child nodes.
-    t.isYieldExpression(node) ? primitiveAttribute(node, "delegate") : null,
-    t.isUpdateExpression(node) ? primitiveAttribute(node, "prefix") : null,
+    primitiveAttribute(node, "delegate"),
+    primitiveAttribute(node, "prefix"),
   ].filter((value): value is string => value !== null);
   return [node.type, ...attributes].join(":");
 };
