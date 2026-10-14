@@ -136,6 +136,37 @@ it("uses legacy simulator and device platform facts when resolving dylibs", asyn
   );
 });
 
+it("keeps JVM class resources out of enumerated dylib trace images", async () => {
+  const root = await createTestTempDirectory("rea-macho-jvm-lookalike-");
+  const executablePath = "Contents/MacOS/App";
+  const executable = machoImage({ commands: [buildVersionCommand(1)] });
+  await mkdir(join(root, "Contents/MacOS"), { recursive: true });
+  await mkdir(join(root, "Contents/Resources"), { recursive: true });
+  await writeFile(join(root, executablePath), executable);
+  await writeFile(
+    join(root, "Contents/Resources/Look.class"),
+    javaClassFile(4000, true),
+  );
+  await writeFile(
+    join(root, "Contents/Resources/Plain.class"),
+    javaClassFile(4000),
+  );
+
+  const trace = await traceDylibResolution({
+    rootPath: root,
+    targetPath: join(root, executablePath),
+    targetSha256: createHash("sha256").update(executable).digest("hex"),
+    enumerateRoots: true,
+    parameters: {},
+  });
+
+  expect(trace.images.map(({ path }) => path)).toEqual([executablePath]);
+  expect(trace.coverage).toMatchObject({
+    status: "complete",
+    unparsed_images: [],
+  });
+});
+
 it("selects matching arm64e subtype slices when tracing a mixed FAT image", async () => {
   const root = await createTestTempDirectory("rea-macho-arm64e-subtypes-");
   const executablePath = "Contents/MacOS/App";
@@ -460,8 +491,13 @@ describe("Mach-O load command reader inputs", () => {
       "i386",
     );
     // A Java class file shares the FAT magic; version fields are not a slice count.
-    const javaClasses = [javaClassFile(), javaClassFile(4000)];
-    expect(javaClasses.map(({ length }) => length)).toEqual([57, 4060]);
+    // The constant pool can also place a known CPU type in a FAT table slot.
+    const javaClasses = [
+      javaClassFile(),
+      javaClassFile(4000),
+      javaClassFile(4000, true),
+    ];
+    expect(javaClasses.map(({ length }) => length)).toEqual([57, 4060, 4069]);
     for (const javaClass of javaClasses) {
       expect(hasMachoMagic(javaClass)).toBe(true);
       expect(await read(javaClass)).toEqual({ status: "not-mach-o" });

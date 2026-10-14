@@ -24,6 +24,7 @@ export type FatContainerHeader =
       readonly wide: boolean;
       readonly littleEndian: boolean;
       readonly tableEnd: number;
+      readonly fileSize: number;
       readonly slices: readonly FatSliceDeclaration[];
       readonly rangeIssues: readonly (FatSliceRangeIssue | null)[];
     };
@@ -99,6 +100,7 @@ export const readFatContainerHeader = (
         wide,
         littleEndian,
         tableEnd,
+        fileSize,
         slices: declarations.slices,
         rangeIssues: declarations.slices.map((slice) =>
           inspectFatSliceRange(slice, fileSize, tableEnd),
@@ -112,8 +114,11 @@ export const classifyFatContainerIdentity = (
   header: Extract<FatContainerHeader, { readonly state: "parsed" }>,
   sliceHeaderAt: (offset: number) => number | null | undefined,
 ): FatContainerIdentity => {
-  const hasKnownCpu = header.slices.some(({ cpuType }) =>
-    KNOWN_MACHO_CPU_TYPES.includes(cpuType),
+  // A known CPU identifies Mach-O only for a slice that starts inside the file:
+  // JVM constant-pool bytes can put one in a slot that points past the end.
+  const hasKnownCpu = header.slices.some(
+    ({ cpuType, offset }) =>
+      offset < header.fileSize && KNOWN_MACHO_CPU_TYPES.includes(cpuType),
   );
   const invalidRange = header.rangeIssues.find(
     (issue): issue is FatSliceRangeIssue => issue !== null,

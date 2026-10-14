@@ -2,6 +2,7 @@ import { describe, expect, it } from "vitest";
 
 import { parseExecutableHeader } from "./binaryTarget.js";
 import { dosMz, elf, fat, pe, thinMach } from "./binaryTarget.fixture.js";
+import { javaClassFile } from "../../tests/fixtures/javaClassFile.js";
 
 describe("executable header parsing", () => {
   it("recognizes a DOS MZ without interpreting load-module bytes as e_lfanew", () => {
@@ -124,6 +125,13 @@ describe("executable header parsing", () => {
   it("rejects FAT files without a host-compatible slice", () => {
     expect(parseExecutableHeader(fat([0x01000007]), "arm64")).toMatchObject({
       ok: false,
+    });
+  });
+
+  it("rejects a JVM class whose constant pool mimics a FAT CPU slot", () => {
+    expect(parseExecutableHeader(javaClassFile(4000, true), "x64")).toEqual({
+      ok: false,
+      error: "FAT table does not identify a Mach-O image",
     });
   });
 
