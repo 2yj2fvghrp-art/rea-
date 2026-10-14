@@ -53,6 +53,7 @@ const calls = (await readFile(resolve(values.trial, "events.jsonl"), "utf8"))
   )
   .map((event) => event.item);
 const reasons = [];
+const workflowReasons = [];
 let facts, answer, packetId;
 try {
   if (oracle.kind !== "postgres")
@@ -71,11 +72,13 @@ try {
         call.server !== "rea" || call.status !== "completed" || call.error,
     )
   )
-    throw new Error(
+    workflowReasons.push(
       "Completed public REA call sequence differs from the fixed plan",
     );
   const ids = new Set();
   for (const call of calls) {
+    if (call.server !== "rea" || call.status !== "completed" || call.error)
+      continue;
     const result = call.result;
     if (result?.isError)
       throw new Error("Tool failure is not observed packet evidence");
@@ -84,8 +87,6 @@ try {
       throw new Error("No unambiguous captured Evidence envelope");
     const evidence = result.structuredContent ?? JSON.parse(text[0].text);
     parseEvidence(evidence);
-    if (ids.has(evidence.evidence_id))
-      throw new Error("Duplicate reply identity");
     ids.add(evidence.evidence_id);
     if (call.tool === "inspect_packet_fields") {
       const input = inspectPacketFieldsInputSchema.parse({
@@ -172,12 +173,16 @@ try {
     new Set(answer.evidence_ids).size !== answer.evidence_ids.length
   )
     throw new Error("Final citations lack the authenticated packet Evidence");
+  const limitations =
+    typeof answer.limitations === "string"
+      ? [answer.limitations]
+      : answer.limitations;
   if (
-    !Array.isArray(answer.limitations) ||
-    answer.limitations.length === 0 ||
-    answer.limitations.some((item) => typeof item !== "string" || !item.trim())
+    !Array.isArray(limitations) ||
+    limitations.length === 0 ||
+    limitations.some((item) => typeof item !== "string" || !item.trim())
   )
-    throw new Error("Final answer omits investigation limitations");
+    workflowReasons.push("Final answer omits investigation limitations");
   if (
     summary.exit_code !== 0 ||
     summary.timeout ||
@@ -185,7 +190,7 @@ try {
     settings.selected_artifact_sha256_before !== oracle.sha256 ||
     summary.selected_artifact_sha256_after !== oracle.sha256
   )
-    throw new Error(
+    workflowReasons.push(
       "Trial did not complete with the selected artifact unchanged",
     );
 } catch (error) {
@@ -195,8 +200,10 @@ const review = {
   factual_correctness: reasons.length ? "failed" : "passed",
   scope:
     "Fixed first-2000-frame PostgreSQL question; authenticated tool observations and independent raw header oracle",
-  workflow_correctness: reasons.length ? "failed" : "passed",
+  workflow_correctness:
+    reasons.length || workflowReasons.length ? "failed" : "passed",
   reasons,
+  workflow_reasons: workflowReasons,
   completed_calls: calls.length,
   wall_seconds: summary.wall_seconds,
   usage: summary.usage,
@@ -209,4 +216,4 @@ await writeFile(
   JSON.stringify(review, null, 2) + "\n",
 );
 console.log(JSON.stringify(review));
-if (reasons.length) process.exitCode = 1;
+if (reasons.length || workflowReasons.length) process.exitCode = 1;

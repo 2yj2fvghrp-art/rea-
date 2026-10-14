@@ -78,7 +78,10 @@ const number = (row, field) => {
     !/^(?:[0-9]+|0x[0-9a-f]+)$/iu.test(value[0])
   )
     throw new Error(`Expected one recorded integer for ${field}`);
-  return Number(value[0]);
+  const parsed = Number(value[0]);
+  if (!Number.isSafeInteger(parsed))
+    throw new Error(`Unsafe recorded integer for ${field}`);
+  return parsed;
 };
 
 export const packetFacts = (kind, report) => {
@@ -103,14 +106,26 @@ export const packetFacts = (kind, report) => {
           destination_port: number(row, "tcp.dstport"),
           flags: number(row, "tcp.flags"),
         };
-      if (kind === "dns")
+      if (kind === "dns") {
+        const names = row["dns.qry.name"];
+        const types = row["dns.qry.type"];
+        if (
+          !Array.isArray(names) ||
+          names.length === 0 ||
+          !Array.isArray(types) ||
+          types.length !== names.length
+        )
+          throw new Error(
+            "The fixed DNS question requires recorded names and types; missing fields are unknown",
+          );
         return {
           frame,
           id: number(row, "dns.id"),
           rcode: number(row, "dns.flags.rcode"),
-          names: row["dns.qry.name"] ?? [],
-          types: (row["dns.qry.type"] ?? []).map(Number),
+          names,
+          types: types.map((value) => number({ type: [value] }, "type")),
         };
+      }
       const server = row["dhcp.option.dhcp_server_id"];
       const address = row["dhcp.ip.your"];
       if (
