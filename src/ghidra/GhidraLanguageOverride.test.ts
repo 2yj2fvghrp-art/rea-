@@ -39,9 +39,11 @@ const X86_LDEFS = `<?xml version="1.0" encoding="UTF-8"?>
 </language_definitions>
 `;
 
-// Fake installation inspection; the language catalog is a real directory.
+// Fake installation inspection; the language catalog is a real directory. The
+// host reports the running platform so the POSIX/Windows absolute-path and path
+// flavor used by the configuration and catalog checks match the real one.
 const host: GhidraInstallationHost = {
-  platform: "linux",
+  platform: process.platform,
   architecture: "x64",
   readText: () => "application.version=12.1.4\napplication.java.min=21\n",
   executable: () => true,

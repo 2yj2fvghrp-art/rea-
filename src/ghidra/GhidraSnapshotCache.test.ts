@@ -167,7 +167,9 @@ describe("Ghidra snapshot cache", () => {
     await replay.session.close();
   });
 
-  it.each([
+  // Windows Ghidra requires native source admission before replay, so a
+  // fixture provider cannot exercise imported-snapshot replay there.
+  it.skipIf(process.platform === "win32").each([
     { operation: "analyze_function", parameters: { procedure: "0x1000" } },
     {
       operation: "procedure_pseudo_code",
