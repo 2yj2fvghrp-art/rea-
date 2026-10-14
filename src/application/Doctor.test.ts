@@ -317,6 +317,33 @@ describe("doctor scoped readiness", () => {
     ]);
   });
 
+  it("resolves unqualified skill identity from installed destinations", async () => {
+    const selections: (readonly string[] | undefined)[] = [];
+    const recordingHost = () =>
+      host({
+        clientRegistrations: () =>
+          Promise.resolve([
+            {
+              client: "cursor",
+              config_path: "/home/user/.cursor/mcp.json",
+              command: [],
+              state: "manual",
+              remediation: "Add the connector from Cursor.",
+            },
+          ]),
+        installedSkillIdentity: (clients) => {
+          selections.push(clients);
+          return Promise.resolve(undefined);
+        },
+      });
+
+    await runDoctor(undefined, recordingHost(), { skill: true });
+    expect(selections).toEqual([undefined]);
+
+    await runDoctor(undefined, recordingHost());
+    expect(selections).toEqual([undefined, undefined]);
+  });
+
   it("scopes effective readiness to selected clients without hiding drift", async () => {
     const registrations: readonly ClientRegistrationStatus[] = [
       {

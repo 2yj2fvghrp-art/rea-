@@ -104,8 +104,13 @@ export interface DoctorHost {
   /** Validated provider settings preserved by setup, independent of readiness. */
   providerRegistrationEnvironment?(): Readonly<Record<string, string>>;
   installationPaths?(): Promise<readonly string[]>;
+  /**
+   * Resolve the installed skill identity. An undefined client selection checks
+   * installed skill destinations instead of selected clients, so unqualified
+   * doctor scopes report the existing skill rather than selected registrations.
+   */
   installedSkillIdentity?(
-    clientIds: readonly string[],
+    clientIds: readonly string[] | undefined,
   ): Promise<InstalledSkillIdentity | undefined>;
   close?(): Promise<string | undefined>;
   clientRegistrations?(): Promise<readonly ClientRegistrationStatus[]>;
@@ -288,9 +293,7 @@ const collectDoctorIdentity = async (
   const registrations = (await host.clientRegistrations?.()) ?? [];
   const skillClientIds =
     scope.skill_clients ??
-    (scope.mode === "audit-wide"
-      ? registrations.map(({ client }) => client)
-      : scope.clients);
+    (scope.clients.length > 0 ? scope.clients : undefined);
   const installedSkillIdentity =
     await host.installedSkillIdentity?.(skillClientIds);
   const skillAligned = skillIdentityAligned(installedSkillIdentity);

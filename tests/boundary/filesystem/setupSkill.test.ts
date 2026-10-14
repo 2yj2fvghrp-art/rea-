@@ -253,6 +253,51 @@ describe("skill directory admission", () => {
   );
 });
 
+describe("unqualified doctor skill identity", () => {
+  it("finds the installed skill for bare doctor --skill", async () => {
+    const home = await createTestTempDirectory("rea-unqualified-skill-");
+    const host = systemDoctorHost({
+      environment: { HOME: home, USERPROFILE: home },
+    });
+    expect(await installCanonicalSkill(home, ["claude_code"])).toMatchObject({
+      ok: true,
+    });
+    const report = await runDoctor(undefined, host, { skill: true });
+    expect(report.identity?.skill.state).toBe("aligned");
+    expect(report.identity?.skill.installed_version).toBe(
+      PRODUCT_IDENTITY.skillVersion,
+    );
+    expect(
+      report.scope_checks.find(({ name }) => name === "skill:identity")?.ok,
+    ).toBe(true);
+  });
+
+  it("ignores unselected client markers without an installed skill", async () => {
+    const home = await createTestTempDirectory("rea-unqualified-marker-");
+    const host = systemDoctorHost({
+      environment: { HOME: home, USERPROFILE: home },
+    });
+    expect(await installCanonicalSkill(home, ["claude_code"])).toMatchObject({
+      ok: true,
+    });
+    await mkdir(join(home, ".cursor"), { recursive: true });
+    const report = await runDoctor(undefined, host);
+    expect(report.identity?.skill.state).toBe("aligned");
+    expect(report.identity?.skill.installed_version).toBe(
+      PRODUCT_IDENTITY.skillVersion,
+    );
+  });
+
+  it("reports missing when no skill is installed anywhere", async () => {
+    const home = await createTestTempDirectory("rea-unqualified-empty-");
+    const host = systemDoctorHost({
+      environment: { HOME: home, USERPROFILE: home },
+    });
+    const report = await runDoctor(undefined, host, { skill: true });
+    expect(report.identity?.skill.state).toBe("missing");
+  });
+});
+
 describe("canonical skill transaction", () => {
   it("does not roll back files when backup preparation fails", async () => {
     const home = await createTestTempDirectory("rea-skill-backup-failure-");

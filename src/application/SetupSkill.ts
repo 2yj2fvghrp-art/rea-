@@ -239,6 +239,50 @@ export const existingSkillDestinations = async (
   return existing;
 };
 
+/**
+ * Skill roots backing an unqualified identity check: destinations with an
+ * installed managed skill, plus destinations with blocking path issues so
+ * unmanaged or unreadable state keeps surfacing. Destinations that never
+ * held a skill are skipped, so an unselected client marker cannot turn an
+ * installed skill missing or stale.
+ */
+const installedSkillDestinations = async (
+  home: string,
+  environment: Readonly<NodeJS.ProcessEnv>,
+  platform: NodeJS.Platform,
+  resources?: ArtifactResourceScope,
+): Promise<readonly SkillDestination[]> => {
+  const installed: SkillDestination[] = [];
+  for (const destination of skillDestinations(
+    home,
+    undefined,
+    environment,
+    platform,
+  )) {
+    if ((await skillDirectoryIssues([destination])).length > 0) {
+      installed.push(destination);
+      continue;
+    }
+    let content: string;
+    try {
+      content = await readSkillFile(
+        join(destination.path, "SKILL.md"),
+        resources,
+      );
+    } catch (cause: unknown) {
+      if (cause instanceof NonRegularFileReadError) {
+        installed.push(destination);
+        continue;
+      }
+      if (cause instanceof Error && "code" in cause && cause.code === "ENOENT")
+        continue;
+      throw cause;
+    }
+    if (isManagedSkillManifest(content)) installed.push(destination);
+  }
+  return installed;
+};
+
 const readOptionalSkillState = async (
   path: string,
   resources?: ArtifactResourceScope,
@@ -601,17 +645,34 @@ export const installCanonicalSkill = async (
   }
 };
 
-/** Read installed skill metadata and compare every managed location. */
+/**
+ * Read installed skill metadata and compare every managed location. An
+ * undefined client selection checks installed skill destinations instead of
+ * selected clients, so unqualified checks report the existing skill and an
+ * absent workflow at an unselected destination cannot turn it missing or
+ * stale.
+ */
 export const readInstalledSkillIdentity = async (
   home: string,
-  clientIds: readonly string[],
+  clientIds: readonly string[] | undefined,
   environment: Readonly<NodeJS.ProcessEnv> = {},
   platform: NodeJS.Platform = process.platform,
   resources?: ArtifactResourceScope,
 ): Promise<InstalledSkillIdentity | undefined> => {
+  const effectiveClientIds =
+    clientIds === undefined
+      ? (
+          await installedSkillDestinations(
+            home,
+            environment,
+            platform,
+            resources,
+          )
+        ).map(({ client }) => client)
+      : clientIds;
   const inspection = await inspectCanonicalSkill(
     home,
-    clientIds,
+    effectiveClientIds,
     environment,
     platform,
     resources,
