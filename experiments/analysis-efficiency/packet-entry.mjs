@@ -1,6 +1,29 @@
 import { isDeepStrictEqual } from "node:util";
 import { resolve } from "node:path";
 import { pathToFileURL } from "node:url";
+import { fileURLToPath } from "node:url";
+import { execFile } from "node:child_process";
+import { promisify } from "node:util";
+
+export const verifyPacketPage = (first, next, oracle) => {
+  if (
+    first.artifact.sha256 !== oracle.sha256 ||
+    next.artifact.sha256 !== oracle.sha256 ||
+    first.output_window.matching_packets !== oracle.matching_packets ||
+    next.output_window.matching_packets !== oracle.matching_packets ||
+    !isDeepStrictEqual(
+      packetFacts("postgres", first).rows,
+      oracle.rows.slice(0, 12),
+    ) ||
+    !isDeepStrictEqual(
+      packetFacts("postgres", next).rows,
+      oracle.rows.slice(12, 24),
+    )
+  )
+    throw new Error(
+      "Packet pages differ from independently parsed original matches",
+    );
+};
 
 export const PACKET_ARTIFACTS = {
   "wireshark-pgsql-jdbc.pcap": {
@@ -242,6 +265,18 @@ export const measurePacketEntry = async ({
   );
   const facts = packetFacts(descriptor.kind, report);
   if (selection === "pages") {
+    const { stdout } = await promisify(execFile)(
+      "python3",
+      [
+        fileURLToPath(new URL("./packet-oracle.py", import.meta.url)),
+        "postgres",
+        values.path,
+        "--row-limit",
+        "24",
+      ],
+      { timeout: 30_000, maxBuffer: 128 * 1024 },
+    );
+    const oracle = JSON.parse(stdout);
     const nextInput = inspectPacketCaptureInputSchema.parse({
       ...input,
       match_offset: 12,
@@ -258,6 +293,7 @@ export const measurePacketEntry = async ({
       input,
       packetCaptureSchema,
     );
+    verifyPacketPage(report, next, oracle);
     if (
       !isDeepStrictEqual(report.packets, repeated.packets) ||
       !isDeepStrictEqual(report.output_window, repeated.output_window) ||

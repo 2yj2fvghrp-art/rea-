@@ -114,19 +114,18 @@ try {
           "Discovery Evidence does not establish the requested installed field",
         );
     } else {
-      const input = inspectPacketCaptureInputSchema.parse(
+      const planned = inspectPacketCaptureInputSchema.parse(
         packetRequest(
           "wireshark-pgsql-jdbc.pcap",
           settings.selected_artifact_path,
           values.selection,
         ),
       );
+      const input = inspectPacketCaptureInputSchema.parse(call.arguments);
+      if (!isDeepStrictEqual(input, planned))
+        workflowReasons.push("Capture selection differs from the fixed plan");
       const report = packetCaptureSchema.parse(evidence.normalized_result);
       if (
-        !isDeepStrictEqual(
-          inspectPacketCaptureInputSchema.parse(call.arguments),
-          input,
-        ) ||
         !isDeepStrictEqual(evidence.parameters, input) ||
         !isDeepStrictEqual(report.selection, input) ||
         evidence.operation !== call.tool ||

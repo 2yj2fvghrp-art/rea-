@@ -170,7 +170,7 @@ the full recording can be inspected with those selections.
 
 Only experiment sources, corpus provenance, a question template and guidance
 change. Production schemas, provider limits, CLI/MCP defaults, Evidence identity
-and session/resource ownership stay as before. Six parser regressions retain
+and session/resource ownership stay as before. Eight parser regressions retain
 malformed/truncated-input and omission checks. Existing clients need no migration.
 
 ## Reproduction
@@ -196,3 +196,17 @@ Run `review-packet.mjs` against the actual trial, oracle, runtime and selected a
 Its nonzero exit includes a plan failure even when all requested facts are correct.
 Retain failed attempts, actual usage, digests, coverage, cleanup and resource
 receipts alongside passing observations. No raw results need to be committed.
+
+## Review verification
+
+The comparator now recognizes the three non-HTTP questions: observations remain
+attached to each run, while different plans compare requested facts. Repeated
+identical plans still compare stable observation scope. Capture grading authenticates
+Evidence against the actual call and assesses plan differences separately; an
+actual 24-row SDK window replay retains a factual pass and a plan failure. This
+is a grading replay, not an additional model trial. The stricter header oracle
+preserves all original sample facts and rejects truncated IPv4/TCP options and
+unsupported Ethernet protocols. The page diagnostic now derives matches 13–24
+independently before accepting the second page; skipped, reversed and changed-byte
+pages are rejected. Original cohort measurements retain their recorded source
+digests and runtime pin; review checks do not relabel them.

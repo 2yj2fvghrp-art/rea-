@@ -156,6 +156,9 @@ const fingerprints = {
   packet_workflow_source_sha256: await fileSha(
     fileURLToPath(new URL("./packet-entry.mjs", import.meta.url)),
   ),
+  packet_oracle_source_sha256: await fileSha(
+    fileURLToPath(new URL("./packet-oracle.py", import.meta.url)),
+  ),
   runtime_files_sha256: sha(JSON.stringify(runtimeFiles)),
   runtime_dispatcher_sha256: await fileSha(
     resolve(values["runtime-root"], "scripts/rea.mjs"),

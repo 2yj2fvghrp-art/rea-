@@ -40,13 +40,15 @@ def packets(data):
 
 def transport(packet):
     require(len(packet) >= 14, 'truncated Ethernet header')
-    if packet[12:14] != b'\x08\x00':
-        return None  # ARP and other link protocols are outside these questions.
+    if packet[12:14] == b'\x08\x06':
+        return None  # ARP cannot contain the selected TCP/UDP messages.
+    require(packet[12:14] == b'\x08\x00', 'unsupported Ethernet protocol')
     ip = packet[14:]
     require(len(ip) >= 20 and ip[0] >> 4 == 4, 'invalid IPv4 header')
     header = (ip[0] & 15) * 4
     total = struct.unpack_from('!H', ip, 2)[0]
     require(20 <= header <= len(ip) and total >= header, 'invalid IPv4 lengths')
+    require(total <= len(ip), 'truncated IPv4 packet')
     require(struct.unpack_from('!H', ip, 6)[0] & 0x3fff == 0,
             'fragmentation is outside oracle scope')
     return ip[9], ip[header:min(total, len(ip))]
@@ -97,7 +99,7 @@ def dhcp_options(payload):
     raise ValueError('DHCP end option missing')
 
 
-def analyze(data, kind):
+def analyze(data, kind, row_limit=12):
     rows, matching, count = [], 0, 0
     for frame, packet in packets(data):
         count = frame
@@ -107,11 +109,13 @@ def analyze(data, kind):
         protocol, segment = decoded
         if kind == 'postgres' and protocol == 6 and frame <= 2000:
             require(len(segment) >= 20, 'truncated TCP header')
+            tcp_header = (segment[12] >> 4) * 4
+            require(20 <= tcp_header <= len(segment), 'invalid or truncated TCP header/options')
             source, destination = struct.unpack_from('!HH', segment)
             if 5432 not in (source, destination):
                 continue
             matching += 1
-            if len(rows) < 12:
+            if len(rows) < row_limit:
                 rows.append({'frame': frame, 'source_port': source,
                              'destination_port': destination,
                              'flags': struct.unpack_from('!H', segment, 12)[0] & 0xfff})
@@ -162,12 +166,14 @@ def main():
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument('kind', choices=['postgres', 'dns', 'dhcp'])
     parser.add_argument('path', type=Path)
+    parser.add_argument('--row-limit', type=int, choices=[12, 24], default=12,
+                        help='PostgreSQL rows; 24 independently checks the second page')
     args = parser.parse_args()
     with args.path.open('rb') as source:
         data = source.read(32 * 1024 * 1024 + 1)
     require(len(data) <= 32 * 1024 * 1024, 'oracle input budget exceeded')
     print(json.dumps({'sha256': hashlib.sha256(data).hexdigest(),
-                      **analyze(data, args.kind)}, indent=2))
+                      **analyze(data, args.kind, args.row_limit)}, indent=2))
 
 
 if __name__ == '__main__':

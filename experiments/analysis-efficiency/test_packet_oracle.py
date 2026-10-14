@@ -44,6 +44,24 @@ class PacketOracleTest(unittest.TestCase):
         with self.assertRaises(ValueError):
             oracle.transport(b'\0' * 12 + b'\x08\0' + ip)
 
+    def test_declared_ip_length_and_tcp_options_cannot_be_truncated(self):
+        ip = bytearray(40)
+        ip[0], ip[9], ip[32] = 0x45, 6, 0xf0
+        struct.pack_into('!H', ip, 2, 40)
+        struct.pack_into('!HH', ip, 20, 12345, 5432)
+        packet = b'\0' * 12 + b'\x08\0' + ip
+        header = struct.pack('<IHHIIII', 0xa1b2c3d4, 2, 4, 0, 0, 65535, 1)
+        record = struct.pack('<IIII', 0, 0, len(packet), len(packet))
+        with self.assertRaisesRegex(ValueError, 'TCP header'):
+            oracle.analyze(header + record + packet, 'postgres')
+        struct.pack_into('!H', ip, 2, 60)
+        with self.assertRaisesRegex(ValueError, 'truncated IPv4'):
+            oracle.transport(b'\0' * 12 + b'\x08\0' + ip)
+
+    def test_unknown_link_protocol_does_not_prove_tcp_absence(self):
+        with self.assertRaisesRegex(ValueError, 'unsupported Ethernet'):
+            oracle.transport(b'\0' * 12 + b'\x86\xdd' + b'\0' * 40)
+
 
 if __name__ == '__main__':
     unittest.main()
