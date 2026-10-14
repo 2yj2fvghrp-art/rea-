@@ -458,7 +458,24 @@ describe("historical source graph validation", () => {
   });
 });
 
-describe("historical source graph symlink path identity", () => {
+describe("historical source exclusion applicability", () => {
+  it("keeps distinct filesystem spellings separate when checking exclusion kinds", () => {
+    const input = { ...graphInput(), inventory_state: "partial" as const };
+    input.entries = [fileEntry({ path: "cafe\u0301" })];
+    input.relationships = [];
+    input.exclusions = [
+      {
+        path: "café",
+        reason: "project-ignored",
+        pattern: "café/",
+        entry_kind: "directory",
+      },
+    ];
+    const graph = createHistoricalSourceGraph(input);
+    expect(graph.entries[0]?.path).toBe("cafe\u0301");
+    expect(graph.exclusions[0]?.path).toBe("café");
+  });
+
   it("rejects directory exclusion facts conflicting with an inventoried file", () => {
     const input = { ...graphInput(), inventory_state: "partial" as const };
     input.exclusions = [
@@ -571,7 +588,9 @@ describe("historical source graph symlink path identity", () => {
       /must resolve to an inventoried entry/u,
     );
   });
+});
 
+describe("historical source graph symlink path identity", () => {
   it("joins internal symlink targets with the inventory NFC normalizer", () => {
     // "café" spelled NFC, as the inventory produces it, and the same
     // name spelled NFD, as a macOS readlink can report it.

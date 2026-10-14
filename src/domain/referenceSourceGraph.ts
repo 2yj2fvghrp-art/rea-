@@ -330,8 +330,8 @@ const checkSymlinks = (
   for (const [index, exclusion] of graph.exclusions.entries()) {
     if (!("entry_kind" in exclusion) || exclusion.entry_kind !== "directory")
       continue;
-    const inventoried = lookupPath.resolve(exclusion.path);
-    if (inventoried !== undefined && kinds.get(inventoried) !== "directory")
+    const inventoriedKind = kinds.get(exclusion.path);
+    if (inventoriedKind !== undefined && inventoriedKind !== "directory")
       context.addIssue({
         code: "custom",
         message: "Directory exclusion conflicts with inventoried entry kind",

@@ -89,6 +89,33 @@ describe("reference source import projections", () => {
 });
 
 describe("reference source symlink import", () => {
+  it.skipIf(process.platform !== "linux")(
+    "imports a file beside a Unicode-equivalent excluded directory",
+    async () => {
+      const root = await createTestTempDirectory(
+        "rea-reference-unicode-kinds-",
+      );
+      await mkdir(join(root, "café"));
+      await writeFile(join(root, "cafe\u0301"), "retained file\n");
+      await writeFile(join(root, ".gitignore"), "café/\n");
+      const imported = await importTree(root);
+      if (!imported.ok) throw imported.error;
+      expect(imported.value.entries).toContainEqual(
+        expect.objectContaining({
+          path: "cafe\u0301",
+          kind: "file",
+          content_state: "hashed",
+        }),
+      );
+      expect(imported.value.exclusions).toContainEqual({
+        path: "café",
+        reason: "project-ignored",
+        pattern: "café/",
+        entry_kind: "directory",
+      });
+    },
+  );
+
   it.each([
     { target: "dist", reason: "default-ignored", pattern: "dist/" },
     { target: "generated", reason: "project-ignored", pattern: "generated/" },
