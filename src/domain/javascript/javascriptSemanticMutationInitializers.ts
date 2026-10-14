@@ -73,6 +73,17 @@ const positionPrecedes = (
       left.declaratorIndex >= 0 &&
       left.declaratorIndex < right.declaratorIndex));
 
+/** Instance field values run on construction; their computed keys run eagerly. */
+const isDeferredClassFieldValue = (
+  node: t.Node,
+  child: t.Node | undefined,
+): boolean =>
+  (t.isClassProperty(node) ||
+    t.isClassPrivateProperty(node) ||
+    t.isClassAccessorProperty(node)) &&
+  !node.static &&
+  node.value === child;
+
 /** Order effects only in a non-repeating top-level activation. */
 export const semanticTopLevelEffectFollowsCapture = (
   capture: t.Node,
@@ -85,14 +96,7 @@ export const semanticTopLevelEffectFollowsCapture = (
     let child: t.Node | undefined;
     while (node !== undefined) {
       if (t.isFunction(node) || t.isLoop(node)) return null;
-      if (
-        (t.isClassProperty(node) ||
-          t.isClassPrivateProperty(node) ||
-          t.isClassAccessorProperty(node)) &&
-        !node.static &&
-        node.value === child
-      )
-        return null;
+      if (isDeferredClassFieldValue(node, child)) return null;
       if (t.isVariableDeclarator(node)) declarator = node;
       if (selected === null && t.isStatement(node))
         selected = statementPosition(node, parents, declarator);
@@ -135,14 +139,7 @@ const invocationInputPrecedesEffect = (
     parent = parents.get(current)
   ) {
     if (t.isFunction(parent)) return false;
-    if (
-      (t.isClassProperty(parent) ||
-        t.isClassPrivateProperty(parent) ||
-        t.isClassAccessorProperty(parent)) &&
-      !parent.static &&
-      parent.value === current
-    )
-      return false;
+    if (isDeferredClassFieldValue(parent, current)) return false;
     if (parent === effect)
       return (
         parent.callee === current ||
@@ -413,7 +410,8 @@ export const semanticReadInitializers = (
     parent;
     parent = parents.get(current)
   ) {
-    if (t.isLoop(parent)) return binding;
+    if (t.isLoop(parent) || isDeferredClassFieldValue(parent, current))
+      return binding;
     if (t.isFunction(parent)) break;
     if (position === null) {
       if (t.isVariableDeclarator(parent)) {

@@ -26,6 +26,18 @@ export const cdpStringValue = (value: unknown): string | undefined =>
 export const numberValue = (value: unknown): number | undefined =>
   typeof value === "number" && Number.isFinite(value) ? value : undefined;
 
+/** DOMSnapshot uses -1 for empty values; names and document identities require indexes. */
+export const cdpSnapshotString = (
+  strings: readonly (string | undefined)[],
+  index: unknown,
+  allowEmpty = false,
+): string | undefined => {
+  const integer = numberValue(index);
+  if (integer === undefined || !Number.isSafeInteger(integer)) return undefined;
+  if (integer === -1 && allowEmpty) return "";
+  return integer < 0 ? undefined : strings[integer];
+};
+
 /** Preserve partial script declarations; omitted or invalid fields remain unknown. */
 export const scriptMetadataValues = (
   value: UnknownRecord | undefined,

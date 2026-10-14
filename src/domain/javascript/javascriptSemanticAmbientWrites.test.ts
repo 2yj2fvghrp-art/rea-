@@ -40,6 +40,41 @@ function patch() { alias.URL = replacement; } alias = {};`,
     specifier: null,
   },
   {
+    name: "an ambient alias rebound before a public instance field runs",
+    setup: `let alias = {};
+class C { field = (alias.URL = replacement); }
+alias = globalThis; new C();`,
+    specifier: null,
+  },
+  {
+    name: "an ambient alias rebound before a private instance field runs",
+    setup: `let alias = {};
+class C { #field = (alias.URL = replacement); }
+alias = globalThis; new C();`,
+    specifier: null,
+  },
+  {
+    name: "a local alias written by an eager static field",
+    setup: `let alias = {};
+class C { static field = (alias.URL = replacement); }
+alias = globalThis;`,
+    specifier: "./worker.js",
+  },
+  {
+    name: "a local alias written by an eager private static field",
+    setup: `let alias = {};
+class C { static #field = (alias.URL = replacement); }
+alias = globalThis;`,
+    specifier: "./worker.js",
+  },
+  {
+    name: "a local alias written by an eager computed instance field key",
+    setup: `let alias = {};
+class C { [alias.URL = replacement] = 1; }
+alias = globalThis; new C();`,
+    specifier: "./worker.js",
+  },
+  {
     name: "distinct properties selecting both ambient identities",
     setup: `const box = { left: globalThis, right: import.meta };
 const selected = flag ? box.left : box.right; selected.URL = replacement;`,
