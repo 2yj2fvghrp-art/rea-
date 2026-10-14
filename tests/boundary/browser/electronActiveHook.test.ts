@@ -1,6 +1,7 @@
 import { rm, writeFile } from "node:fs/promises";
 import { join } from "node:path";
 import { spawn } from "node:child_process";
+import { createRequire } from "node:module";
 
 import { afterEach, expect, it } from "vitest";
 
@@ -54,7 +55,11 @@ const utilityProcess = {
     return child;
   },
 };
-const shell = { openExternal: () => Promise.resolve(), openPath: () => Promise.resolve() };
+const shell = {
+  openExternal: () => Promise.resolve(),
+  openPath: () => Promise.resolve(),
+  trashItem: () => Promise.resolve(),
+};
 const createSession = () => {
   const value = new EventEmitter();
   value.setPermissionRequestHandler = () => undefined;
@@ -102,6 +107,7 @@ const defaultPopupDecision = window.webContents.windowOpenHandler({ url: "https:
 window.webContents.setWindowOpenHandler(() => ({ action: "allow" }));
 const popupDecision = window.webContents.windowOpenHandler({ url: "https://popup.invalid" });
 electron.shell.openExternal("https://example.invalid").catch(() => undefined);
+electron.shell.trashItem("/path/to/host/file").catch(() => undefined);
 electron.app.relaunch();
 electron.contextBridge.exposeInMainWorld("api", { value: true });
 window.webContents.loadURL("https://example.invalid").catch(() => undefined);
@@ -184,7 +190,16 @@ it("retains active hook evidence within its event-retention budget", async () =>
     expect.arrayContaining([
       expect.objectContaining({ kind: "window-lifecycle", event: "created" }),
       expect.objectContaining({ kind: "preload", event: "configured" }),
-      expect.objectContaining({ kind: "shell-attempt", phase: "blocked" }),
+      expect.objectContaining({
+        kind: "shell-attempt",
+        event: "openExternal",
+        phase: "blocked",
+      }),
+      expect.objectContaining({
+        kind: "shell-attempt",
+        event: "trashItem",
+        phase: "blocked",
+      }),
       expect.objectContaining({ kind: "updater", phase: "blocked" }),
       expect.objectContaining({ kind: "native-addon" }),
       expect.objectContaining({ kind: "popup-attempt", phase: "blocked" }),
@@ -269,6 +284,56 @@ it("preserves fatal process termination after recording uncaught exceptions", as
 
   expect(result.code).not.toBe(0);
   expect(result.stderr).toContain("fatal-hook-secret");
+});
+
+it("blocks shell.trashItem and records blocked shell attempts", () => {
+  const { createElectronActiveBoundaryPatches } = createRequire(
+    import.meta.url,
+  )("../../../scripts/electron-active-hook-boundaries.cjs") as {
+    createElectronActiveBoundaryPatches: (context: unknown) => {
+      patchShell: (shell: Record<string, unknown>) => void;
+    };
+  };
+  const recorded: unknown[] = [];
+  const boundaries = createElectronActiveBoundaryPatches({
+    identity: () => "shell",
+    patchEmitter: () => undefined,
+    processType: "browser",
+    recordIpc: () => undefined,
+    recordRuntime: (
+      kind: string,
+      event: string,
+      phase: string,
+      meta: unknown,
+    ) => recorded.push({ kind, event, phase, meta }),
+    shape: (x: unknown) => typeof x,
+  });
+  let trashed = false;
+  const shell = {
+    openExternal: () => Promise.resolve(),
+    openPath: () => Promise.resolve(),
+    trashItem: () => {
+      trashed = true;
+      return Promise.resolve();
+    },
+  };
+  boundaries.patchShell(shell);
+  const promise = (shell.trashItem as (path: string) => Promise<void>)(
+    "/path/to/host/file",
+  );
+  expect(trashed).toBe(false);
+  expect(recorded).toEqual([
+    {
+      kind: "shell-attempt",
+      event: "trashItem",
+      phase: "blocked",
+      meta: {
+        argument_shape_values: ["/path/to/host/file"],
+        error: true,
+      },
+    },
+  ]);
+  return expect(promise).rejects.toThrow("External shell effects are blocked");
 });
 
 const runNode = (
