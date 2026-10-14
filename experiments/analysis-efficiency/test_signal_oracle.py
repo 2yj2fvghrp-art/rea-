@@ -43,6 +43,9 @@ class SignalOracleTests(unittest.TestCase):
         result = oracle.uart(self.path, True)
         self.assertEqual([row['byte'] for row in result['rows']], [0x48, 0x65])
         self.assertEqual(result['channels']['MAX3232E DOUT1'], 1)
+        for row, start in zip(result['rows'], [100, 270]):
+            self.assertEqual(row['first_data_sample'], start + 26)
+            self.assertEqual(row['last_data_sample'], start + 147)
 
     def i2c_levels(self, incomplete=False):
         states = [(1, 1), (1, 0)]

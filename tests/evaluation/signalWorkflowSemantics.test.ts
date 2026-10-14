@@ -12,8 +12,13 @@ test("signal verification rejects skipped identical UART bytes and reordered I2C
     import {verifySignalRows,signalDataRows,verifySignalOracleIdentity} from ${JSON.stringify(moduleUrl)};
     const sha256='a'.repeat(64);
     const rows=Array.from({length:8},(_,i)=>({start:i*100+10,end:i*100+80,byte:72}));
-    const uart={kind:'uart',sha256,total_samples:2000,rows:rows.map((_,i)=>({start:i*100,end_exclusive:i*100+90,byte:72}))};
+    const uart={kind:'uart',sha256,total_samples:2000,rows:rows.map((_,i)=>({start:i*100,end_exclusive:i*100+90,first_data_sample:i*100+15,last_data_sample:i*100+75,byte:72}))};
     verifySignalRows('uart',rows,uart,sha256);
+    verifySignalRows('uart',rows.map((row,i)=>({...row,start:i*100+15,end:i*100+75})),uart,sha256);
+    assert.throws(()=>verifySignalRows('uart',[{...rows[0],start:0,end:0},...rows.slice(1)],uart,sha256),/interval/);
+    assert.throws(()=>verifySignalRows('uart',[{...rows[0],end:74},...rows.slice(1)],uart,sha256),/interval/);
+    assert.throws(()=>verifySignalRows('uart',[{...rows[0],start:16},...rows.slice(1)],uart,sha256),/interval/);
+    assert.throws(()=>verifySignalRows('uart',rows,{...uart,rows:uart.rows.map(({first_data_sample,...row})=>row)},sha256),/interval/);
     assert.throws(()=>verifySignalRows('uart',rows.slice(1).concat({start:810,end:880,byte:72}),uart,sha256),/interval/);
     assert.throws(()=>verifySignalRows('uart',rows.slice(1),uart,sha256),/coverage/);
     assert.throws(()=>verifySignalRows('uart',rows,uart,'b'.repeat(64)),/identity/);

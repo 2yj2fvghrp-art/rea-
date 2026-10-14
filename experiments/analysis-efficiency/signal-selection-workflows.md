@@ -160,6 +160,13 @@ Compressed snapshots use actual file size plus one growth-detection byte rather
 than preallocating the entire admission budget. Both genuine waveform oracles
 retain identical bytes, metadata, sample intervals and source digests.
 
+UART interval checks also require coverage of the first and last independently
+sampled data-bit centers within the owning frame. Shortened, shifted and
+single-sample intervals are rejected even when the decoded byte is correct.
+The added oracle coordinates retain the original byte/frame facts; replaying
+saved real Evidence and all eight model transcripts preserves the original
+grades and costs. This is stronger retrospective verification, not a new cohort.
+
 After rebasing onto main `44d98de2367b99808d78db732ec7d72533266233`,
 `npm run build:cached` and the 16 focused comparator/sample-interval/MCP-boundary
 tests passed. Two additional real focused MCP workflows independently verified

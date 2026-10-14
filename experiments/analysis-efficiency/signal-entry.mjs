@@ -116,7 +116,12 @@ export function verifySignalRows(kind, rows, oracle, digest) {
       throw new Error("Decoded data differs from independent sample bits");
     if (
       kind === "uart"
-        ? observed.start < raw.start || observed.end >= raw.end_exclusive
+        ? !Number.isSafeInteger(raw.first_data_sample) ||
+          !Number.isSafeInteger(raw.last_data_sample) ||
+          observed.start < raw.start ||
+          observed.end >= raw.end_exclusive ||
+          observed.start > raw.first_data_sample ||
+          observed.end < raw.last_data_sample
         : !Number.isSafeInteger(raw.after_previous) ||
           !Number.isSafeInteger(raw.before_next) ||
           observed.start <= raw.after_previous ||

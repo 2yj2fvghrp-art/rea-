@@ -149,7 +149,8 @@ def uart(path, invert):
         byte = sum(level(center(3 + 2 * bit)) << bit for bit in range(8))
         # A UART receiver becomes ready after sampling the stop bit. Waiting
         # a full nominal ten bits would miss a valid slightly faster sender.
-        rows.append({'start': start, 'end_exclusive': center(19) + 1, 'byte': byte})
+        rows.append({'start': start, 'end_exclusive': center(19) + 1, 'byte': byte,
+                     'first_data_sample': center(3), 'last_data_sample': center(17)})
         busy_until = center(19) + 1
     return metadata | {'kind': 'uart', 'baud_rate': baud, 'invert': bool(invert),
                        'complete_frames': len(rows), 'rows': rows}
