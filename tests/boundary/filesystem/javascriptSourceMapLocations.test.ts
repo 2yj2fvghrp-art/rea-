@@ -134,27 +134,38 @@ it("associates each source-map URL with its edge when aliases share one physical
   );
   expect(mapEdges).toHaveLength(2);
   expect(mapEdges[0]?.target_node_id).toBe(mapEdges[1]?.target_node_id);
-  expect(
-    new Set(
-      mapEdges.map((edge) => {
-        const target = nodes.get(edge.target_node_id);
-        const observation = target?.observations.find(
-          ({ properties }) =>
-            properties.declared_url_sha256 ===
-            edge.properties.declared_url_sha256,
-        );
-        return {
+  // Edge order follows content-derived edge IDs, so pair each edge with the
+  // script whose comment declared it.
+  const declaredBySource = new Map(
+    mapEdges.map((edge) => {
+      const target = nodes.get(edge.target_node_id);
+      const observation = target?.observations.find(
+        ({ properties }) =>
+          properties.declared_url_sha256 ===
+          edge.properties.declared_url_sha256,
+      );
+      const location = edge.evidence.location;
+      return [
+        location.available && location.value.kind === "source-range"
+          ? location.value.source
+          : null,
+        {
           declared_url: observation?.properties.declared_url,
           resolved_path: edge.properties.resolved_path,
-        };
-      }),
-    ),
-  ).toEqual(
-    new Set([
-      { declared_url: "app.js.map", resolved_path: "dist/app.js.map" },
-      { declared_url: "./app.js.map", resolved_path: "dist/app.js.map" },
-    ]),
+        },
+      ];
+    }),
   );
+  expect(Object.fromEntries(declaredBySource)).toEqual({
+    "dist/one.js": {
+      declared_url: "app.js.map",
+      resolved_path: "dist/app.js.map",
+    },
+    "dist/two.js": {
+      declared_url: "./app.js.map",
+      resolved_path: "dist/app.js.map",
+    },
+  });
 });
 
 it("resolves a bare source-map file name and worker URL next to the script", async () => {

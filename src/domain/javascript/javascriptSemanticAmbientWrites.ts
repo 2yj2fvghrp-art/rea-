@@ -56,11 +56,13 @@ const createAmbientPathResolver = (
     const prior = possibleWrites ? undefined : cached.get(node);
     if (prior !== undefined) return prior;
     const result = new Map<string, AmbientPath>();
+    // The caller's write site selects initializers for the written target.
+    // Reads reached through an initializer occur at their own position.
     const pending: {
       node: t.Node;
       suffix: AmbientProjection;
-      capture: t.Node | undefined;
-    }[] = [{ node, suffix: [], capture }];
+      readsAtSelf?: true;
+    }[] = [{ node, suffix: [] }];
     // Join projections at their producing expression, rather than enumerating
     // alias histories. Each key can only widen to a wildcard, and conflicting
     // depths widen to unknown, so diamonds and cycles have finite state.
@@ -107,7 +109,11 @@ const createAmbientPathResolver = (
       // A widened projection is a possible write, never proof of an intrinsic.
       if (suffix === undefined && !possibleWrites) continue;
       const continueWith = (node: t.Node, path: AmbientProjection = suffix) =>
-        pending.push({ node, suffix: path, capture: current.capture });
+        pending.push({
+          node,
+          suffix: path,
+          ...(current.readsAtSelf && { readsAtSelf: true }),
+        });
       if (
         t.isMetaProperty(root) &&
         root.meta.name === "import" &&
@@ -128,21 +134,19 @@ const createAmbientPathResolver = (
         const binding = resolveSemanticBindingState(state, root, root.name);
         if (binding === undefined) continue;
         const stable = semanticStableInitializer(binding, state);
+        const readAt = current.readsAtSelf ? root : capture;
         const initializers = possibleWrites
-          ? current.capture === undefined
+          ? readAt === undefined
             ? binding.initializers
-            : semanticMutationInitializers(
-                binding,
-                current.capture,
-                state.parentsByNode,
-              ).initializers
+            : semanticMutationInitializers(binding, readAt, state.parentsByNode)
+                .initializers
           : stable === undefined
             ? []
             : [stable];
         for (const initializer of initializers)
           pending.push({
             node: initializer.node,
-            capture: initializer.node,
+            readsAtSelf: true,
             suffix:
               suffix === undefined
                 ? undefined

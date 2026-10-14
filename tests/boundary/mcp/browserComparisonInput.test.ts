@@ -124,9 +124,13 @@ describe("browser comparison input boundary", () => {
           },
         },
       ];
-      // The client-compatible projection presents field shapes; the canonical
-      // runtime parser owns group completeness, exclusivity and optional partners.
-      const invalidGroups = [
+      // Strict clients reject combinators and dependentRequired, so the
+      // projection states the groups in its description and leaves group
+      // completeness and exclusion to the canonical runtime parser.
+      expect(advertised.inputSchema.description).toContain(
+        "before + after; before_scenario + after_scenario + [normalization]",
+      );
+      const mixedGroups = [
         { ...passive, ...scenario },
         { ...passive, normalization: { rules: [] } },
         {
@@ -138,7 +142,7 @@ describe("browser comparison input boundary", () => {
           normalization: { rules: [] },
         },
       ];
-      for (const [caseIndex, { input, advertisedValid, runtimeValid }] of [
+      for (const { input, advertisedValid, runtimeValid } of [
         ...[passive, scenario, withoutNormalization].map((input) => ({
           input,
           advertisedValid: true,
@@ -149,16 +153,15 @@ describe("browser comparison input boundary", () => {
           advertisedValid: false,
           runtimeValid: false,
         })),
-        ...invalidGroups.map((input) => ({
+        ...mixedGroups.map((input) => ({
           input,
           advertisedValid: true,
           runtimeValid: false,
         })),
-      ].entries()) {
-        expect(
-          validate(input),
-          `Input case ${caseIndex}: ${JSON.stringify(validate.errors)}`,
-        ).toBe(advertisedValid);
+      ]) {
+        expect(validate(input), JSON.stringify(validate.errors)).toBe(
+          advertisedValid,
+        );
         expect(
           browserCaptureComparisonInputSchema.safeParse(input).success,
         ).toBe(runtimeValid);

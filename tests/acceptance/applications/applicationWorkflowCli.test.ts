@@ -1586,6 +1586,9 @@ it("retains bundled isolated-world contextBridge APIs through dedicated and gene
           api_key: "isolatedApi",
           api_status: "object-literal",
           members: ["ping"],
+          unknown_members: 0,
+          // The proven Webpack bootstrap resolves `load(2)` directly.
+          resolution_basis: "direct-syntax",
         }),
         evidence: expect.objectContaining({
           location: expect.objectContaining({

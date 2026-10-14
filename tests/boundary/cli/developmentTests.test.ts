@@ -7,36 +7,25 @@ import {
   writeFile,
 } from "node:fs/promises";
 import { join } from "node:path";
-import { stripVTControlCharacters } from "node:util";
 
 import { describe, expect, it } from "vitest";
 
 import { execFileOutput } from "../../../src/process/ExecFileOutput.js";
 import { createTestTempDirectory } from "../../fixtures/temporaryDirectory.js";
 
-const run = async (
+const run = (
   root: string,
   command: string,
   arguments_: readonly string[],
-) => {
-  try {
-    const output = await execFileOutput(command, arguments_, {
-      cwd: root,
-      stopSignal: "SIGTERM",
-      timeout: 30_000,
-      maxBuffer: 1024 * 1024,
-    });
-    return { ...output, stdout: stripVTControlCharacters(output.stdout) };
-  } catch (cause: unknown) {
-    if (
-      cause instanceof Error &&
-      "stdout" in cause &&
-      typeof cause.stdout === "string"
-    )
-      cause.stdout = stripVTControlCharacters(cause.stdout);
-    throw cause;
-  }
-};
+  env?: NodeJS.ProcessEnv,
+) =>
+  execFileOutput(command, arguments_, {
+    cwd: root,
+    stopSignal: "SIGTERM",
+    timeout: 30_000,
+    maxBuffer: 1024 * 1024,
+    ...(env === undefined ? {} : { env }),
+  });
 
 const git = (root: string, ...arguments_: string[]) =>
   run(root, "git", arguments_);
@@ -89,11 +78,15 @@ const fixture = async () => {
   return root;
 };
 
+// Assertions read the child's plain-text summary. An inherited color setting
+// styled the counts in the CI lane; NO_COLOR takes precedence over FORCE_COLOR.
 const testCommand = (root: string, ...arguments_: string[]) =>
-  run(root, process.execPath, [
-    "scripts/run-development-tests.mjs",
-    ...arguments_,
-  ]);
+  run(
+    root,
+    process.execPath,
+    ["scripts/run-development-tests.mjs", ...arguments_],
+    { ...process.env, NO_COLOR: "1" },
+  );
 
 describe("development test runner exact selection", () => {
   it("matches selected path casing to the host filesystem", async () => {

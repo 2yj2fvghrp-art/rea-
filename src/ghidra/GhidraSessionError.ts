@@ -274,9 +274,10 @@ const causeLaunchOutcome = (
             stderr: redact(output.stderr),
           })),
         };
-  const output = cause.capturedOutput;
-  // The phase error owns the command outcome; retain preceding probe warnings here.
+  // A failed LaunchSupport helper reports its own command outcome in the
+  // nested cause; earlier helper warnings still belong to this launch.
   if (cause.cause instanceof GhidraLaunchSupportError) return launchSupport;
+  const output = cause.capturedOutput;
   if (output === undefined) return launchSupport;
   const stdout = boundedUtf8Text(
     redact(output.stdout),
