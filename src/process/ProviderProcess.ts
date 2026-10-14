@@ -68,6 +68,8 @@ export interface ProviderProcessHandle extends Pick<
   readonly signalCode: NodeJS.Signals | null;
   /** True once an enforced process memory limit reported an allocation failure. */
   readonly memoryLimitReached?: boolean;
+  /** True if a Windows backpressured stream was destroyed before output drained. */
+  readonly outputIncomplete?: boolean;
   kill(signal?: NodeJS.Signals | number): boolean;
   unref?(): void;
   ref?(): void;
@@ -99,7 +101,7 @@ export interface ProviderProcessExitObservation {
 
 /** Detached diagnostics captured for one supervised provider process. */
 export interface ProviderProcessSnapshot {
-  /** True only when a configured diagnostic budget excluded output bytes. */
+  /** True when retained diagnostics omit bytes due to the budget or provider output loss. */
   readonly diagnosticTruncated?: boolean;
   readonly stdout: {
     readonly text: string;
@@ -122,6 +124,8 @@ export interface ProviderProcessSnapshot {
   readonly signal: NodeJS.Signals | null | undefined;
   /** Present only when the process tree reached its enforced memory limit. */
   readonly memoryLimitReached?: true;
+  /** Present when a provider stream was destroyed before all bytes were observed. */
+  readonly outputIncomplete?: true;
 }
 
 /** Resource-safe events emitted without imposing provider protocol semantics. */
@@ -192,11 +196,7 @@ export const spawnOwnedProviderProcess = async (
   if (sweepTokenOwnedProcesses) {
     const capture = systemProcessOwnershipHost.captureBaseline;
     if (capture === undefined)
-      throw new AnalysisCapabilityUnavailableError(
-        "process",
-        "spawn_owned_provider",
-        `Exact run-token process inspection is unavailable on ${platform}. Run this inspection on Linux with procps-compatible ps, macOS, or Windows; this host cannot safely supervise these provider commands.`,
-      );
+      throw new Error("Process ownership baseline is unavailable on this host");
     captureBaseline = await capture(options.signal);
     options.signal?.throwIfAborted();
   }
@@ -314,12 +314,14 @@ export class ProviderProcessSupervisor {
   #exitObservation: ProviderProcessExitObservation | undefined;
   #stopPromise: Promise<ProviderProcessStopResult> | undefined;
   #disposed = false;
+  #maxDiagnosticBytes: number | undefined;
 
   constructor(
     readonly launch: ProviderProcessLaunch,
     options: ProviderProcessSupervisorOptions = {},
   ) {
     this.#options = options;
+    this.#maxDiagnosticBytes = options.maxDiagnosticBytes;
     if (options.captureStdout !== false)
       this.#attach(launch.process.stdout, "stdout");
     this.#attach(launch.process.stderr, "stderr");
@@ -342,8 +344,11 @@ export class ProviderProcessSupervisor {
 
   /** Latest retained output and exit observation, with explicit configured truncation. */
   snapshot(): ProviderProcessSnapshot {
+    const outputIncomplete = this.launch.process.outputIncomplete === true;
     return {
-      ...(this.#diagnosticTruncated ? { diagnosticTruncated: true } : {}),
+      ...(this.#diagnosticTruncated || outputIncomplete
+        ? { diagnosticTruncated: true }
+        : {}),
       stdout: this.#stdout.snapshot(this.#stdoutObservedBytes),
       stderr: this.#stderr.snapshot(this.#stderrObservedBytes),
       exitCode: this.#exitObservation?.code,
@@ -351,6 +356,7 @@ export class ProviderProcessSupervisor {
       ...(this.launch.process.memoryLimitReached === true
         ? { memoryLimitReached: true }
         : {}),
+      ...(outputIncomplete ? { outputIncomplete: true } : {}),
     };
   }
 
@@ -372,13 +378,42 @@ export class ProviderProcessSupervisor {
     );
   }
 
-  /** Wait until the producer has closed its output streams; exit alone does not prove complete output. */
+  /** Wait until output streams close; WindowsOwnedProcess closes only after its whole Job Object settles. */
   async waitForOutputClose(timeoutMs: number): Promise<boolean> {
     return waitForProcessEvent(
       this.#outputClosed,
       this.#outputClose.promise,
       timeoutMs,
     );
+  }
+
+  /** Bound additional retained bytes while still draining all later output. */
+  limitAdditionalOutputBytes(maxBytes: number): void {
+    if (!Number.isSafeInteger(maxBytes) || maxBytes < 0)
+      throw new RangeError(
+        "Additional output limit must be a non-negative safe integer.",
+      );
+    const retained = this.#stdout.bytes + this.#stderr.bytes;
+    const requestedLimit = Math.min(
+      Number.MAX_SAFE_INTEGER,
+      retained + maxBytes,
+    );
+    this.#maxDiagnosticBytes =
+      this.#maxDiagnosticBytes === undefined
+        ? requestedLimit
+        : Math.min(this.#maxDiagnosticBytes, requestedLimit);
+  }
+
+  /** Unreference inherited output pipes without closing streams shared with descendants. */
+  unrefOutputStreams(): void {
+    for (const stream of [
+      this.launch.process.stdout,
+      this.launch.process.stderr,
+    ]) {
+      const unref = (stream as (Readable & { unref?: () => void }) | null)
+        ?.unref;
+      unref?.call(stream);
+    }
   }
 
   /** Share each stop attempt; incomplete cleanup retains ownership and permits retry. */
@@ -541,13 +576,11 @@ export class ProviderProcessSupervisor {
     if (stream === "stdout") this.#stdoutObservedBytes += bytes.byteLength;
     else this.#stderrObservedBytes += bytes.byteLength;
     const remaining =
-      this.#options.maxDiagnosticBytes === undefined
+      this.#maxDiagnosticBytes === undefined
         ? bytes.byteLength
         : Math.max(
             0,
-            this.#options.maxDiagnosticBytes -
-              this.#stdout.bytes -
-              this.#stderr.bytes,
+            this.#maxDiagnosticBytes - this.#stdout.bytes - this.#stderr.bytes,
           );
     const retained = Math.min(bytes.byteLength, remaining);
     if (retained < bytes.byteLength) this.#diagnosticTruncated = true;
@@ -598,7 +631,12 @@ class ProcessOutputCapture {
   snapshot(observedBytes: number): ProviderProcessSnapshot["stdout"] {
     const buffer = Buffer.concat(this.#chunks, this.#bytes);
     const text = buffer.toString("utf8");
-    const invalidUtf8 = !isUtf8(buffer);
+    let invalidUtf8 = false;
+    try {
+      new TextDecoder("utf-8", { fatal: true }).decode(buffer);
+    } catch {
+      invalidUtf8 = true;
+    }
     return {
       text,
       bytes: this.#bytes,

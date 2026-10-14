@@ -4,7 +4,8 @@ import {
   type ReverseEngineeringServiceOptions,
 } from "../../src/application/reverse/ReverseEngineeringService.js";
 
-type TestServiceOptions = Omit<ReverseEngineeringServiceOptions, "commands">;
+type TestServiceOptions = Omit<ReverseEngineeringServiceOptions, "commands"> &
+  Partial<Pick<ReverseEngineeringServiceOptions, "commands">>;
 
 /** Compose the production provider profiles while allowing service-boundary fakes. */
 export class TestReverseEngineeringService extends ReverseEngineeringService {
@@ -13,7 +14,8 @@ export class TestReverseEngineeringService extends ReverseEngineeringService {
     super({
       ...options,
       environment,
-      commands: createReverseEngineeringCommandPort(environment),
+      commands:
+        options.commands ?? createReverseEngineeringCommandPort(environment),
     });
   }
 }

@@ -16,10 +16,7 @@ import { toolRegistrationOptions } from "./toolRegistrationOptions.js";
 import type { ToolResultDelivery } from "./toolResult.js";
 import type { WithAdmittedAnalysis } from "./analysisAdmission.js";
 import { rizinInputSchema } from "../domain/reverseEngineering.js";
-import {
-  AnalysisCapabilityUnavailableError,
-  AnalysisOutputError,
-} from "../domain/analysisErrorCore.js";
+import { AnalysisOutputError } from "../domain/analysisErrorCore.js";
 import type { AnalysisError } from "../domain/analysisErrorBase.js";
 import type { Result } from "../domain/result.js";
 
@@ -33,12 +30,10 @@ export const registerReverseEngineeringTools = (
   withAdmittedAnalysis?: WithAdmittedAnalysis,
   invalidateSnapshotForExternalMutation?: () => void,
   withAdmittedExternalMutation?: <Value>(
-    path: string,
+    path: string | undefined,
     signal: AbortSignal | undefined,
-    operation: (
-      onLaunched: () => void,
-    ) => Promise<Result<Value, AnalysisError>>,
-    rebindFailure: (
+    operation: () => Promise<Result<Value, AnalysisError>>,
+    retirementFailure: (
       value: Result<Value, AnalysisError>,
       error: AnalysisError,
     ) => AnalysisError,
@@ -81,41 +76,30 @@ export const registerReverseEngineeringTools = (
     toolRegistrationOptions(rizin),
     async (input, context: ServerContext) => {
       const parsed = rizinInputSchema.safeParse(input);
-      if (parsed.success && withAdmittedExternalMutation === undefined)
-        return deliverFailure(
-          new AnalysisCapabilityUnavailableError(
-            "fixed-analysis",
-            rizin.name,
-            "A fixed analysis source cannot be refreshed after an unrestricted external mutation.",
-          ),
-          rizin,
-          delivery,
-          recordEvidence,
-        );
       if (parsed.success && withAdmittedExternalMutation !== undefined) {
-        const cleanup = await service.retryCleanup();
+        const cleanup = await service.retryCleanup(rizin.name);
         if (!cleanup.ok)
           return deliverFailure(cleanup.error, rizin, delivery, recordEvidence);
         const admitted = await withAdmittedExternalMutation(
           parsed.data.path,
           context.mcpReq.signal,
-          async (onLaunched) => {
+          async () => {
+            invalidateSnapshotForExternalMutation?.();
             return logToolExecution(logger, rizin.name, () =>
               service.executeRizinCommand(parsed.data, {
                 signal: context.mcpReq.signal,
-                onLaunched,
               }),
             );
           },
           (value, cause) => {
             if (!value.ok)
               return value.error.retainSecondaryFailure(cause, {
-                rebind_error: projectAnalysisError(cause),
+                retirement_error: projectAnalysisError(cause),
               });
             const observation = value.value;
             return new AnalysisOutputError(
               rizin.name,
-              "Rizin may have changed the bound artifact, but the active analysis session could not be rebound.",
+              "Rizin may have changed the bound artifact, but the active analysis session could not be retired.",
               {
                 cause,
                 ...(cause.cleanup === undefined
@@ -153,12 +137,14 @@ export const registerReverseEngineeringTools = (
         withAdmittedAnalysis,
         delivery,
         async () => {
+          if (
+            invalidateSnapshotForExternalMutation !== undefined &&
+            rizinInputSchema.safeParse(input).success
+          )
+            invalidateSnapshotForExternalMutation();
           const result = await logToolExecution(logger, rizin.name, () =>
             service.executeRizinCommand(input, {
               signal: context.mcpReq.signal,
-              ...(invalidateSnapshotForExternalMutation === undefined
-                ? {}
-                : { onLaunched: invalidateSnapshotForExternalMutation }),
             }),
           );
           if (!result.ok)

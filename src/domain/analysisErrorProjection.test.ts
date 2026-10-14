@@ -821,15 +821,7 @@ it("retains the primary failure and both cleanup reports after a secondary failu
       resources: ["writer"],
       cleanup_reason: "writer remains",
       captured_output: { stdout: "partial", stderr: "diagnostic" },
-      diagnostics: {
-        rebind_error: {
-          code: "cleanup_incomplete",
-          details: {
-            resources: ["provider", "writer"],
-            cleanup_reason: "provider remains",
-          },
-        },
-      },
+      diagnostics: { rebind_error: { code: "cleanup_incomplete" } },
     },
   });
 });

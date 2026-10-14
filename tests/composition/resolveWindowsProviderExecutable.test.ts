@@ -1,81 +1,95 @@
-import { mkdtemp, mkdir, rm, writeFile } from "node:fs/promises";
-import { tmpdir } from "node:os";
-import { join } from "node:path";
+import { win32 } from "node:path";
 
 import { describe, expect, it } from "vitest";
 
 import { resolveWindowsProviderExecutable } from "../../src/composition/resolveWindowsProviderExecutable.js";
 import { createReverseEngineeringCommandPort } from "../../src/composition/reverseEngineering.js";
 
+const windowsLookup = (cwd: string, files: readonly string[]) => {
+  const existingFiles = new Set(
+    files.map((path) => win32.normalize(path).toLowerCase()),
+  );
+  return {
+    cwd,
+    isFile: (path: string): boolean =>
+      existingFiles.has(win32.normalize(path).toLowerCase()),
+  };
+};
+
 describe("resolveWindowsProviderExecutable", () => {
-  it("resolves a bare name using captured PATH and PATHEXT", async () => {
-    const directory = await mkdtemp(join(tmpdir(), "rea-win-provider-"));
-    const tools = join(directory, "tools");
-    await mkdir(tools);
-    const executable = join(tools, "rizin.EXE");
-    await writeFile(executable, "fixture");
-    try {
-      expect(
-        await resolveWindowsProviderExecutable("rizin", {
-          PATH: `C:\\unrelated;${tools}`,
+  it("resolves a bare name from quoted and relative Windows PATH entries", () => {
+    const cwd = "C:\\work";
+    const expected = "C:\\work\\Program Files\\REA Tools\\objdump.EXE";
+    expect(
+      resolveWindowsProviderExecutable(
+        "objdump",
+        {
+          PATH: `.;".\\Program Files\\REA Tools";D:\\unused`,
           PATHEXT: ".COM;.EXE;.BAT",
-        }),
-      ).toBe(executable);
-    } finally {
-      await rm(directory, { recursive: true, force: true });
-    }
-  });
-
-  it("skips script extensions in PATHEXT and resolves a later executable", async () => {
-    const directory = await mkdtemp(join(tmpdir(), "rea-win-provider-script-"));
-    const script = join(directory, "rizin.CMD");
-    const executable = join(directory, "rizin.EXE");
-    await writeFile(script, "script fixture");
-    await writeFile(executable, "executable fixture");
-    try {
-      expect(
-        await resolveWindowsProviderExecutable("rizin", {
-          PATH: directory,
-          PATHEXT: ".CMD;.BAT;.EXE;.COM",
-        }),
-      ).toBe(executable);
-    } finally {
-      await rm(directory, { recursive: true, force: true });
-    }
-  });
-
-  it("uses the resolver for composed providers on Windows", async () => {
-    const directory = await mkdtemp(join(tmpdir(), "rea-win-provider-port-"));
-    const executable = join(directory, "objdump.EXE");
-    await writeFile(executable, "fixture");
-    try {
-      const commands = createReverseEngineeringCommandPort(
-        { PATH: directory, PATHEXT: ".EXE" },
-        "win32",
-      );
-      expect(
-        (
-          await commands.objdump({
-            path: "artifact",
-            operation: "file_headers",
-          })
-        ).executable,
-      ).toBe(executable);
-    } finally {
-      await rm(directory, { recursive: true, force: true });
-    }
-  });
-
-  it("preserves explicit paths and leaves unresolved names unchanged", async () => {
-    const environment = { PATH: "C:\\tools", PATHEXT: ".EXE" };
-    expect(
-      await resolveWindowsProviderExecutable(
-        "C:\\tools\\rizin.exe",
-        environment,
+        },
+        windowsLookup(cwd, [expected]),
       ),
-    ).toBe("C:\\tools\\rizin.exe");
+    ).toBe(expected);
+  });
+
+  it("resolves a relative configured path against the caller's Windows CWD", () => {
     expect(
-      await resolveWindowsProviderExecutable("missing-tool", environment),
+      resolveWindowsProviderExecutable(
+        ".\\tools\\objdump.exe",
+        {},
+        windowsLookup("D:\\analysis", []),
+      ),
+    ).toBe("D:\\analysis\\tools\\objdump.exe");
+  });
+
+  it("resolves relative PATH hits to absolute drive paths", () => {
+    const expected = "D:\\analysis\\bin\\rizin.EXE";
+    expect(
+      resolveWindowsProviderExecutable(
+        "rizin",
+        { PATH: ".\\bin", PATHEXT: ".EXE" },
+        windowsLookup("D:\\analysis", [expected]),
+      ),
+    ).toBe(expected);
+  });
+
+  it("skips script extensions and preserves a caller-selected absolute path", () => {
+    const expected = "C:\\tools\\rizin.EXE";
+    const selected = "C:\\tools\\rizin.exe";
+    expect(
+      resolveWindowsProviderExecutable(
+        "rizin",
+        { PATH: "C:\\tools", PATHEXT: ".CMD;.BAT;.EXE;.COM" },
+        windowsLookup("C:\\work", ["C:\\tools\\rizin.CMD", expected]),
+      ),
+    ).toBe(expected);
+    expect(
+      resolveWindowsProviderExecutable(
+        selected,
+        {},
+        windowsLookup("D:\\work", []),
+      ),
+    ).toBe(selected);
+  });
+
+  it("keeps unresolved bare command names unchanged", () => {
+    expect(
+      resolveWindowsProviderExecutable(
+        "missing-tool",
+        { PATH: ".\\tools", PATHEXT: ".EXE" },
+        windowsLookup("C:\\work", []),
+      ),
     ).toBe("missing-tool");
+  });
+
+  it("passes an absolute selected command through provider composition", () => {
+    const commands = createReverseEngineeringCommandPort(
+      { REA_OBJDUMP_COMMAND: "C:\\tools\\objdump.exe" },
+      "win32",
+    );
+    expect(
+      commands.objdump({ path: "artifact", operation: "file_headers" })
+        .executable,
+    ).toBe("C:\\tools\\objdump.exe");
   });
 });

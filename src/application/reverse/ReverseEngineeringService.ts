@@ -12,8 +12,8 @@ import {
   AnalysisResourceConstraintError,
   AnalysisTimeoutError,
 } from "../../domain/analysisErrorCore.js";
-import {
-  type AnalysisCleanupObservation,
+import type {
+  AnalysisCleanupObservation,
   AnalysisError,
 } from "../../domain/analysisErrorBase.js";
 import { AnalysisOutputError } from "../../domain/analysisErrorCore.js";
@@ -44,6 +44,8 @@ export type ReverseEngineeringOperation =
 
 const DEFAULT_TIMEOUT_MS = 120_000;
 const MAX_COMBINED_OUTPUT_BYTES = 16 * 1024 * 1024;
+// Eight concurrent captures bound retained provider output to 128 MiB.
+const MAX_CONCURRENT_REVERSE_ENGINEERING_OPERATIONS = 8;
 
 export interface ReverseEngineeringServiceOptions {
   readonly environment?: Readonly<NodeJS.ProcessEnv>;
@@ -58,9 +60,7 @@ interface ReverseEngineeringCommandRunner {
   (
     command: string,
     arguments_: readonly string[],
-    options?: Parameters<typeof execFileOutput>[2] & {
-      readonly onLaunched?: () => void;
-    },
+    options?: Parameters<typeof execFileOutput>[2],
   ): Promise<{
     readonly stdout: string;
     readonly stderr: string;
@@ -88,6 +88,7 @@ export class ReverseEngineeringService {
     {
       readonly observation: AnalysisCleanupObservation;
       readonly failures: Set<AnalysisError>;
+      readonly retryFailure?: AnalysisError;
     }
   >();
   readonly #activeOperations = new Map<
@@ -134,21 +135,21 @@ export class ReverseEngineeringService {
           reason: stopped.reason,
           resources: retained.observation.resources,
         };
+        let retryFailure = retained.retryFailure;
+        if (retryFailure === undefined) {
+          retryFailure = new AnalysisOutputError(
+            operation,
+            "A previous provider process still requires cleanup.",
+            { cleanup: observation },
+          );
+          retained.failures.add(retryFailure);
+        }
         this.#pendingCleanup.set(owner, {
           observation,
           failures: retained.failures,
+          retryFailure,
         });
-        if (failure === undefined) {
-          failure = retained.failures.values().next().value;
-          if (failure === undefined) {
-            failure = new AnalysisOutputError(
-              operation,
-              "A previous provider process still requires cleanup.",
-              { cleanup: observation },
-            );
-            retained.failures.add(failure);
-          }
-        }
+        if (failure === undefined) failure = retryFailure;
       } else {
         for (const previous of retained.failures) previous.resolveCleanup();
         this.#pendingCleanup.delete(owner);
@@ -188,19 +189,11 @@ export class ReverseEngineeringService {
         err(new AnalysisInputError("inspect_with_objdump")),
       );
     const input = parsed.data;
-    const command = (
-      signal?: AbortSignal,
-      artifactPath?: string,
-    ) =>
-      this.#commands.objdump(input, {
-        ...(signal === undefined ? {} : { signal }),
-        ...(artifactPath === undefined ? {} : { artifactPath }),
-        timeoutMs: DEFAULT_TIMEOUT_MS,
-      });
+    const command = this.#commands.objdump(input);
     return this.#observe(
       "inspect_with_objdump",
       command,
-      input.path,
+      input.operation === "architectures" ? undefined : input.path,
       input,
       options.signal,
     );
@@ -208,10 +201,7 @@ export class ReverseEngineeringService {
 
   executeRizinCommand(
     rawInput: unknown,
-    options: {
-      readonly signal?: AbortSignal;
-      readonly onLaunched?: () => void;
-    } = {},
+    options: { readonly signal?: AbortSignal } = {},
   ): Promise<Result<Evidence, AnalysisError>> {
     const parsed = rizinInputSchema.safeParse(rawInput);
     if (!parsed.success)
@@ -219,38 +209,25 @@ export class ReverseEngineeringService {
         err(new AnalysisInputError("execute_rizin_command")),
       );
     const input = parsed.data;
-    const command = (
-      signal?: AbortSignal,
-      artifactPath?: string,
-    ) =>
-      this.#commands.rizin(input, {
-        ...(signal === undefined ? {} : { signal }),
-        ...(artifactPath === undefined ? {} : { artifactPath }),
-        timeoutMs: DEFAULT_TIMEOUT_MS,
-      });
+    const command = this.#commands.rizin(input);
     return this.#observe(
       "execute_rizin_command",
       command,
       input.path,
       input,
       options.signal,
-      options.onLaunched,
     );
   }
 
   #observe(
     operation: ReverseEngineeringOperation,
-    resolveProfile: (
-      signal?: AbortSignal,
-      artifactPath?: string,
-    ) =>
-      | ReverseEngineeringProviderCommand
-      | Promise<ReverseEngineeringProviderCommand>,
-    path: string,
+    profile: ReverseEngineeringProviderCommand,
+    path: string | undefined,
     parameters: Readonly<Record<string, JsonValue>>,
     signal?: AbortSignal,
-    onLaunched?: () => void,
   ): Promise<Result<Evidence, AnalysisError>> {
+    if (signal?.aborted)
+      return Promise.resolve(err(new AnalysisCancelledError(operation)));
     if (this.#closing)
       return Promise.resolve(
         err(
@@ -260,22 +237,27 @@ export class ReverseEngineeringService {
           ),
         ),
       );
-    if (signal?.aborted)
-      return Promise.resolve(err(new AnalysisCancelledError(operation)));
-    if (this.#activeOperations.size > 0)
+    if (
+      this.#activeOperations.size >=
+      MAX_CONCURRENT_REVERSE_ENGINEERING_OPERATIONS
+    )
       return Promise.resolve(
         err(
           new AnalysisResourceConstraintError(
             operation,
-            "capacity",
-            "One reverse-engineering command is already active; retry after it settles.",
-            { concurrent_commands: 1 },
+            "transport",
+            "Concurrent reverse-engineering operation capacity reached.",
+            {
+              max_concurrent_operations:
+                MAX_CONCURRENT_REVERSE_ENGINEERING_OPERATIONS,
+              active_operations: this.#activeOperations.size,
+            },
           ),
         ),
       );
     const controller = new AbortController();
     const relayAbort = (): void => controller.abort(signal?.reason);
-    if (signal !== undefined && signal instanceof AbortSignal) {
+    if (signal instanceof AbortSignal) {
       if (signal.aborted) relayAbort();
       else signal.addEventListener("abort", relayAbort, { once: true });
     }
@@ -285,11 +267,10 @@ export class ReverseEngineeringService {
         : signal;
     const running = this.#observeProvider(
       operation,
-      resolveProfile,
+      profile,
       path,
       parameters,
       operationSignal,
-      onLaunched,
     );
     const tracked = running.finally(() => {
       signal?.removeEventListener("abort", relayAbort);
@@ -301,55 +282,38 @@ export class ReverseEngineeringService {
 
   async #observeProvider(
     operation: ReverseEngineeringOperation,
-    resolveProfile: (
-      signal?: AbortSignal,
-      artifactPath?: string,
-    ) =>
-      | ReverseEngineeringProviderCommand
-      | Promise<ReverseEngineeringProviderCommand>,
-    path: string,
+    profile: ReverseEngineeringProviderCommand,
+    path: string | undefined,
     parameters: Readonly<Record<string, JsonValue>>,
     signal?: AbortSignal,
-    onLaunched?: () => void,
   ): Promise<Result<Evidence, AnalysisError>> {
+    const { executable: command, arguments: args } = profile;
     if (signal?.aborted) return err(new AnalysisCancelledError(operation));
     const cleanup = await this.retryCleanup(operation);
     if (!cleanup.ok) return cleanup;
-    const absolutePath = resolve(path);
-    let digest: string;
+    const absolutePath = path === undefined ? undefined : resolve(path);
+    let digest: string | undefined;
     try {
-      digest = await this.#digest(absolutePath, signal, this.#stat);
+      if (absolutePath !== undefined)
+        digest = await this.#digest(absolutePath, signal, this.#stat);
     } catch (cause) {
       const code = (cause as NodeJS.ErrnoException).code;
       if (signal?.aborted)
         return err(new AnalysisCancelledError(operation, { cause }));
-      if (code === "EACCES" || code === "EPERM")
+      if (code === "EACCES" || code === "EPERM") {
+        const deniedPath = absolutePath === undefined ? command : absolutePath;
         return err(
-          new AnalysisAccessDeniedError(operation, absolutePath, code, {
+          new AnalysisAccessDeniedError(operation, deniedPath, code, {
             cause,
           }),
         );
+      }
       if (code === "ETIMEDOUT")
         return err(
           new AnalysisTimeoutError(operation, DEFAULT_TIMEOUT_MS, { cause }),
         );
       return err(new AnalysisInputError(operation, { cause }));
     }
-    let profile: ReverseEngineeringProviderCommand;
-    try {
-      profile = await resolveProfile(signal, absolutePath);
-    } catch (cause) {
-      return err(
-        cause instanceof AnalysisError
-          ? cause
-          : new AnalysisOutputError(
-              operation,
-              "Provider executable resolution failed.",
-              { cause },
-            ),
-      );
-    }
-    const { executable: command, arguments: args } = profile;
     let stdout = "";
     let stderr = "";
     let stdoutBytes = 0;
@@ -360,29 +324,22 @@ export class ReverseEngineeringService {
     let stdoutInvalidUtf8 = false;
     let stderrInvalidUtf8 = false;
     let cleanupIncomplete = false;
+    let cleanupOnlyFailure = false;
     let completionStatus: "complete" | "unknown" = "complete";
     let failure: AnalysisError | undefined;
     let cleanupOwner: ProviderProcessSupervisor | undefined;
-    let launchReported = false;
-    const reportLaunch = (): void => {
-      if (launchReported) return;
-      launchReported = true;
-      onLaunched?.();
-    };
+    let earlyFailure: AnalysisError | undefined;
     try {
       const output = await this.#run(command, args, {
         env: {
           ...this.#environment,
           ...profile.environmentOverrides,
         },
-        ...(signal === undefined ? {} : { signal }),
+        signal,
         timeout: DEFAULT_TIMEOUT_MS,
         stopSignal: "SIGTERM",
         maxBuffer: MAX_COMBINED_OUTPUT_BYTES,
-        onLaunched: reportLaunch,
       });
-      // Injected runners may only report completion, which also proves dispatch.
-      reportLaunch();
       stdout = output.stdout;
       stderr = output.stderr;
       stdoutBytes = output.stdoutBytes ?? Buffer.byteLength(stdout);
@@ -390,130 +347,191 @@ export class ReverseEngineeringService {
       stdoutInvalidUtf8 = output.stdoutInvalidUtf8 === true;
       stderrInvalidUtf8 = output.stderrInvalidUtf8 === true;
     } catch (cause) {
-      if (cause instanceof AnalysisError) return err(cause);
       cleanupOwner =
         cause instanceof OwnedOutputFailure ? cause.cleanupOwner : undefined;
       if (
         cause instanceof OwnedOutputFailure &&
         cause.capabilityError !== undefined
       )
-        return err(cause.capabilityError);
+        earlyFailure = new AnalysisCapabilityUnavailableError(
+          cause.capabilityError.providerId,
+          cause.capabilityError.operation,
+          cause.capabilityError.reason,
+          {
+            cause: cause.capabilityError,
+            ...(cause.capabilityError.diagnostics === undefined
+              ? {}
+              : { diagnostics: cause.capabilityError.diagnostics }),
+            ...(cause.capabilityError.capturedOutput === undefined
+              ? {}
+              : { capturedOutput: cause.capabilityError.capturedOutput }),
+            ...(cause.capabilityError.partialObservation === undefined
+              ? {}
+              : {
+                  partialObservation: cause.capabilityError.partialObservation,
+                }),
+            ...(cause.capabilityError.userMessage === undefined
+              ? {}
+              : { userMessage: cause.capabilityError.userMessage }),
+            retryable: cause.capabilityError.retryable,
+            ...ownedCleanupOptions(cause),
+          },
+        );
       const capture = execFileOutputFailure(cause);
       const code =
         capture?.code ?? (cause as NodeJS.ErrnoException).code ?? undefined;
-      if (code === "E2BIG")
-        return err(
-          new AnalysisResourceConstraintError(
-            operation,
-            "transport",
-            "The host rejected the provider command because its argument list exceeds the process launch limit.",
-            {
-              argument_bytes: args.reduce(
-                (bytes, argument, index) =>
-                  bytes + Buffer.byteLength(argument) + (index === 0 ? 0 : 1),
-                0,
-              ),
-            },
-            { cause },
-          ),
+      if (earlyFailure === undefined && code === "E2BIG")
+        earlyFailure = new AnalysisResourceConstraintError(
+          operation,
+          "transport",
+          "The host rejected the provider command because its argument list exceeds the process launch limit.",
+          {
+            argument_bytes: args.reduce(
+              (bytes, argument, index) =>
+                bytes + Buffer.byteLength(argument) + (index === 0 ? 0 : 1),
+              0,
+            ),
+          },
+          { cause, ...ownedCleanupOptions(cause) },
         );
       if (
-        capture === undefined ||
-        code === "ENOENT" ||
-        code === "ERR_PROVIDER_LAUNCH"
+        earlyFailure === undefined &&
+        (capture === undefined ||
+          code === "ENOENT" ||
+          code === "ERR_PROVIDER_LAUNCH")
       ) {
         if (signal?.aborted || code === "ABORT_ERR")
-          return err(new AnalysisCancelledError(operation, { cause }));
-        if (code === "ETIMEDOUT")
-          return err(
-            new AnalysisTimeoutError(operation, DEFAULT_TIMEOUT_MS, { cause }),
+          earlyFailure = new AnalysisCancelledError(operation, {
+            cause,
+            ...ownedCleanupOptions(cause),
+          });
+        else if (code === "ETIMEDOUT")
+          earlyFailure = new AnalysisTimeoutError(
+            operation,
+            DEFAULT_TIMEOUT_MS,
+            {
+              cause,
+              ...ownedCleanupOptions(cause),
+            },
           );
-        if (code === "EACCES" || code === "EPERM")
-          return err(
-            new AnalysisAccessDeniedError(operation, command, code, { cause }),
+        else if (code === "EACCES" || code === "EPERM")
+          earlyFailure = new AnalysisAccessDeniedError(
+            operation,
+            command,
+            code,
+            {
+              cause,
+              ...ownedCleanupOptions(cause),
+            },
           );
-        return err(
-          new AnalysisCapabilityUnavailableError(
+        else
+          earlyFailure = new AnalysisCapabilityUnavailableError(
             operation === "inspect_with_objdump" ? "objdump" : "rizin",
             operation,
             `Unable to run configured command (${String(code ?? "unknown error")})`,
-            { cause },
-          ),
-        );
-      }
-      stdout = capture.stdout;
-      stderr = capture.stderr;
-      stdoutBytes = capture.stdoutBytes ?? Buffer.byteLength(stdout);
-      stderrBytes = capture.stderrBytes ?? Buffer.byteLength(stderr);
-      exitCode = capture.code;
-      signalName = capture.signal;
-      outputTruncated = capture.outputTruncated;
-      if (capture.collectionFailure) {
-        exitCode = null;
-        completionStatus = "unknown";
-      }
-      const capturedOutput = {
-        stdout,
-        stderr,
-        truncated: outputTruncated,
-        stdout_bytes: stdoutBytes,
-        stderr_bytes: stderrBytes,
-        exit_code:
-          !capture.collectionFailure && typeof capture.code === "number"
-            ? capture.code
-            : null,
-        signal: capture.signal,
-      };
-      if (signal?.aborted || code === "ABORT_ERR")
-        failure = new AnalysisCancelledError(operation, {
-          cause,
-          capturedOutput,
-          ...ownedCleanupOptions(cause),
-        });
-      else if (code === "ETIMEDOUT")
-        failure = new AnalysisTimeoutError(operation, DEFAULT_TIMEOUT_MS, {
-          cause,
-          capturedOutput,
-          ...ownedCleanupOptions(cause),
-        });
-      else if (code === "EACCES" || code === "EPERM")
-        failure = new AnalysisAccessDeniedError(operation, command, code, {
-          cause,
-          capturedOutput,
-        });
-      if (cause instanceof OwnedOutputFailure && cause.cleanup !== undefined) {
-        cleanupIncomplete = true;
-        if (failure === undefined)
-          failure = new AnalysisOutputError(
-            operation,
-            "Provider process cleanup remains incomplete.",
-            { cause, capturedOutput, cleanup: cause.cleanup },
+            { cause, ...ownedCleanupOptions(cause) },
           );
       }
-      if (
-        failure === undefined &&
-        cause instanceof OwnedOutputFailure &&
-        cause.collectionFailure
-      )
-        failure = new AnalysisOutputError(
-          operation,
-          "Provider output collection failed.",
-          { cause, capturedOutput },
-        );
-      if (capture.signal !== null || typeof capture.code !== "number") {
-        exitCode = null;
-        completionStatus = "unknown";
-      }
-      if (cause instanceof OwnedOutputFailure) {
-        stdoutInvalidUtf8 = cause.stdoutInvalidUtf8;
-        stderrInvalidUtf8 = cause.stderrInvalidUtf8;
+      if (earlyFailure === undefined && capture !== undefined) {
+        stdout = capture.stdout;
+        stderr = capture.stderr;
+        stdoutBytes = capture.stdoutBytes ?? Buffer.byteLength(stdout);
+        stderrBytes = capture.stderrBytes ?? Buffer.byteLength(stderr);
+        exitCode = capture.code;
+        signalName = capture.signal;
+        outputTruncated = capture.outputTruncated;
+        if (capture.collectionFailure) {
+          exitCode = null;
+          completionStatus = "unknown";
+        }
+        const capturedOutput = {
+          stdout,
+          stderr,
+          truncated: outputTruncated,
+          stdout_bytes: stdoutBytes,
+          stderr_bytes: stderrBytes,
+          exit_code:
+            !capture.collectionFailure && typeof capture.code === "number"
+              ? capture.code
+              : null,
+          signal: capture.signal,
+        };
+        if (signal?.aborted || code === "ABORT_ERR")
+          failure = new AnalysisCancelledError(operation, {
+            cause,
+            capturedOutput,
+            ...ownedCleanupOptions(cause),
+          });
+        else if (code === "ETIMEDOUT")
+          failure = new AnalysisTimeoutError(operation, DEFAULT_TIMEOUT_MS, {
+            cause,
+            capturedOutput,
+            ...ownedCleanupOptions(cause),
+          });
+        else if (code === "EACCES" || code === "EPERM")
+          failure = new AnalysisAccessDeniedError(operation, command, code, {
+            cause,
+            capturedOutput,
+            ...ownedCleanupOptions(cause),
+          });
+        if (
+          cause instanceof OwnedOutputFailure &&
+          cause.cleanup !== undefined
+        ) {
+          cleanupIncomplete = true;
+          if (failure === undefined) {
+            cleanupOnlyFailure =
+              !capture.collectionFailure &&
+              !capture.outputTruncated &&
+              !capture.killed &&
+              capture.signal === null &&
+              typeof capture.code === "number" &&
+              !signal?.aborted;
+            failure = new AnalysisOutputError(
+              operation,
+              "Provider process cleanup remains incomplete.",
+              {
+                cause,
+                capturedOutput,
+                cleanup: cause.cleanup,
+                cleanupOnly: cleanupOnlyFailure,
+              },
+            );
+          }
+        }
+        if (
+          failure === undefined &&
+          cause instanceof OwnedOutputFailure &&
+          cause.collectionFailure
+        )
+          failure = new AnalysisOutputError(
+            operation,
+            "Provider output collection failed.",
+            { cause, capturedOutput },
+          );
+        if (
+          capture.killed ||
+          capture.signal !== null ||
+          typeof capture.code !== "number"
+        ) {
+          exitCode = null;
+          completionStatus = "unknown";
+        }
+        if (cause instanceof OwnedOutputFailure) {
+          stdoutInvalidUtf8 = cause.stdoutInvalidUtf8;
+          stderrInvalidUtf8 = cause.stderrInvalidUtf8;
+        }
       }
     }
+    if (earlyFailure !== undefined)
+      return err(this.#registerCleanupFailure(earlyFailure, cleanupOwner));
     if (failure !== undefined && cleanupOwner !== undefined)
-      this.#pendingCleanup.get(cleanupOwner)?.failures.add(failure);
+      failure = this.#registerCleanupFailure(failure, cleanupOwner);
     let digestAfter: string | null = null;
-    if (cleanupIncomplete) {
-      completionStatus = "unknown";
+    if (absolutePath === undefined) {
+      digestAfter = null;
+    } else if (cleanupIncomplete) {
+      if (!cleanupOnlyFailure) completionStatus = "unknown";
     } else {
       try {
         digestAfter = await this.#digest(absolutePath, signal, this.#stat);
@@ -537,7 +555,11 @@ export class ReverseEngineeringService {
       completionStatus = "unknown";
     }
     const artifactChanged =
-      digestAfter === null ? null : digestAfter !== digest;
+      absolutePath === undefined
+        ? null
+        : digestAfter === null || digest === undefined
+          ? null
+          : digestAfter !== digest;
     const result = {
       stdout,
       stderr,
@@ -545,11 +567,17 @@ export class ReverseEngineeringService {
       signal: signalName,
       output_truncated: outputTruncated,
       completion_status: completionStatus,
-      artifact_sha256_after: digestAfter,
-      artifact_changed: artifactChanged,
+      artifact_sha256_after: absolutePath === undefined ? null : digestAfter,
+      artifact_changed: absolutePath === undefined ? null : artifactChanged,
     };
     const limitations = [
-      "The executable version and supported formats are reported as unknown because no reliable version probe was performed.",
+      ...(absolutePath === undefined
+        ? [
+            "The objdump version is not reported; the output lists BFD targets advertised by the installed tool and does not establish support for the selected artifact.",
+          ]
+        : [
+            "The executable version and supported formats are reported as unknown because no reliable version probe was performed.",
+          ]),
       "A non-zero process exit is preserved as an observed command result.",
       ...(operation === "inspect_with_objdump" &&
       parameters.follow_debug_links === true
@@ -582,21 +610,28 @@ export class ReverseEngineeringService {
         : [
             `The provider process terminated by signal ${signalName}; captured output may be partial and command completion is unknown.`,
           ]),
-      ...(failure === undefined
+      ...(failure === undefined ||
+      (failure instanceof AnalysisOutputError && failure.cleanupOnly)
         ? []
         : [
             `Command completion is unknown because the operation failed with ${failure._tag}: ${failure.message}`,
           ]),
-      "When both are available, pre-run and post-run digests detect artifact changes across the provider call but cannot prove the exact bytes consumed during the call.",
+      ...(absolutePath === undefined
+        ? [
+            "This output lists BFD targets advertised by the installed objdump and is independent of the selected artifact.",
+          ]
+        : [
+            "When both are available, pre-run and post-run digests detect artifact changes across the provider call but cannot prove the exact bytes consumed during the call.",
+          ]),
       ...(artifactChanged === true
         ? [
             "The provider command may have changed the artifact while analysis was running; pre-run and post-run digests are both reported.",
           ]
         : []),
-      ...(digestAfter === null
+      ...(absolutePath !== undefined && digestAfter === null
         ? [
             cleanupIncomplete
-              ? "The post-run artifact digest is unknown because owned provider cleanup is incomplete; a remaining process may still change the artifact."
+              ? "The post-run artifact digest was not captured because owned provider cleanup was incomplete at observation time; artifact changes during the command remain unquantified."
               : signal?.aborted
                 ? "The post-run artifact digest is unknown because cancellation interrupted the digest."
                 : "The post-run artifact digest is unknown because the artifact could not be read after the provider call.",
@@ -604,25 +639,44 @@ export class ReverseEngineeringService {
         : []),
     ];
     const evidence = createEvidence(
-      { path: absolutePath, sha256: digest, format: "unknown" },
+      absolutePath === undefined || digest === undefined
+        ? undefined
+        : { path: absolutePath, sha256: digest, format: "unknown" },
       profile.identity,
       {
         predicateType: "rea.reverse-engineering.command-observation",
         operation,
         parameters: {
-          ...parameters,
+          ...(absolutePath === undefined
+            ? { operation: "architectures" }
+            : parameters),
           provider_executable: command,
           command_arguments: [...args],
         },
-        rawResult: null,
+        rawResult: result,
         result,
         limitations,
-        locations: [{ kind: "artifact-path", path: absolutePath }],
+        ...(absolutePath === undefined
+          ? {}
+          : {
+              locations: [
+                { kind: "artifact-path" as const, path: absolutePath },
+              ],
+            }),
       },
     );
     return failure === undefined
       ? ok(evidence)
       : err(failure.retainPartialObservation(evidence));
+  }
+
+  #registerCleanupFailure(
+    failure: AnalysisError,
+    cleanupOwner: ProviderProcessSupervisor | undefined,
+  ): AnalysisError {
+    if (cleanupOwner !== undefined && failure.cleanupIncomplete)
+      this.#pendingCleanup.get(cleanupOwner)?.failures.add(failure);
+    return failure;
   }
 }
 
@@ -632,10 +686,10 @@ interface OwnedOutputFailureOptions {
   readonly code: number | string | null;
   readonly signal: string | null;
   readonly outputTruncated: boolean;
-  readonly stdoutInvalidUtf8?: boolean;
-  readonly stderrInvalidUtf8?: boolean;
-  readonly stdoutBytes?: number;
-  readonly stderrBytes?: number;
+  readonly stdoutInvalidUtf8: boolean;
+  readonly stderrInvalidUtf8: boolean;
+  readonly stdoutBytes: number;
+  readonly stderrBytes: number;
   readonly capabilityError?: AnalysisCapabilityUnavailableError;
   readonly collectionFailure?: boolean;
   readonly cleanup?: AnalysisCleanupObservation;
@@ -667,10 +721,10 @@ class OwnedOutputFailure extends Error {
     this.code = options.code;
     this.signal = options.signal;
     this.outputTruncated = options.outputTruncated;
-    this.stdoutInvalidUtf8 = options.stdoutInvalidUtf8 ?? false;
-    this.stderrInvalidUtf8 = options.stderrInvalidUtf8 ?? false;
-    this.stdoutBytes = options.stdoutBytes ?? Buffer.byteLength(options.stdout);
-    this.stderrBytes = options.stderrBytes ?? Buffer.byteLength(options.stderr);
+    this.stdoutInvalidUtf8 = options.stdoutInvalidUtf8;
+    this.stderrInvalidUtf8 = options.stderrInvalidUtf8;
+    this.stdoutBytes = options.stdoutBytes;
+    this.stderrBytes = options.stderrBytes;
     this.capabilityError = options.capabilityError;
     this.collectionFailure = options.collectionFailure ?? false;
     this.cleanup = options.cleanup;
@@ -704,14 +758,8 @@ const runOwnedCommandOutput =
           diagnosticBytes: MAX_COMBINED_OUTPUT_BYTES,
           acceptNonZeroExit: true,
         },
-        {
-          ...(options.signal === undefined ? {} : { signal: options.signal }),
-          ...(options.onLaunched === undefined
-            ? {}
-            : { onLaunched: options.onLaunched }),
-        },
+        { signal: options.signal },
       );
-      // Stryker disable next-line ConditionalExpression,EqualityOperator -- null and undefined both mean no signal; wrapping a successful snapshot with those values is observationally equivalent after normalization.
       if (snapshot.signal !== null && snapshot.signal !== undefined)
         throw new OwnedOutputFailure({
           stdout: snapshot.stdout.text,

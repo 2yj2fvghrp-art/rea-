@@ -94,8 +94,8 @@ export abstract class AnalysisError extends Error {
     failure: AnalysisError,
     diagnostics: Readonly<Record<string, JsonValue>>,
   ): this {
-    // Secondary cleanup retains its own owner and live state. Its projection is
-    // additional context, never a replacement for the primary cleanup report.
+    // Secondary resources remain owned by their cleanup lifecycle; preserve
+    // the primary error's live cleanup status and original output.
     Object.assign(this, {
       diagnostics: structuredClone({ ...this.diagnostics, ...diagnostics }),
       cause: new AggregateError(

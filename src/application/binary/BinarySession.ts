@@ -302,8 +302,8 @@ export class BinarySession
         previous.route.identity.id,
       );
       if (!closed.ok) {
-        // The old provider is gone or unknown; cached results are stale but
-        // collected Evidence and unknowns remain exportable.
+        // A failed open retires the provider cache, not the investigation.
+        // Preserve Evidence and Unknown history for export and recovery.
         this.clearSnapshot();
         this.#clearRuntimeAvailability();
         return closed;
@@ -370,90 +370,63 @@ export class BinarySession
     return ok(target);
   }
 
-  /** Serialize an external local-file mutation and rebind a matching session. */
+  /** Serialize an external mutation and retire the potentially stale analysis. */
   withAdmittedExternalMutation<Value>(
-    path: string,
+    _path: string | undefined,
     signal: AbortSignal | undefined,
-    operation: (
-      onLaunched: () => void,
-    ) => Promise<Result<Value, AnalysisError>>,
-    rebindFailure: (
+    operation: () => Promise<Result<Value, AnalysisError>>,
+    retirementFailure: (
       value: Result<Value, AnalysisError>,
       error: AnalysisError,
     ) => AnalysisError,
+    operationName = "execute_rizin_command",
+    cleanupRecovery?: (
+      failure: AnalysisError | undefined,
+    ) => Promise<Result<null, AnalysisError>>,
   ): Promise<Result<Result<Value, AnalysisError>, AnalysisError>> {
     return this.#serialize(async (admittedThrough) => {
-      if (this.#externalMutationCleanupFailure?.cleanupIncomplete === true)
-        return err(this.#externalMutationCleanupFailure);
       if (isAborted(signal))
-        return err(new AnalysisCancelledError("execute_rizin_command"));
+        return err(new AnalysisCancelledError(operationName));
       await this.#drainCalls(admittedThrough);
       if (isAborted(signal))
-        return err(new AnalysisCancelledError("execute_rizin_command"));
+        return err(new AnalysisCancelledError(operationName));
+
+      if (this.#externalMutationCleanupFailure?.cleanupIncomplete === true) {
+        if (cleanupRecovery === undefined)
+          return err(this.#externalMutationCleanupFailure);
+        const recovered = await cleanupRecovery(
+          this.#externalMutationCleanupFailure,
+        );
+        if (!recovered.ok) return recovered;
+        if (this.#externalMutationCleanupFailure.cleanupIncomplete)
+          return err(this.#externalMutationCleanupFailure);
+        this.#externalMutationCleanupFailure = undefined;
+      }
+
+      const pendingCleanup = await this.#retryPendingCleanup();
+      if (!pendingCleanup.ok) return pendingCleanup;
 
       const activeAtDispatch = this.#active;
       if (activeAtDispatch?.route.binding?.identity.id === "ghidra")
         return err(
           new AnalysisOutputError(
-            "execute_rizin_command",
+            operationName,
             "Close the active Ghidra session explicitly before an external mutation; rebinding would discard its ephemeral analysis edits.",
           ),
         );
-      const pendingCleanup = await this.#retryPendingCleanup();
-      if (!pendingCleanup.ok) return err(pendingCleanup.error);
-      // Rizin commands are unrestricted: a hard link, symlink alias, plugin,
-      // or command script can mutate the active file through another path.
-      // Rebind every active session after the admitted call rather than infer
-      // file identity with an uncancellable path lookup.
-      const rebindTarget = activeAtDispatch !== undefined;
-      let launched = false;
-      const value = await operation(() => {
-        if (launched) return;
-        launched = true;
-        this.invalidateSnapshot();
-      });
-      if (!launched) return ok(value);
+      // A protocol reply does not prove that background writers have stopped.
+      // Retire the old analysis and require an explicit fresh open rather than
+      // silently binding a snapshot while an unrestricted command can still write.
+      const retireTarget = activeAtDispatch !== undefined;
+      this.invalidateSnapshot();
+      const value = await operation();
       this.#externalMutationCleanupFailure =
         !value.ok && value.error.cleanupIncomplete ? value.error : undefined;
-      if (!rebindTarget) return ok(value);
+      if (!retireTarget) return ok(value);
 
       const retired = await this.#closeActive({}, false);
-      if (!retired.ok) return err(rebindFailure(value, retired.error));
-      if (this.#externalMutationCleanupFailure !== undefined) return ok(value);
-
-      const target = activeAtDispatch?.target;
-      const reopenOptions: BinarySessionOpenOptions = {
-        targetKind: target?.kind,
-        ...(activeAtDispatch?.profile === null ||
-        activeAtDispatch?.profile === undefined
-          ? {}
-          : { providerId: activeAtDispatch.profile.provider.id }),
-        ...(target?.format === "dos-com" || target?.format === "raw-binary"
-          ? { formatHint: target.format }
-          : {}),
-        ...(target?.format === "raw-binary"
-          ? {
-              architecture: target.architecture,
-              entryPoint: target.entryPoint,
-            }
-          : {}),
-      };
-      const reopened = await this.#openWithinTransition(
-        admittedThrough,
-        () =>
-          resolveSessionOpen({
-            router: this.#providerRouter,
-            current: this.#active,
-            path: target?.sourcePath ?? target?.path ?? path,
-            options: reopenOptions,
-            stagedSnapshotMatches: (target, profile) =>
-              this.matchesSnapshot(target, profile),
-          }),
-        reopenOptions,
-      );
-      return reopened.ok
-        ? ok(value)
-        : err(rebindFailure(value, reopened.error));
+      if (!retired.ok) return err(retirementFailure(value, retired.error));
+      return ok(value);
     });
   }
 

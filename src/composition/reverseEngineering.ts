@@ -1,4 +1,5 @@
 import type { ReverseEngineeringServiceRuntimeOptions } from "../application/reverse/ReverseEngineeringService.js";
+import type { ReverseEngineeringCommandPort } from "../application/reverse/ReverseEngineeringCommandPort.js";
 import { ReverseEngineeringService } from "../application/reverse/ReverseEngineeringService.js";
 import {
   objdumpCommand,
@@ -8,50 +9,40 @@ import {
   rizinCommand,
   RIZIN_PROVIDER_IDENTITY,
 } from "../rizin/RizinCommand.js";
-import type { ReverseEngineeringCommandPort } from "../application/reverse/ReverseEngineeringCommandPort.js";
 import { resolveWindowsProviderExecutable } from "./resolveWindowsProviderExecutable.js";
 
 export const createReverseEngineeringCommandPort = (
   environment: Readonly<NodeJS.ProcessEnv>,
   platform: NodeJS.Platform = process.platform,
 ): ReverseEngineeringCommandPort => ({
-  objdump: async (input, options) => ({
-    executable: await providerExecutable(
+  objdump: (input) => ({
+    executable: providerExecutable(
       environment.REA_OBJDUMP_COMMAND ?? "objdump",
       environment,
       platform,
-      options,
     ),
-    arguments: objdumpCommand({
-      ...input,
-      path: options?.artifactPath ?? input.path,
-    }),
+    arguments: objdumpCommand(input),
     identity: OBJDUMP_PROVIDER_IDENTITY,
     environmentOverrides: { DEBUGINFOD_URLS: "" },
   }),
-  rizin: async (input, options) => ({
-    executable: await providerExecutable(
+  rizin: (input) => ({
+    executable: providerExecutable(
       environment.REA_RIZIN_COMMAND ?? "rizin",
       environment,
       platform,
-      options,
     ),
-    arguments: rizinCommand({
-      ...input,
-      path: options?.artifactPath ?? input.path,
-    }),
+    arguments: rizinCommand(input),
     identity: RIZIN_PROVIDER_IDENTITY,
   }),
 });
 
-const providerExecutable = async (
+const providerExecutable = (
   executable: string,
   environment: Readonly<NodeJS.ProcessEnv>,
   platform: NodeJS.Platform,
-  options?: { readonly signal?: AbortSignal; readonly timeoutMs?: number },
-): Promise<string> =>
+): string =>
   platform === "win32"
-    ? resolveWindowsProviderExecutable(executable, environment, options)
+    ? resolveWindowsProviderExecutable(executable, environment)
     : executable;
 
 /** Compose BYO reverse-engineering commands without acquiring tools at import time. */
