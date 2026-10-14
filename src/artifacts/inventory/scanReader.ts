@@ -226,8 +226,7 @@ const visitArtifactEntries = async (
           );
       }
       context.occurrences.push(occurrence);
-      if (!isDuplicate)
-        context.occurrenceByPath.set(logicalPath, occurrence);
+      if (!isDuplicate) context.occurrenceByPath.set(logicalPath, occurrence);
       if (
         expandableAsar &&
         digested !== undefined &&

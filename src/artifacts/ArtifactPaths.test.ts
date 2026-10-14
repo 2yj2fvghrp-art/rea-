@@ -118,9 +118,9 @@ describe("ArtifactPathRegistry", () => {
   it("keeps path-kind and prefix conflicts as typed path failures", () => {
     const samePath = new ArtifactPathRegistry();
     samePath.add("Chemin.txt", "file");
-    expect(() =>
-      samePath.add("Chemin.txt", "directory"),
-    ).toThrow(ArtifactReaderFailure);
+    expect(() => samePath.add("Chemin.txt", "directory")).toThrow(
+      ArtifactReaderFailure,
+    );
 
     const prefix = new ArtifactPathRegistry();
     prefix.add("a", "file");

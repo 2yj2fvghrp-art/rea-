@@ -3,6 +3,7 @@ import { join } from "node:path";
 
 import { TextReader, Uint8ArrayWriter, ZipWriter } from "@zip.js/zip.js";
 import { expect, it } from "vitest";
+import { z } from "zod";
 
 import { writeOrderedZip } from "../../fixtures/artifactEntryOrder.js";
 import { inventoryArtifact } from "../../fixtures/artifactInventory.js";
@@ -261,6 +262,9 @@ it("binds ZIP opens to the emitted entry metadata", async () => {
   }
 });
 
+const DUPLICATE_PATH_LIMITATION =
+  "Duplicate archive entry path; earlier occurrence of this path exists.";
+
 it("retains duplicate ZIP members without replacing their source identities", async () => {
   const root = await createTestTempDirectory("rea-zip-duplicate-identity-");
   const path = join(root, "duplicates.zip");
@@ -311,10 +315,28 @@ it("retains duplicate ZIP members without replacing their source identities", as
   const target = await parseBinaryTarget(path);
   if (!target.ok) throw target.error;
   await withArtifactClient(target.value, async (client) => {
-    expect(await client.execute("inventory_artifact", {})).toMatchObject({
-      ok: false,
-      error: { _tag: "ArtifactOperationError", reason: "path" },
-    });
+    // A repeated member name is archive data, not a path conflict (#3152).
+    const inventory = await client.execute("inventory_artifact", {});
+    if (!inventory.ok) throw inventory.error;
+    const occurrences = z
+      .object({
+        occurrences: z.array(
+          z.object({
+            occurrence_id: z.string(),
+            artifact_id: z.string(),
+            logical_path: z.string(),
+            limitations: z.array(z.string()),
+          }),
+        ),
+      })
+      .parse(inventory.value.result)
+      .occurrences.filter(({ logical_path }) => logical_path === "x.txt");
+    expect(occurrences).toHaveLength(2);
+    const [earlier, later] = occurrences;
+    expect(earlier?.occurrence_id).not.toBe(later?.occurrence_id);
+    expect(earlier?.artifact_id).not.toBe(later?.artifact_id);
+    expect(earlier?.limitations).not.toContain(DUPLICATE_PATH_LIMITATION);
+    expect(later?.limitations).toContain(DUPLICATE_PATH_LIMITATION);
   });
 });
 
