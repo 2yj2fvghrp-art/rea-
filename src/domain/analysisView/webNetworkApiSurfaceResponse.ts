@@ -9,19 +9,18 @@ const responseSchema = z.object({
   }),
 });
 const contentSchema = z.object({ mimeType: z.unknown().optional() });
-const headerSchema = z.object({ name: z.string(), value: z.unknown() });
+const headerSchema = z.object({
+  name: z.string(),
+  value: z.unknown(),
+  value_unfolded: z.unknown().optional(),
+});
 const MEDIA_TYPE_ESSENCE =
   /^[A-Za-z0-9!#$%&'*+.^_`|~-]+\/[A-Za-z0-9!#$%&'*+.^_`|~-]+$/u;
 
 /** Derive a MIME only after the caller admits the original header's text cost. */
-export const apiSurfaceMediaType = (
-  reported: string,
-  format: "har" | "saz",
-): string | null => {
-  // SAZ retains accepted HTTP continuations verbatim. Unfold only that syntax;
-  // the source Evidence and HAR's already decoded mimeType remain unchanged.
-  const field =
-    format === "saz" ? reported.replace(/\r?\n[ \t]+/gu, " ") : reported;
+export const apiSurfaceMediaType = (field: string): string | null => {
+  // Remaining line breaks were not accepted by the owning HTTP parser.
+  if (/[\r\n]/u.test(field)) return null;
   const separator = field.indexOf(";");
   let start = 0;
   let end = separator < 0 ? field.length : separator;
@@ -37,10 +36,14 @@ export const apiSurfaceMediaType = (
 };
 
 /** A duplicate or unreadable header cannot establish a single Content-Type. */
-const sazContentType = (headers: unknown): string | undefined => {
+const sazContentType = (
+  headers: unknown,
+): { readonly value: string; readonly sourceLength: number } | undefined => {
   if (!Array.isArray(headers)) return undefined;
   let found = false;
-  let value: string | undefined;
+  let value:
+    | { readonly value: string; readonly sourceLength: number }
+    | undefined;
   for (const header of headers) {
     const parsed = headerSchema.safeParse(header);
     if (!parsed.success) return undefined;
@@ -52,8 +55,12 @@ const sazContentType = (headers: unknown): string | undefined => {
       continue;
     if (found) return undefined;
     found = true;
-    value =
-      typeof parsed.data.value === "string" ? parsed.data.value : undefined;
+    const raw = parsed.data.value;
+    if (typeof raw !== "string") return undefined;
+    const unfolded = parsed.data.value_unfolded;
+    if (unfolded !== undefined && typeof unfolded !== "string")
+      return undefined;
+    value = { value: unfolded ?? raw, sourceLength: raw.length };
   }
   return value;
 };
@@ -62,9 +69,13 @@ const sazContentType = (headers: unknown): string | undefined => {
 export const apiSurfaceResponse = (
   reported: JsonValue,
   format: "har" | "saz",
-): { readonly status: number | null; readonly mime: string } => {
+): {
+  readonly status: number | null;
+  readonly mime: string;
+  readonly mimeSourceLength: number;
+} => {
   const parsed = responseSchema.safeParse(reported);
-  if (!parsed.success) return { status: null, mime: "" };
+  if (!parsed.success) return { status: null, mime: "", mimeSourceLength: 0 };
   const response = parsed.data.response;
   const status =
     format === "saz"
@@ -76,14 +87,16 @@ export const apiSurfaceResponse = (
         ? response.status
         : null;
   const content = contentSchema.safeParse(response.content);
+  const saz = format === "saz" ? sazContentType(response.headers) : undefined;
   const mime =
     format === "saz"
-      ? sazContentType(response.headers)
+      ? saz?.value
       : content.success
         ? content.data.mimeType
         : undefined;
   return {
     status: status === 0 ? null : status,
     mime: typeof mime === "string" ? mime : "",
+    mimeSourceLength: saz?.sourceLength ?? 0,
   };
 };

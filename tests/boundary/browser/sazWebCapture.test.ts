@@ -626,15 +626,24 @@ it.each([
   const path = await fixture(bytes);
   const result = await cliResponse(path, ["--record", "0"]);
   expect(result.ok, result.stdout).toBe(false);
-  expect(JSON.parse(result.stdout).category).toBe(
+  const failure = JSON.parse(result.stdout);
+  expect(failure.category).toBe(
     ["encrypted", "unknown-member", "dtd"].includes(variant)
       ? "unsupported_provider"
-      : variant === "expanded-limit"
-        ? "execution_failure"
-        : "invalid_input",
+      : "invalid_input",
   );
   if (variant === "expanded-limit")
-    expect(JSON.parse(result.stdout).code).toBe("unreadable_output");
+    expect(failure).toMatchObject({
+      code: "invalid_request",
+      details: {
+        issues: [
+          {
+            reason: "out_of_range",
+            expected: { maximum_expanded_capture_bytes: 32 * 1024 * 1024 },
+          },
+        ],
+      },
+    });
   expect(JSON.stringify(result)).not.toContain("malformed-private-input");
 });
 

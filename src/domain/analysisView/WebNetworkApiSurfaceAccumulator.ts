@@ -301,11 +301,14 @@ export class WebNetworkApiSurfaceAccumulator {
         return this.#exclude(record.ordinal, "method-unavailable");
       if (parsed.path === null)
         return this.#exclude(record.ordinal, "url-unparseable");
-      const { status, mime: rawMime } = apiSurfaceResponse(
-        record.reported,
-        format,
-      );
-      if (!this.#temporary(textBytes(rawMime.length)))
+      const {
+        status,
+        mime: rawMime,
+        mimeSourceLength,
+      } = apiSurfaceResponse(record.reported, format);
+      if (
+        !this.#temporary(textBytes(Math.max(rawMime.length, mimeSourceLength)))
+      )
         return this.#overBudget();
       const route = this.#route(parsed.path);
       if (!route.ok) return route;
@@ -317,7 +320,7 @@ export class WebNetworkApiSurfaceAccumulator {
         parsed.origin,
         route.value,
         status,
-        apiSurfaceMediaType(rawMime, format),
+        apiSurfaceMediaType(rawMime),
         queryNames.value,
       );
     } finally {

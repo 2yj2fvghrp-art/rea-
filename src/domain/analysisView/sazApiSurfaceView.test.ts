@@ -88,11 +88,16 @@ it.each([
   "\r\n \t\r\n\tApplication/JSON\r\n ; charset=utf-8",
   " application/json\n\t ",
 ])(
-  "unfolds accepted SAZ header continuations without changing source: %j",
+  "uses parser-produced unfolded SAZ fields without changing source: %j",
   (value) => {
     const reported = {
       request,
-      response: { status: "200", headers: [{ name: "Content-Type", value }] },
+      response: {
+        status: "200",
+        headers: [
+          { name: "Content-Type", value, value_unfolded: " application/json" },
+        ],
+      },
     };
     const before = structuredClone(reported);
     expect(project([reported])).toMatchObject({
@@ -134,6 +139,8 @@ it.each([
   },
   ...[
     "\r application/json",
+    "\n application/json",
+    "\r\n application/json",
     "\napplication/json",
     "\r\napplication/json",
     "\n\u00a0application/json",

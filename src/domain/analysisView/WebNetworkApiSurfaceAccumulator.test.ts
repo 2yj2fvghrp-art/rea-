@@ -218,7 +218,9 @@ it.each([
       request: { method: "GET", url: "https://api.test/items" },
       response: {
         status: "200",
-        headers: [{ name: "Content-Type", value }],
+        headers: [
+          { name: "Content-Type", value, value_unfolded: "application/json" },
+        ],
       },
     };
     expect(accumulator.add(sample, "saz")).toMatchObject({

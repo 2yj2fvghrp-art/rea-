@@ -272,11 +272,13 @@ unknown, not invented statuses or MIME types.
 
 SAZ uses the already parsed request line, the three-digit textual response
 status and a single case-insensitive `Content-Type` response header. Accepted
-header continuations (CRLF or LF followed by SP/HTAB) are unfolded for MIME
-interpretation after admitting the original text's resource cost; the parent
-Evidence retains the original header value. Missing,
-malformed or duplicate Content-Type declarations remain unknown, including
-identical duplicates. Bodies and Session XML are not interpreted. Only a
+header continuations recognized by the SAZ parser are retained in a separate
+`value_unfolded` field alongside the unchanged raw `value`. The view uses this
+parsed field for MIME interpretation after admitting the original text's
+resource cost. Remaining line breaks, malformed or duplicate Content-Type
+declarations remain unknown, including identical duplicates. Older exports
+with folded values but no parsed field must be recaptured to establish a MIME
+type. Bodies and Session XML are not interpreted. Only a
 recorded absolute request URL establishes the origin: origin-form paths,
 CONNECT authority targets and `*` targets are excluded as `url-unparseable`;
 Host headers and session metadata do not supply a guessed scheme or origin.
