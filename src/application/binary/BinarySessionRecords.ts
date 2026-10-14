@@ -6,10 +6,10 @@ import type { EvidenceBundle } from "../../domain/evidenceBundle.js";
 import type { JsonValue } from "../../domain/jsonValue.js";
 import { evidenceBundleForTarget } from "../../domain/evidenceBundle.js";
 import {
-  EvidenceFileError,
   EvidenceIntegrityError,
   AnalysisSnapshotMismatchError,
 } from "../../domain/evidenceErrors.js";
+import { AnalysisOutputError } from "../../domain/analysisErrorCore.js";
 import type { AnalysisError } from "../../domain/analysisErrorBase.js";
 import type { AnalysisInputError } from "../../domain/analysisErrorCore.js";
 import type { UnknownRegistryError } from "../../domain/unknownRegistryError.js";
@@ -121,13 +121,17 @@ export abstract class BinarySessionRecords {
         "binary session files",
       );
       return err(
-        new EvidenceFileError("write", "io", {
-          cause,
-          cleanup: {
-            reason: observation.reason,
-            resources: observation.resources,
+        new AnalysisOutputError(
+          "close_binary",
+          "Session input or snapshot resources could not be released",
+          {
+            cause,
+            cleanup: {
+              reason: observation.reason,
+              resources: observation.resources,
+            },
           },
-        }),
+        ),
       );
     }
   }
