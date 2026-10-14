@@ -266,6 +266,8 @@ interface ParseMethodsInput {
   readonly ranges: readonly TypeRange[];
   readonly signatureTypeName: SignatureTypeName;
   readonly selected?: SelectedTypeTokens;
+  readonly methodOffset?: number;
+  readonly methodLimit?: number;
 }
 
 export const parseMethods = ({
@@ -275,6 +277,8 @@ export const parseMethods = ({
   ranges,
   signatureTypeName,
   selected = null,
+  methodOffset = 0,
+  methodLimit = Number.MAX_SAFE_INTEGER,
 }: ParseMethodsInput): {
   readonly methods: readonly ManagedMethod[];
   readonly core: ReadonlyMap<string, MemberCore>;
@@ -302,12 +306,14 @@ export const parseMethods = ({
         ? undefined
         : readManagedValue(() => ownerRow(row), issues);
     const declared = owner === undefined ? undefined : ranges[owner - 1];
+    const inPage = row > methodOffset && row - methodOffset <= methodLimit;
     const mayBeSelected =
-      selected === null ||
-      owner === undefined ||
-      isSelected(selected, declared) ||
-      // A type whose name is unreadable may be one the caller requested.
-      declared?.fullName === null;
+      inPage &&
+      (selected === null ||
+        owner === undefined ||
+        isSelected(selected, declared) ||
+        // A type whose name is unreadable may be one the caller requested.
+        declared?.fullName === null);
     const produced = methods.length;
     readManagedValue(() => {
       const cursor = metadataRowCursor(bytes, layout, 6, row);
@@ -328,6 +334,7 @@ export const parseMethods = ({
         kind: "method",
       } as const;
       core.set(token, member);
+      if (!inPage) return;
       if (!isSelected(selected, declared)) return;
       const sig = readMetadataBlob(
         bytes,
