@@ -15,14 +15,15 @@ import {
   createTestBinarySession,
 } from "../../fixtures/binarySession.js";
 
-it("MCP 取消目标切换后立即公开恢复客户端的工具可用性", async () => {
+it("restores MCP tool availability after cancelling a target switch", async () => {
   const [first, second] = await createBinarySessionTargets();
   const closing = createDeferred<void>();
   const release = createDeferred<void>();
   const cancellationObserved = createDeferred<void>();
   const provider = createCacheProvider([]);
   const resolveProfile = provider.resolveAnalysisProfile;
-  if (resolveProfile === undefined) throw new Error("缺少测试分析配置");
+  if (resolveProfile === undefined)
+    throw new Error("Missing test analysis profile");
   const clients: { calls: number; closed: number }[] = [];
   provider.createClient = () => {
     const state = { calls: 0, closed: 0 };
@@ -98,6 +99,7 @@ it("MCP 取消目标切换后立即公开恢复客户端的工具可用性", asy
       available: false,
       reason: "provider_unavailable",
     });
+
     const switching = client.callTool(
       { name: "open_binary", arguments: { path: second } },
       { signal: controller.signal },
@@ -109,7 +111,7 @@ it("MCP 取消目标切换后立即公开恢复客户端的工具可用性", asy
     release.resolve();
     await cancelled;
 
-    // MCP 取消先结束客户端等待；通过会话的串行队列等待服务端恢复完成。
+    // Cancellation ends the client's wait before the server restores its session.
     const settled = await session.withAdmittedAnalysis(
       "binary_session",
       undefined,
@@ -129,6 +131,7 @@ it("MCP 取消目标切换后立即公开恢复客户端的工具可用性", asy
       reason: "available",
       remediation: null,
     });
+
     const retried = await client.callTool({
       name: "address_name",
       arguments: query,
