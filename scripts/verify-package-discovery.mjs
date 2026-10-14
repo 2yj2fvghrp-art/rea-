@@ -76,7 +76,7 @@ async function readHostLinuxDistribution() {
   if (process.platform !== "linux") return undefined;
   const { readLinuxDistribution } =
     await import("../dist/application/LinuxHopper.js");
-  return readLinuxDistribution();
+  return readLinuxDistribution(process.arch);
 }
 
 /** Validate --help, --llms, and doctor output and determine host setup support. */
