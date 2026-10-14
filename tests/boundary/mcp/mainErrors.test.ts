@@ -1,7 +1,7 @@
 import type { ServeStdioOptions } from "@modelcontextprotocol/server/stdio";
 import { describe, expect, it } from "vitest";
 
-import { run, runEntrypoint } from "../../../src/main.js";
+import { isDirectEntrypoint, run, runEntrypoint } from "../../../src/main.js";
 
 type RuntimeDependencies = NonNullable<Parameters<typeof run>[0]>;
 
@@ -152,5 +152,18 @@ describe("MCP runtime errors", () => {
       "REA could not start. Run `rea doctor`, then restart REA from your MCP client.\n",
     ]);
     expect(exitCodes).toEqual([1]);
+  });
+
+  it("safely returns false when entryPath is undefined", () => {
+    expect(isDirectEntrypoint(undefined, "file:///some/target.js")).toBe(false);
+  });
+
+  it("safely handles non-existent or invalid entryPath without throwing", () => {
+    expect(
+      isDirectEntrypoint(
+        "/non/existent/path/that/cannot/be/resolved/script.js",
+        "file:///some/target.js",
+      ),
+    ).toBe(false);
   });
 });

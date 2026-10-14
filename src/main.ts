@@ -109,10 +109,20 @@ export const runEntrypoint = async (
   }
 };
 
-const entryPath = process.argv[1];
-if (
-  entryPath !== undefined &&
-  pathToFileURL(realpathSync(entryPath)).href === import.meta.url
-) {
+export const isDirectEntrypoint = (
+  entryPath: string | undefined = process.argv[1],
+  currentUrl: string = import.meta.url,
+): boolean => {
+  if (entryPath === undefined) {
+    return false;
+  }
+  try {
+    return pathToFileURL(realpathSync(entryPath)).href === currentUrl;
+  } catch {
+    return false;
+  }
+};
+
+if (isDirectEntrypoint()) {
   void runEntrypoint();
 }
