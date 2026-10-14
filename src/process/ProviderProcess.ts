@@ -66,6 +66,8 @@ export interface ProviderProcessHandle extends Pick<
   readonly signalCode: NodeJS.Signals | null;
   /** True once an enforced process memory limit reported an allocation failure. */
   readonly memoryLimitReached?: boolean;
+  /** True if a Windows backpressured stream was destroyed before output drained. */
+  readonly outputIncomplete?: boolean;
   kill(signal?: NodeJS.Signals | number): boolean;
   unref?(): void;
   ref?(): void;
@@ -97,7 +99,7 @@ export interface ProviderProcessExitObservation {
 
 /** Detached diagnostics captured for one supervised provider process. */
 export interface ProviderProcessSnapshot {
-  /** True only when a configured diagnostic budget excluded output bytes. */
+  /** True when retained diagnostics omit bytes due to the budget or provider output loss. */
   readonly diagnosticTruncated?: boolean;
   readonly stdout: {
     readonly text: string;
@@ -120,6 +122,8 @@ export interface ProviderProcessSnapshot {
   readonly signal: NodeJS.Signals | null | undefined;
   /** Present only when the process tree reached its enforced memory limit. */
   readonly memoryLimitReached?: true;
+  /** Present when a provider stream was destroyed before all bytes were observed. */
+  readonly outputIncomplete?: true;
 }
 
 /** Resource-safe events emitted without imposing provider protocol semantics. */
@@ -338,8 +342,11 @@ export class ProviderProcessSupervisor {
 
   /** Latest retained output and exit observation, with explicit configured truncation. */
   snapshot(): ProviderProcessSnapshot {
+    const outputIncomplete = this.launch.process.outputIncomplete === true;
     return {
-      ...(this.#diagnosticTruncated ? { diagnosticTruncated: true } : {}),
+      ...(this.#diagnosticTruncated || outputIncomplete
+        ? { diagnosticTruncated: true }
+        : {}),
       stdout: this.#stdout.snapshot(this.#stdoutObservedBytes),
       stderr: this.#stderr.snapshot(this.#stderrObservedBytes),
       exitCode: this.#exitObservation?.code,
@@ -347,6 +354,7 @@ export class ProviderProcessSupervisor {
       ...(this.launch.process.memoryLimitReached === true
         ? { memoryLimitReached: true }
         : {}),
+      ...(outputIncomplete ? { outputIncomplete: true } : {}),
     };
   }
 
@@ -601,10 +609,7 @@ export class ProviderProcessSupervisor {
 }
 
 class ProcessOutputCapture {
-  static readonly #slabBytes = 64 * 1024;
   readonly #chunks: Buffer[] = [];
-  #slab = Buffer.allocUnsafe(ProcessOutputCapture.#slabBytes);
-  #slabBytesUsed = 0;
   #bytes = 0;
 
   get bytes(): number {
@@ -613,35 +618,16 @@ class ProcessOutputCapture {
 
   reset(): void {
     this.#chunks.length = 0;
-    this.#slabBytesUsed = 0;
     this.#bytes = 0;
   }
 
   append(chunk: Buffer): void {
-    let offset = 0;
-    while (offset < chunk.byteLength) {
-      if (this.#slabBytesUsed === this.#slab.byteLength) {
-        this.#chunks.push(this.#slab);
-        this.#slab = Buffer.allocUnsafe(ProcessOutputCapture.#slabBytes);
-        this.#slabBytesUsed = 0;
-      }
-      const copied = chunk.copy(
-        this.#slab,
-        this.#slabBytesUsed,
-        offset,
-        Math.min(chunk.byteLength, offset + this.#slab.byteLength - this.#slabBytesUsed),
-      );
-      offset += copied;
-      this.#slabBytesUsed += copied;
-      this.#bytes += copied;
-    }
+    this.#bytes += chunk.byteLength;
+    this.#chunks.push(Buffer.from(chunk));
   }
 
   snapshot(observedBytes: number): ProviderProcessSnapshot["stdout"] {
-    const chunks = [...this.#chunks];
-    if (this.#slabBytesUsed > 0)
-      chunks.push(this.#slab.subarray(0, this.#slabBytesUsed));
-    const buffer = Buffer.concat(chunks, this.#bytes);
+    const buffer = Buffer.concat(this.#chunks, this.#bytes);
     const text = buffer.toString("utf8");
     let invalidUtf8 = false;
     try {

@@ -1993,16 +1993,19 @@ export const gdbOneShotCommandMayInvalidateDetachProof = (
   const firstToken = /^\s*([^\s;]+)/u.exec(command)?.[1]?.toLowerCase();
   if (
     firstToken !== undefined &&
-    (["source", "define", "alias"].some((name) =>
+    (["source", "define", "alias", "shell"].some((name) =>
       name.startsWith(firstToken),
     ) ||
+      // `!command` is shell's alias.
+      firstToken.startsWith("!") ||
       firstToken === "py" ||
       "python".startsWith(firstToken))
   )
     return true;
   // One-shot execution cannot establish which shell/GDB context interprets
   // redirections, nor safely track multiline command definitions.
-  return /[<>]{1,2}|&>|[\r\n;]/u.test(command);
+  // A trailing `&` can leave a background child that outlives the debugger.
+  return /[<>]{1,2}|&>|[\r\n;]|&\s*$/u.test(command);
 };
 
 /** @internal Classify commands that can invalidate the configured output sink. */

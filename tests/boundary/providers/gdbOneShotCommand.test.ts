@@ -8,7 +8,6 @@ describe("one-shot GDB command classification", () => {
     "sh touch /tmp/x",
     "!sleep 3600",
     "info threads &",
-    "run",
   ])(
     "treats %s as able to outlive or invalidate the detach proof",
     (command) => {

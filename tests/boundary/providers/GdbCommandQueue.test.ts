@@ -41,7 +41,7 @@ process.stdin.on("data", async (chunk) => {
     const line = input.slice(0, boundary); input = input.slice(boundary + 1);
     const match = /^(\\d+)/.exec(line);
     if (!match) continue;
-    if (line.includes("-interpreter-exec console") && !line.includes("REA_PROCESS_RUN_ID") && firstConsoleCommand) {
+    if (line.includes("-interpreter-exec console") && firstConsoleCommand) {
       firstConsoleCommand = false;
       await writeFile(${JSON.stringify(activePath)}, "active");
       for (;;) {
