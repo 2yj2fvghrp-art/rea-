@@ -180,24 +180,32 @@ const evidenceValues = (
   if (kind === "evidence") return [evidence.evidence_id];
   if (kind === "capture")
     return isProcessCaptureEvidence(evidence) ? [evidence.evidence_id] : [];
-  const inventoryResult =
+  const inventoryResults =
     evidence.operation === "inventory_artifact"
-      ? evidence.normalized_result
+      ? [evidence.normalized_result]
       : evidence.operation === "inspect_artifact"
         ? (() => {
             const inspection = artifactInspectionResultSchema.safeParse(
               evidence.normalized_result,
             );
             return inspection.success
-              ? inspection.data.substeps[0]?.evidence.normalized_result
-              : undefined;
+              ? inspection.data.substeps.map(
+                  (substep) => substep.evidence.normalized_result,
+                )
+              : [];
           })()
-        : undefined;
-  if (inventoryResult === undefined) return [];
-  const inventory = artifactInventoryResultSchema.safeParse(inventoryResult);
-  if (!inventory.success) return [];
-  if (kind === "manifest") return [inventory.data.manifest.manifest_id];
-  return inventory.data.occurrences.map(({ occurrence_id: id }) => id);
+        : [];
+  const values: string[] = [];
+  for (const inventoryResult of inventoryResults) {
+    const inventory = artifactInventoryResultSchema.safeParse(inventoryResult);
+    if (!inventory.success) continue;
+    if (kind === "manifest") values.push(inventory.data.manifest.manifest_id);
+    else
+      values.push(
+        ...inventory.data.occurrences.map(({ occurrence_id: id }) => id),
+      );
+  }
+  return values;
 };
 
 const isProcessCaptureEvidence = (evidence: LedgerEvidence): boolean => {
