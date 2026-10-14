@@ -109,4 +109,31 @@ describe("Swift alias ambiguity", () => {
     );
     expect(result.unclassified.map((item) => item.name)).toEqual(names);
   });
+
+  it("keeps legacy names with an optional leading underscore", () => {
+    expect(
+      categorizeSwiftTypes([{ address: "0x1", name: "__T04main4PairVMa" }], {
+        category: "structs",
+      }),
+    ).toMatchObject({
+      total: 1,
+      categories: { structs: { count: 1 } },
+      unclassified: [],
+    });
+  });
+
+  it("does not let a demangler-only alias erase a decoded category", () => {
+    const result = categorizeSwiftTypes(
+      [{ address: "0x1", name: "$s4main7ServiceCMa" }],
+      {},
+      [{ address: "0x1", name: "$e4main7ServiceCMa" }],
+    );
+    expect(result.categories.classes?.items).toMatchObject([
+      {
+        name: "$s4main7ServiceCMa",
+        mangled_names: ["$s4main7ServiceCMa", "$e4main7ServiceCMa"],
+      },
+    ]);
+    expect(result.categories.other?.items).toEqual([]);
+  });
 });

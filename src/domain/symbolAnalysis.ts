@@ -60,12 +60,14 @@ export const discoverObjcProtocols = (
 };
 
 /**
- * A Swift symbol carries either a demangler mangling or a visible runtime class
- * name (`_Tt…`). Whether its nominal category can be decoded is a separate
- * question, so it must not decide whether the symbol is Swift at all.
+ * A Swift symbol carries either a demangler mangling or a name the category
+ * decoder already accepts, including visible runtime class names (`_Tt…`) and
+ * the optional leading underscore of legacy encodings (`__T0…`). Whether the
+ * nominal category can be decoded is a separate question, so it must not decide
+ * whether the symbol is Swift at all.
  */
 const isSwiftSymbolName = (name: string): boolean =>
-  isSwiftMangledSymbolName(name) || name.startsWith("_Tt");
+  isSwiftMangledSymbolName(name) || classifySwiftSymbol(name) !== undefined;
 
 /** Categorize procedure names using Swift manglings at their exact addresses. */
 export const categorizeSwiftTypes = (
@@ -113,8 +115,13 @@ export const categorizeSwiftTypes = (
       ![entry.name, ...mangledNames].some((name) => name.includes(pattern))
     )
       continue;
+    // Only names the category decoder recognizes vote on the category. A name
+    // retained solely because the demangler accepts its prefix carries no
+    // category evidence, so it must not erase one another name did decode.
     const kinds = new Set(
-      mangledNames.map((name) => classifySwiftSymbol(name)?.category ?? null),
+      mangledNames
+        .filter((name) => classifySwiftSymbol(name) !== undefined)
+        .map((name) => classifySwiftSymbol(name)?.category ?? null),
     );
     const category = kinds.size === 1 ? ([...kinds][0] ?? null) : null;
     const item = {
