@@ -32,7 +32,7 @@ npm ci
 npm run build:cached
 
 # Prove actual REA analysis on our source-owned fixture
-OUT="$(mktemp -d)"
+OUT="$(mktemp -d)/investigation"
 node rel.mjs demo --run --out "$OUT"
 cat "$OUT/REL_EVIDENCE_REPORT.md"
 node rel/evidence-explorer.mjs "$OUT/evidence.json" --find cli.mjs

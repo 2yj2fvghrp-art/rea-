@@ -1,14 +1,31 @@
 import { readFileSync, statSync } from "node:fs";
 import { resolve } from "node:path";
 import { pathToFileURL } from "node:url";
-import { summarizeEvidence } from "../experiments/rel-first-lab/report.mjs";
+import { summarizeEvidence } from "./evidence-summary.mjs";
 
 const MAX_FILE = 64 * 1024 * 1024;
 const isObject = (v) =>
   v !== null && typeof v === "object" && !Array.isArray(v);
 const string = (v) =>
   typeof v === "string" || typeof v === "number" ? String(v) : null;
-const first = (...values) => values.map(string).find((v) => v !== null) ?? null;
+const nodeLabels = (node) => {
+  const identity = node.identity;
+  if (identity?.strategy === "canonical-path") return [identity.path];
+  if (identity?.strategy === "source-map-original")
+    return [identity.original_source];
+  return [
+    ...new Set(
+      (node.observations ?? []).flatMap((observation) => {
+        const path = observation.properties?.path;
+        return typeof path === "string"
+          ? [path]
+          : typeof observation.label === "string"
+            ? [observation.label]
+            : [];
+      }),
+    ),
+  ];
+};
 const limitText = (v) =>
   String(v ?? "not provided")
     .replaceAll(/[\r\n|]/gu, " ")
@@ -19,45 +36,48 @@ export function exploreEvidence(record, { find = "", limit = 12 } = {}) {
     throw new Error("The filter must be at most 160 characters of text.");
   if (!Number.isInteger(limit) || limit < 1 || limit > 40)
     throw new Error("The relationship limit must be between 1 and 40.");
-  // The shared verifier rejects error-only output, mismatched semantic graphs,
+  // The presentation checks reject error-only output, mismatched semantic graphs,
   // or missing Evidence identities. This is still not a digest revalidation.
   const summary = summarizeEvidence(record);
   const graph = record.normalized_result.graph;
   const byId = new Map(
-    graph.nodes
-      .filter(isObject)
-      .map((node) => [first(node.id, node.node_id), node])
-      .filter(([id]) => id !== null),
+    graph.nodes.filter(isObject).map((node) => [node.node_id, node]),
   );
   const resolveEndpoint = (id) => {
-    const key = isObject(id) ? first(id.id, id.node_id) : string(id);
+    const key = string(id);
+    if (key === null)
+      throw new Error("Missing canonical graph endpoint identifier.");
     const node = byId.get(key);
+    const labels = node ? nodeLabels(node) : [];
     return {
       id: key,
-      label: node
-        ? first(node.path, node.module_path, node.label, node.name, key)
-        : key,
+      label: labels.length ? labels.join(" / ") : key,
+      labels,
     };
   };
   const edges = [];
   let matching = 0;
   for (const edge of graph.edges) {
     if (!isObject(edge)) continue;
-    const source = resolveEndpoint(edge.source ?? edge.source_id ?? edge.from);
-    const target = resolveEndpoint(edge.target ?? edge.target_id ?? edge.to);
+    const source = resolveEndpoint(edge.source_node_id);
+    const target = resolveEndpoint(edge.target_node_id);
+    if (!isObject(edge.evidence))
+      throw new Error("Missing relationship Evidence.");
     const rawLocation =
-      edge.location ?? edge.source_location ?? edge.source_range;
+      edge.evidence.location?.available === true
+        ? edge.evidence.location.value
+        : null;
     const entry = {
+      edge_id: string(edge.edge_id),
       relation: string(edge.relation) ?? "unknown",
       source,
       target,
-      location:
-        rawLocation === undefined
-          ? null
-          : JSON.stringify(rawLocation).slice(0, 1200),
-      state: string(edge.state),
-      confidence: string(edge.confidence),
-      authority: string(edge.authority),
+      location: rawLocation === null ? null : JSON.stringify(rawLocation),
+      state: string(edge.evidence.state),
+      confidence: string(edge.evidence.confidence),
+      authority: string(edge.evidence.authority),
+      coverage: edge.evidence.coverage ?? null,
+      limitations: edge.evidence.limitations ?? [],
     };
     if (
       find.trim() &&
@@ -136,8 +156,7 @@ export function asDot(result) {
     String(v ?? "?")
       .replaceAll("\\", "\\\\")
       .replaceAll('"', '\\"')
-      .replaceAll(/[\r\n]/gu, " ")
-      .slice(0, 180) +
+      .replaceAll(/[\r\n]/gu, " ") +
     '"';
   const lines = [
     "digraph REL {",

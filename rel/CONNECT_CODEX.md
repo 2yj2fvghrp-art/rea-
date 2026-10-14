@@ -23,7 +23,7 @@ Use the Node version in `.nvmrc` (24.18.0 at the time of this guide) and matchin
 npm ci
 npm run build:cached
 node rel.mjs demo
-OUT="$(mktemp -d)"
+OUT="$(mktemp -d)/investigation"
 node rel.mjs demo --run --out "$OUT"
 cat "$OUT/REL_EVIDENCE_REPORT.md"
 ```

@@ -6,7 +6,7 @@ Run real analysis first, on REL's owned lab:
 
     npm ci
     npm run build:cached
-    OUT="$(mktemp -d)"
+    OUT="$(mktemp -d)/investigation"
     node rel.mjs demo --run --out "$OUT"
 
 Read a real saved graph, filtering by source file:
@@ -22,9 +22,14 @@ DOT is Graphviz input, not a browser UI. If Graphviz is installed, render with:
 
 **What is real:** saved application graph edges, identifiers, any analyzer-returned source locations, confidence and relationship types.
 
-**What is not proven:** runtime execution, semantic completeness, that every provider works, or digest validity independently of REA. Missing locations are displayed as not provided. Invalid or mismatched analyzer records fail closed.
+**What is not proven:** runtime execution, semantic completeness, that every provider works, or digest validity independently of REA. Missing locations are displayed as not provided. Error payloads and mismatched graph identities are rejected; use REA's saved-file views when Evidence digest authentication is required.
 
-The reader caps a JSON file at 64 MiB and limits displayed relationships to 40 per invocation; filtering does not mutate the underlying Evidence. Only one analysis family is supported by this companion tool today. The original REA engine remains unchanged.
+The reader follows REA's canonical `node_id`, `source_node_id`, `target_node_id`
+and per-edge `evidence` fields. Labels come from recorded node identities or
+observations; JSON output includes the edge ID, coverage and limitations.
+Multiple observed labels are preserved.
+
+The reader caps a JSON file at 64 MiB and limits displayed relationships to 40 per invocation; filtering does not mutate the underlying Evidence. Only JavaScript application graphs are supported by this companion tool today. For larger records, start with the saved `view-evidence.json` and use the engine's `inspect-analysis-view` file references for module views within its memory limits.
 
 Run regression tests:
 

@@ -86,7 +86,7 @@ node rel.mjs inspect "$PWD/experiments/rel-first-lab" --question "What is in thi
 ```sh
 npm ci
 npm run build:cached
-OUT="$(mktemp -d)"
+OUT="$(mktemp -d)/investigation"
 node rel.mjs demo --run --out "$OUT"
 cat "$OUT/REL_EVIDENCE_REPORT.md"
 ```
@@ -117,7 +117,7 @@ These commands run the **local fork**. In contrast, `npx rea-agents` downloads/r
 Once REA has analyzed our owned lab, you can inspect its actual static graph instead of relying only on a tutorial animation:
 
 ```sh
-OUT="$(mktemp -d)"
+OUT="$(mktemp -d)/investigation"
 node rel.mjs demo --run --out "$OUT"
 node rel/evidence-explorer.mjs "$OUT/evidence.json" --find search.mjs
 node rel/evidence-explorer.mjs "$OUT/evidence.json" --dot > "$OUT/relationships.dot"

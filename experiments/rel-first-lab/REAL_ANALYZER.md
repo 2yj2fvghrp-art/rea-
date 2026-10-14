@@ -30,7 +30,7 @@ Use the Node toolchain pinned by `.nvmrc` and the npm lockfile. From the reposit
 npm ci
 npm run build:cached
 node --test experiments/rel-first-lab/report.test.mjs
-OUT="$(mktemp -d)"
+OUT="$(mktemp -d)/investigation"
 node experiments/rel-first-lab/run-real-analysis.mjs "$OUT"
 cat "$OUT/REL_EVIDENCE_REPORT.md"
 ```

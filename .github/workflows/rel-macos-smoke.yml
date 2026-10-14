@@ -4,6 +4,12 @@ on:
   pull_request:
     branches: [main]
     paths:
+      - "src/**"
+      - "scripts/**"
+      - "package.json"
+      - "package-lock.json"
+      - ".nvmrc"
+      - ".github/actions/npm-cache/**"
       - "rel.mjs"
       - "Start-REL.command"
       - "FIRST_10_MINUTES.md"
@@ -49,6 +55,8 @@ jobs:
         run: npm run build:cached
       - name: Verify real Mac-side REA MCP discovery
         run: node --test rel/codex-mcp.test.mjs
+      - name: Verify static analysis and saved relationships on macOS
+        run: node --test rel/analyze-static.test.mjs
       - name: Run real source-owned REA analysis
         run: node rel.mjs demo --run --out "$RUNNER_TEMP/rel-mac-evidence"
       - name: Verify evidence exploration on Mac

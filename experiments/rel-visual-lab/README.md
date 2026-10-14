@@ -78,7 +78,7 @@ After setting up the pinned Node/npm toolchain in this fork:
 ```bash
 npm ci
 npm run build:cached
-OUT="$(mktemp -d)"
+OUT="$(mktemp -d)/investigation"
 node rel.mjs demo --run --out "$OUT"
 cat "$OUT/REL_EVIDENCE_REPORT.md"
 ```

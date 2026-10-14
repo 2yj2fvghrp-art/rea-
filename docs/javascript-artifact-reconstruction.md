@@ -132,7 +132,11 @@ rea inspect-analysis-view '{"source":{"kind":"evidence-file","path":"/absolute/p
 
 Omit both analysis options to keep the complete Evidence on stdout.
 `--evidence-out` without `--summary` saves a copy and still emits the complete
-result.
+Evidence. The summary's `graph_summary` contains application and semantic graph
+IDs, node and edge totals, and counts by node kind and relationship. These are
+computed from the complete graph, not inferred from parse statistics. Older
+saved views without `graph_summary` remain readable. Coverage and unknowns
+remain separate from these counts.
 
 With a connected MCP `client` and the caller-selected absolute `inputPath`, this
 recipe analyzes once and pages module identities using the returned ID:

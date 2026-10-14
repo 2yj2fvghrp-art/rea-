@@ -23,20 +23,45 @@ const saved = () => ({
       graph_id: "app",
       coverage: { status: "complete" },
       nodes: [
-        { id: "cli", kind: "module", path: "cli.mjs" },
-        { id: "search", kind: "module", path: "search.mjs" },
+        {
+          node_id: "cli",
+          kind: "javascript-module",
+          identity: { strategy: "canonical-path", path: "cli.mjs" },
+          observations: [],
+        },
+        {
+          node_id: "search",
+          kind: "javascript-module",
+          identity: { strategy: "canonical-path", path: "search.mjs" },
+          observations: [],
+        },
       ],
       edges: [
         {
-          source: "cli",
-          target: "search",
+          source_node_id: "cli",
+          target_node_id: "search",
           relation: "imports",
-          location: { path: "cli.mjs", start_line: 2 },
-          state: "inferred",
-          confidence: "high",
-          authority: "static-relationship-inference",
+          evidence: {
+            location: {
+              available: true,
+              value: {
+                kind: "source-range",
+                source: "cli.mjs",
+                start: { line: 2, column: 0 },
+                end: { line: 2, column: 20 },
+              },
+            },
+            state: "inferred",
+            confidence: "high",
+            authority: "static-relationship-inference",
+          },
         },
-        { source: "cli", target: "unknown", relation: "contains" },
+        {
+          source_node_id: "cli",
+          target_node_id: "unknown",
+          relation: "contains",
+          evidence: { location: { available: false } },
+        },
       ],
     },
     semantic_graph: {
@@ -53,7 +78,7 @@ test("shows recorded graph links without claiming observed execution", () => {
   assert.equal(result.matching, 2);
   assert.equal(result.edges[0].source.label, "cli.mjs");
   assert.equal(result.edges[0].target.label, "search.mjs");
-  assert.match(result.edges[0].location, /start_line/);
+  assert.equal(JSON.parse(result.edges[0].location).start.line, 2);
   assert.equal(result.edges[0].confidence, "high");
   assert.equal(result.edges[1].location, null);
   assert.match(asText(result), /not runtime execution/);

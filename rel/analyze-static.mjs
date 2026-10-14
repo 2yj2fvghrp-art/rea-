@@ -20,7 +20,7 @@ import {
 } from "node:path";
 import { fileURLToPath } from "node:url";
 import { classifyTarget } from "./intake.mjs";
-import { summarizeEvidence } from "../experiments/rel-first-lab/report.mjs";
+import { summarizeAnalysisView } from "./evidence-summary.mjs";
 
 export const repository = fileURLToPath(new URL("../", import.meta.url));
 const cli = join(repository, "scripts", "rea.mjs");
@@ -142,7 +142,7 @@ export function investigationReport(record) {
     "- Application graph relationships: " + record.counts.edges,
     "- Parsed JavaScript files: " + (record.counts.files_parsed ?? "unknown"),
     "- Parse failures: " + (record.counts.parse_failures ?? "unknown"),
-    "- REA provider: " + safe(record.provider ?? "unknown"),
+    "- Summary provider: " + safe(record.projection_provider ?? "unknown"),
     "- Evidence ID: " + safe(record.evidence_id),
     "- Artifact SHA-256: " + safe(record.artifact_sha256),
     "- Graph ID: " + safe(record.application_graph_id),
@@ -164,6 +164,9 @@ export function investigationReport(record) {
     "- Static imports or relationships alone do not prove that a code path executed.",
     "- This view does not independently recompute every REA Evidence digest or prove a reconstruction is functionally equivalent.",
     "",
+    "## Remaining unknowns",
+    ...(record.unknowns ?? []).map((item) => "- " + safe(item)),
+    "",
     "## Follow-up with Codex",
     "Ask it to read the retained Evidence, find the specific source lines relevant to your question, and distinguish direct observations, inferred relationships and unknowns.",
     "",
@@ -179,53 +182,32 @@ export function runStaticAnalysis(options) {
   );
   mkdirSync(plan.output);
   const elapsed = runToFile(
-    [cli, "analyze-javascript-application", plan.target, "--json"],
-    plan.output,
-    "evidence.json",
-    180000,
-  );
-  const original = JSON.parse(
-    readFileSync(join(plan.output, "evidence.json"), "utf8"),
-  );
-  const summary = summarizeEvidence(original);
-  const request = {
-    source: { kind: "inline", evidence: original },
-    view: { kind: "summary" },
-  };
-  writeFileSync(
-    join(plan.output, "summary-request.json"),
-    JSON.stringify(request),
-    { flag: "wx" },
-  );
-  const viewElapsed = runToFile(
     [
       cli,
-      "inspect-analysis-view",
-      join(plan.output, "summary-request.json"),
+      "analyze-javascript-application",
+      plan.target,
+      "--summary",
+      "--evidence-out",
+      join(plan.output, "evidence.json"),
       "--json",
     ],
     plan.output,
     "view-evidence.json",
-    120000,
+    180000,
   );
-  const view = JSON.parse(
-    readFileSync(join(plan.output, "view-evidence.json"), "utf8"),
+  const summary = summarizeAnalysisView(
+    JSON.parse(readFileSync(join(plan.output, "view-evidence.json"), "utf8")),
   );
-  if (
-    view.error !== undefined ||
-    view.operation !== "inspect_analysis_view" ||
-    !view.normalized_result ||
-    view.parameters?.parent_evidence_id !== summary.evidence_id
-  ) {
+  // The complete parent is saved by REA before it returns the derived view.
+  if (!existsSync(join(plan.output, "evidence.json")))
     throw new Error(
-      "REA summary view was not bound to the source Evidence; no verified report generated.",
+      "REA did not retain complete Evidence; no report generated.",
     );
-  }
   const result = {
     ...summary,
     input_path: plan.target,
     question: options.question ?? null,
-    timing_ms: { analyze: elapsed, view: viewElapsed },
+    timing_ms: { analyze_and_project: elapsed },
   };
   writeFileSync(
     join(plan.output, "summary.json"),

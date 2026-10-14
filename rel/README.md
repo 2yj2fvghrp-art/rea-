@@ -27,6 +27,23 @@ That command delegates to our already verified [Phase 2 REA runner](../experimen
 
 For an authorized extracted JavaScript application, use `node rel.mjs analyze /absolute/app/path --authorized --out /tmp/rel-investigation-001`. Other `inspect` targets—including website URLs—are **preview only**. `--run` intentionally rejects them rather than opening programs, running unknown code, contacting websites or making unsupported analysis claims. The type classifier reads directory names or the first 32 bytes of a local regular file only; filenames are clues, not verified program behavior.
 
+## Retained Evidence and selected views
+
+Both `demo --run` and `analyze` require a new output directory with an existing
+parent. They retain complete `evidence.json` once and receive REA's compact
+`view-evidence.json` in the same analyzer process. `summary.json` and the readable
+report retain the parent Evidence ID, graph identities, counts, coverage and
+unknowns. The report no longer loads or duplicates the complete graph. Large
+analyses still require memory for the engine and disk for full Evidence.
+
+Use [Evidence Explorer](EVIDENCE_EXPLORER.md) to follow recorded relationships,
+or the engine's `inspect-analysis-view` with an `evidence-file` source for module
+pages and detailed module views. Saved-file views validate the full record and
+remain subject to the engine's memory limits.
+
+See [the fork's investigation architecture](../docs/fork-investigation-workflows.md)
+for the existing engine connections, measured refinements and unresolved limits.
+
 ## Capabilities, not overpromises
 
 | Target                             | REL first decision                      | Prerequisite                                           |
