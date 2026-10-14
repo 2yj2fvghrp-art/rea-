@@ -99,6 +99,31 @@ it.each(["close", "switch", "open after close"] as const)(
   },
 );
 
+it("keeps recorded unknowns when a target switch cannot retire the previous provider", async () => {
+  const fixture = await retryFixture();
+  const [first, second] = fixture.targets;
+  expect((await fixture.session.open(first)).ok).toBe(true);
+  expect(
+    fixture.session.recordUnknown({
+      question: "Does this function reach the network?",
+      severity: "medium",
+      domain: "network",
+      supporting_evidence_ids: [],
+      contradicting_evidence_ids: [],
+      required_authority: "shipped-artifact",
+      required_confidence: "observed",
+      required_environment: null,
+      recommended_probes: [],
+      relationships: [],
+    }).ok,
+  ).toBe(true);
+
+  const switched = await fixture.session.open(second);
+
+  expect(switched.ok).toBe(false);
+  expect(fixture.session.listUnknowns({})).toHaveLength(1);
+});
+
 it("keeps a failed candidate for cleanup and preserves its startup failure", async () => {
   const primary = new HopperStartError();
   const fixture = await retryFixture(() => Promise.resolve(err(primary)));

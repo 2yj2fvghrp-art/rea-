@@ -2,7 +2,8 @@ import {
   reportLifecycleEnd,
   reportLifecycleStart,
 } from "./lifecycleProgress.js";
-import { ok } from "../domain/result.js";
+import { err, ok } from "../domain/result.js";
+import { projectAnalysisError } from "../domain/analysisErrorProjection.js";
 import type { AnalysisError } from "../domain/analysisErrorBase.js";
 import type { Result } from "../domain/result.js";
 import { mcpProgressReporter } from "./mcpProgress.js";
@@ -22,12 +23,15 @@ export const registerCloseLifecycleTool = ({
   const closeWithResources = async <Value>(
     closeSession: () => Promise<Result<Value, AnalysisError>>,
   ): Promise<Result<Value, AnalysisError>> => {
-    const [sessionClose, resourceClose, reverseCleanup] =
-      await Promise.allSettled([
-        closeSession(),
-        closeProcessResources(),
-        retryReverseEngineeringCleanup?.() ?? Promise.resolve(ok(null)),
-      ]);
+    const [sessionClose, resourceClose] = await Promise.allSettled([
+      closeSession(),
+      closeProcessResources(),
+    ]);
+    // An admitted reverse command may still be draining behind the session
+    // transition; retry its retained owners only after that has settled.
+    const [reverseCleanup] = await Promise.allSettled([
+      retryReverseEngineeringCleanup?.() ?? Promise.resolve(ok(null)),
+    ]);
     if (sessionClose.status === "rejected") {
       if (resourceClose.status === "rejected")
         logger.warn(
@@ -68,9 +72,12 @@ export const registerCloseLifecycleTool = ({
           "Process capture cleanup failed while closing the session",
         );
       if (!reverse.ok)
-        logger.warn(
-          { error: reverse.error.message },
-          "Reverse-engineering cleanup failed while closing the session",
+        // Live provider ownership outranks the session failure: keep the
+        // reverse cleanup report primary and the close error as context.
+        return err(
+          reverse.error.retainSecondaryFailure(closed.error, {
+            close_error: projectAnalysisError(closed.error),
+          }),
         );
       return closed;
     }

@@ -302,7 +302,9 @@ export class BinarySession
         previous.route.identity.id,
       );
       if (!closed.ok) {
-        this.clearSessionRecords();
+        // The old provider is gone or unknown; cached results are stale but
+        // collected Evidence and unknowns remain exportable.
+        this.clearSnapshot();
         this.#clearRuntimeAvailability();
         return closed;
       }
