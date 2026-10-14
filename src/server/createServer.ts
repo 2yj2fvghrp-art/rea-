@@ -577,6 +577,11 @@ export const createServer = (
         : { availabilityPolicy: availability.policy }),
       androidAnalysisAvailability: (signal) =>
         android.inspectAvailability(signal),
+      adbAnalysisAvailability: (signal) =>
+        adbDevice.provider.inspectAvailability(signal),
+      apktoolAnalysisAvailability: (signal) =>
+        apktool.inspectAvailability(signal),
+      jebAnalysisAvailability: (signal) => jeb.inspectAvailability(signal),
       startedAt,
     });
   }

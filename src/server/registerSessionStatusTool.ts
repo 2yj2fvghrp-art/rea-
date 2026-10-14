@@ -29,6 +29,15 @@ export interface SessionStatusToolOptions {
   readonly androidAnalysisAvailability: (
     signal: AbortSignal,
   ) => Promise<ProviderAvailability>;
+  readonly adbAnalysisAvailability: (
+    signal: AbortSignal,
+  ) => Promise<ProviderAvailability>;
+  readonly apktoolAnalysisAvailability: (
+    signal: AbortSignal,
+  ) => Promise<ProviderAvailability>;
+  readonly jebAnalysisAvailability: (
+    signal: AbortSignal,
+  ) => Promise<ProviderAvailability>;
 }
 
 /** Register the read-only provider and target status operation. */
@@ -42,6 +51,9 @@ export const registerSessionStatusTool = (
     startedAt,
     availabilityPolicy,
     androidAnalysisAvailability,
+    adbAnalysisAvailability,
+    apktoolAnalysisAvailability,
+    jebAnalysisAvailability,
   } = options;
   server.registerTool(
     contract.name,
@@ -51,18 +63,33 @@ export const registerSessionStatusTool = (
         context,
         server.server,
       );
-      let androidAvailability: ProviderAvailability;
+      const signal = context.mcpReq.signal;
+      let engines: readonly [
+        ProviderAvailability,
+        ProviderAvailability,
+        ProviderAvailability,
+        ProviderAvailability,
+      ];
       try {
-        androidAvailability = await androidAnalysisAvailability(
-          context.mcpReq.signal,
-        );
+        engines = await Promise.all([
+          androidAnalysisAvailability(signal),
+          adbAnalysisAvailability(signal),
+          apktoolAnalysisAvailability(signal),
+          jebAnalysisAvailability(signal),
+        ]);
       } catch (cause) {
-        if (!context.mcpReq.signal.aborted) throw cause;
+        if (!signal.aborted) throw cause;
         return server.delivery.toCallToolResult(
           err(new AnalysisCancelledError("binary_session")),
           contract,
         );
       }
+      const [
+        androidAvailability,
+        adbAvailability,
+        apktoolAvailability,
+        jebAvailability,
+      ] = engines;
       const status = session.status();
       const statusObject = jsonObjectSchema.parse(status);
       const toolAvailability = buildCapabilityInventory(
@@ -70,6 +97,9 @@ export const registerSessionStatusTool = (
         {
           ...availabilityPolicy(),
           androidAnalysisAvailability: androidAvailability,
+          adbAnalysisAvailability: adbAvailability,
+          apktoolAnalysisAvailability: apktoolAvailability,
+          jebAnalysisAvailability: jebAvailability,
         },
         clientFeatures,
       );
