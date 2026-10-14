@@ -109,13 +109,13 @@ it("restores an uncertain write and preserves its original failure", async () =>
   expect(test.observedName()).toBe(originalName);
 });
 
-it.each(["reject", "wrong-readback"] as const)(
+it.each([
+  ["reject", /temporary alias edit must be restored/u],
+  ["wrong-readback", /original function-entry name must survive restoration/u],
+] as const)(
   "fails closed when restoration has %s",
-  async (restoration) => {
-    await expect(fixture({ restoration }).run()).rejects.toMatchObject({
-      name: "AggregateError",
-      errors: [expect.any(Error)],
-    });
+  async (restoration, diagnostic) => {
+    await expect(fixture({ restoration }).run()).rejects.toThrow(diagnostic);
   },
 );
 
@@ -131,6 +131,8 @@ it("retains both verification and restoration failures", async () => {
 
 it("does not mutate an entry without a restorable public name", async () => {
   const test = fixture({ initialName: null });
-  await expect(test.run()).rejects.toThrow("Entry has no restorable name");
+  await expect(test.run()).rejects.toThrow(
+    /observed name that can be restored/u,
+  );
   expect(test.writes).toEqual([]);
 });
