@@ -27,7 +27,7 @@ const sliceSelectingRunner = (
     calls.push({ tool, arguments_ });
     const expected = tool === "dyld_info" ? dyldArchitecture : selected;
     if (
-      !["file", "lipo"].includes(tool) &&
+      tool !== "lipo" &&
       !arguments_.some(
         (argument, index) =>
           argument === expected ||
