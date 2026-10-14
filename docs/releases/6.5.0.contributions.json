@@ -3,7 +3,7 @@
   "repository": "morluto/rea",
   "version": "6.5.0",
   "base": "a56f7bb668ab23fec8d33f7af353ac7ed2fe1895",
-  "target": "f75b1a416ba67b8421e7dbd248160afedb79581f",
+  "target": "92a0edf1875f74528910db461ed03f782b7b59b3",
   "commits": [
     {
       "sha": "0ecf3f2438ec96a6b543942869808018e8d84452",
@@ -19982,6 +19982,48 @@
       "subject": "test(browser): retain bounded diagnostics for scenario policy failures",
       "body": "test(browser): retain bounded diagnostics for scenario policy failures\n",
       "parents": ["0686b07546d0e2bdc01ff936c5ba7678b045bece"],
+      "authors": [
+        {
+          "name": "morluto",
+          "email": "76467478+morluto@users.noreply.github.com",
+          "user": {
+            "login": "morluto",
+            "__typename": "User"
+          }
+        }
+      ],
+      "pullRequests": []
+    },
+    {
+      "sha": "1b463987959815842c99920b5801358252af19a4",
+      "subject": "perf(ci): preflight mutation configurations during fast feedback",
+      "body": "perf(ci): preflight mutation configurations during fast feedback\n\nKeep full qualification and standalone mutation execution intact, retain distinct reports, and preserve fail-closed quality gates.\n\nRelated: #3281\n\nCo-authored-by: Kaoru0822 <208281322+kaoru0822-kitauji@users.noreply.github.com>\n",
+      "parents": ["f75b1a416ba67b8421e7dbd248160afedb79581f"],
+      "authors": [
+        {
+          "name": "N0zoM1z0",
+          "email": "161784452+N0zoM1z0@users.noreply.github.com",
+          "user": {
+            "login": "N0zoM1z0",
+            "__typename": "User"
+          }
+        },
+        {
+          "name": "Kaoru0822",
+          "email": "208281322+kaoru0822-kitauji@users.noreply.github.com",
+          "user": {
+            "login": "kaoru0822-kitauji",
+            "__typename": "User"
+          }
+        }
+      ],
+      "pullRequests": []
+    },
+    {
+      "sha": "92a0edf1875f74528910db461ed03f782b7b59b3",
+      "subject": "perf(ci): move full mutation sweeps off the release path",
+      "body": "perf(ci): move full mutation sweeps off the release path\n\nKeep fresh coverage and both real mutation preflights required in every CI tier. Run complete canonical sweeps daily or manually in isolated jobs with distinct reports, retained failure diagnostics, and explicit report-presence checks.\n\nPreserve regression inventories, release qualification and mutation settings; remove the superseded duplicate gate test. Related: #3281.\n",
+      "parents": ["1b463987959815842c99920b5801358252af19a4"],
       "authors": [
         {
           "name": "morluto",
