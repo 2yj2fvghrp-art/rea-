@@ -139,6 +139,44 @@ const collectionPage = (
   }
 };
 
+// A sealed parent result cannot change, so its validated report stays exact for
+// every later page. The weak reference lets memory pressure reclaim the copy;
+// unsealed input is validated on each call.
+const validatedReports = new WeakMap<
+  object,
+  WeakRef<ManagedMemberInspection>
+>();
+
+/** Validate the parent once per sealed result instead of once per page. */
+const parseMemberReport = ({
+  normalizedResult,
+  sealedResult,
+}: AnalysisViewParent): Result<ManagedMemberInspection, AnalysisError> => {
+  const sealed =
+    sealedResult === true &&
+    typeof normalizedResult === "object" &&
+    normalizedResult !== null;
+  const cached = sealed
+    ? validatedReports.get(normalizedResult)?.deref()
+    : undefined;
+  if (cached !== undefined) return ok(cached);
+  const parsed = managedMemberInspectionSchema.safeParse(normalizedResult);
+  if (!parsed.success)
+    return err(
+      analysisInputErrorFromIssues(
+        "inspect_analysis_view",
+        parsed.error.issues.map((issue) => ({
+          ...issue,
+          path: ["source", "normalized_result", ...issue.path],
+        })),
+        { source: { normalized_result: normalizedResult } },
+        { cause: parsed.error },
+      ),
+    );
+  if (sealed) validatedReports.set(normalizedResult, new WeakRef(parsed.data));
+  return ok(parsed.data);
+};
+
 /** Everything but the member collections, which are replaced by their counts. */
 const summarizeMembers = (
   report: ManagedMemberInspection,
@@ -189,22 +227,9 @@ export const projectManagedMemberView = (
         },
       ]),
     );
-  const parsed = managedMemberInspectionSchema.safeParse(
-    parent.normalizedResult,
-  );
-  if (!parsed.success)
-    return err(
-      analysisInputErrorFromIssues(
-        "inspect_analysis_view",
-        parsed.error.issues.map((issue) => ({
-          ...issue,
-          path: ["source", "normalized_result", ...issue.path],
-        })),
-        { source: { normalized_result: parent.normalizedResult } },
-        { cause: parsed.error },
-      ),
-    );
-  const report = parsed.data;
+  const parsed = parseMemberReport(parent);
+  if (!parsed.ok) return parsed;
+  const report = parsed.value;
   const shared = {
     parent_evidence_id: parent.evidenceId,
     parent_operation: "inspect_managed_members" as const,

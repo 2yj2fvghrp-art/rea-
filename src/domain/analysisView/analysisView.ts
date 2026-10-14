@@ -599,6 +599,8 @@ export interface AnalysisViewParent {
   readonly evidenceId: string;
   readonly operation: string;
   readonly normalizedResult: unknown;
+  /** The owner proved normalizedResult belongs to a sealed, deep-frozen Evidence snapshot. */
+  readonly sealedResult?: boolean;
   /** Preserve the authenticated source identity, including explicit absence. */
   readonly subject?: Evidence["subject"];
   readonly limitations: readonly string[];

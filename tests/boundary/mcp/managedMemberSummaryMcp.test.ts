@@ -39,7 +39,43 @@ const createHarness = async () => {
 it("summarizes selected members and pages every original collection after the file disappears", async () => {
   const directory = await createTestTempDirectory("rea-member-summary-");
   const path = join(directory, "fixture.dll");
-  await writeFile(path, buildManagedPeFixture({ methodRowCount: 2 }));
+  await writeFile(
+    path,
+    buildManagedPeFixture({
+      methodRowCount: 2,
+      // ldarg.0; ldfld field; call member ref; ldstr "ok"; pop; ret
+      ilBody: Buffer.from([
+        (18 << 2) | 2,
+        0x02,
+        0x7b,
+        1,
+        0,
+        0,
+        0x04,
+        0x28,
+        1,
+        0,
+        0,
+        0x0a,
+        0x72,
+        1,
+        0,
+        0,
+        0x70,
+        0x26,
+        0x2a,
+      ]),
+      userStringHeap: Buffer.from([0, 5, 0x6f, 0, 0x6b, 0, 0]),
+      exportedTypes: [
+        {
+          namespace: "System",
+          name: "Object",
+          flags: 0x0020_0001,
+          implementationRaw: (1 << 2) | 1,
+        },
+      ],
+    }),
+  );
   const { client, session } = await createHarness();
   const definition = (await client.listTools()).tools.find(
     (x) => x.name === "inspect_managed_members",
@@ -84,8 +120,6 @@ it("summarizes selected members and pages every original collection after the fi
   expect(view.summary.coverage).toEqual(report.coverage);
   expect(view.summary.identity_scope).toEqual(report.identity_scope);
   expect(view.summary).not.toHaveProperty("methods");
-  expect(report.methods.length).toBeGreaterThan(0);
-  expect(report.member_refs.length).toBeGreaterThan(0);
   for (const detail of [undefined, "complete"]) {
     const complete = parseEvidence(
       (
@@ -106,6 +140,8 @@ it("summarizes selected members and pages every original collection after the fi
         ? report.user_strings?.literals
         : report[collection];
     if (rows == null) throw new Error(`${collection} was not examined`);
+    // Empty collections would compare equal even if a row schema dropped facts.
+    expect(rows.length, collection).toBeGreaterThan(0);
     expect(view.summary.reported_counts[collection]).toBe(rows.length);
     const paged: unknown[] = [];
     for (let offset: number | null = 0; offset !== null;) {
