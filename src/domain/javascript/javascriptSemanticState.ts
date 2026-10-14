@@ -67,6 +67,8 @@ export interface JavaScriptSemanticScopeState {
 export interface JavaScriptSemanticAnalysisState {
   /** Effective loader for static imports in this source artifact. */
   readonly staticImportResolutionMode: JavaScriptModuleResolutionMode;
+  /** True when a declaration file's top-level declarations are ambient. */
+  readonly ambientDeclarationFile: boolean;
   readonly parentsByNode: WeakMap<t.Node, t.Node>;
   readonly scopes: JavaScriptSemanticScopeState[];
   readonly scopesById: Map<string, JavaScriptSemanticScopeState>;

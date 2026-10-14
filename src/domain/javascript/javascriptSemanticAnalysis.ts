@@ -552,6 +552,9 @@ const createState = (
   };
   return {
     staticImportResolutionMode,
+    ambientDeclarationFile:
+      (program as { ambientDeclarationFile?: boolean })
+        .ambientDeclarationFile === true,
     parentsByNode: new WeakMap(),
     scopes: [root],
     scopesById: new Map([[root.scopeId, root]]),
@@ -937,7 +940,10 @@ const ambientNamespaceContext = (
   // own name, so the walk starts at the declaration before climbing.
   let candidate: t.Node | undefined = node;
   while (candidate !== undefined) {
-    if (t.isTSModuleDeclaration(candidate) && candidate.declare === true)
+    if (
+      t.isTSModuleDeclaration(candidate) &&
+      (candidate.declare === true || state.ambientDeclarationFile)
+    )
       return true;
     candidate = state.parentsByNode.get(candidate);
   }
