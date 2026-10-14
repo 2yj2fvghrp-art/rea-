@@ -246,6 +246,12 @@ export class WindowsOwnedProcess extends EventEmitter {
     try {
       const signaled = this.kill();
       this.#consecutivePollFailures = 0;
+      // A recovery backoff may be seconds away; explicit cleanup resumes
+      // prompt polling so buffered output cannot outlive the deadline.
+      if (this.#timer !== undefined) {
+        clearTimeout(this.#timer);
+        this.#timer = undefined;
+      }
       this.#schedule();
       const settled = await Promise.race([
         this.#settled.then(() => true),

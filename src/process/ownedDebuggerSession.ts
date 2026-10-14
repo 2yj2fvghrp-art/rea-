@@ -102,12 +102,15 @@ const finishExitedDebuggerSession = async (
   platform: NodeJS.Platform,
   status: "stopped" | "already_exited",
 ): Promise<OwnedDebuggerStopResult> => {
+  // A verified detach already made the output sink safe to release, even when
+  // the exit was only observed on a later retry and reports `already_exited`.
+  const detachConfirmed = detachOutcomes.get(session) === "confirmed";
   try {
     session.supervisor.limitAdditionalOutputBytes(
       MAX_LATE_DEBUGGER_OUTPUT_BYTES,
     );
     if (!(await session.supervisor.waitForOutputClose(1_000))) {
-      if (status === "stopped") {
+      if (status === "stopped" || detachConfirmed) {
         session.supervisor.unrefOutputStreams();
         session.supervisor.disposeAfterOutputClose();
         return { status };
@@ -195,7 +198,7 @@ const performOwnedDebuggerStop = async (
       detachOutcomes.set(session, "unconfirmed");
       return {
         status: "incomplete",
-        reason: `Owned ${debuggerName} provider did not confirm no inferior or detachment with a durable output sink.`,
+        reason: `Owned ${debuggerName} provider did not confirm no inferior, or detachment with both a durable output sink and a durable or non-inherited input sink.`,
       };
     }
     detachOutcomes.set(session, "confirmed");

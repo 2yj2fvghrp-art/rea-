@@ -471,7 +471,7 @@ it("fails closed when detach lacks durable output sink confirmation", async () =
   expect(result).toEqual({
     status: "incomplete",
     reason:
-      "Owned GDB provider did not confirm no inferior or detachment with a durable output sink.",
+      "Owned GDB provider did not confirm no inferior, or detachment with both a durable output sink and a durable or non-inherited input sink.",
   });
   expect(signals).toEqual([]);
 });
@@ -625,6 +625,42 @@ it("retains an exited session while a timed-out detach attempt is still pending"
   } finally {
     vi.useRealTimers();
   }
+});
+
+it("releases output streams after verified detach when exit is observed on a retry", async () => {
+  const unrefOutputStreams = vi.fn();
+  const disposeAfterOutputClose = vi.fn();
+  const session = {
+    id: "detach-confirmed-then-exit",
+    exited: false as boolean,
+    launched: { process: { kill: vi.fn(() => true) } },
+    detachInferior: async () =>
+      ({
+        status: "detached",
+        outputSink: "durable",
+        inputSink: "not-inherited",
+      }) as const,
+    supervisor: {
+      waitForExit: async () => false,
+      limitAdditionalOutputBytes: vi.fn(),
+      // A relay descendant keeps the pipes open.
+      waitForOutputClose: async () => false,
+      dispose: vi.fn(),
+      unrefOutputStreams,
+      disposeAfterOutputClose,
+    },
+  };
+
+  expect(
+    await stopOwnedDebuggerProcess(session, "GDB", { platform: "linux" }),
+  ).toMatchObject({ status: "incomplete" });
+  session.exited = true;
+
+  expect(
+    await stopOwnedDebuggerProcess(session, "GDB", { platform: "linux" }),
+  ).toEqual({ status: "already_exited" });
+  expect(unrefOutputStreams).toHaveBeenCalledTimes(1);
+  expect(disposeAfterOutputClose).toHaveBeenCalledTimes(1);
 });
 
 it("requires the Windows Job Object to close before releasing an exited session", async () => {
@@ -962,6 +998,8 @@ it.skipIf(process.platform === "win32")(
         stdio: ["ignore", "pipe", "pipe"],
       },
     );
+    // Attach before any output can arrive so a fast exit is never missed.
+    const probeExited = once(probe, "exit").then(() => true);
     let probeOutput = "";
     let debuggerPid: number | undefined;
     let probeStderr = "";
@@ -1000,7 +1038,7 @@ it.skipIf(process.platform === "win32")(
       inferiorPid = result.pid;
 
       const exited = await Promise.race([
-        once(probe, "exit").then(() => true),
+        probeExited,
         new Promise<false>((resolve) =>
           setTimeout(() => resolve(false), 1_000),
         ),

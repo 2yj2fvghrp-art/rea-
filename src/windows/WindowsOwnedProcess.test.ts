@@ -182,6 +182,33 @@ describe("Windows Job Object lifecycle and poll ownership", () => {
     }
   });
 
+  it("resumes prompt polling when explicit cleanup starts during a recovery backoff", async () => {
+    vi.useFakeTimers();
+    const { native, calls } = authority({
+      polls: [
+        new Error("persistent"),
+        new Error("persistent"),
+        new Error("persistent"),
+        settledPoll,
+      ],
+    });
+    const child = launch(native);
+    try {
+      await vi.advanceTimersByTimeAsync(1_000);
+      const pollCount = (): number =>
+        calls.filter(({ operation }) => operation === "process_poll").length;
+      expect(pollCount()).toBe(3);
+
+      const cleanup = child.cleanup();
+      await vi.advanceTimersByTimeAsync(100);
+
+      expect(pollCount()).toBe(4);
+      await expect(cleanup).resolves.toMatchObject({ cleaned: true });
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
   it("emits close only after descendants leave the Job Object", async () => {
     const { native, calls } = authority({
       polls: [
