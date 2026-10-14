@@ -58,6 +58,7 @@ const startBrowser = async () => {
     mode: "valid" as SnapshotMode,
     nested: false,
     renamed: false,
+    parentOverride: undefined as { value: unknown } | undefined,
   };
   const browser = await startFakeCdpBrowser({
     commandResult(command, origin) {
@@ -68,7 +69,10 @@ const startBrowser = async () => {
       const child = {
         frame: {
           id: id("b"),
-          parentId: id(state.nested ? "a" : "main"),
+          parentId:
+            state.parentOverride === undefined
+              ? id(state.nested ? "a" : "main")
+              : state.parentOverride.value,
           loaderId: "loader-b",
           url: origin + "/b",
         },
@@ -168,6 +172,23 @@ describe("DOM protocol omissions at the production capture boundary", () => {
 });
 
 describe("complete frame and DOM comparison", () => {
+  it.each([undefined, null, 17, ""])(
+    "keeps missing or invalid child parent evidence unknown (%#)",
+    async (parent) => {
+      const { state, inspect } = await startBrowser();
+      const before = await inspect();
+      state.parentOverride = { value: parent };
+      const after = await inspect();
+      expect(after.frames).toHaveLength(3);
+      expect(after.completeness.unavailable_sections).toContain("frames");
+      expect(compare(before, after).dimensions.dom_structure.status).toBe(
+        "unknown",
+      );
+      expect(compare(after, after).dimensions.dom_structure.status).toBe(
+        "unknown",
+      );
+    },
+  );
   it("retains a complete observed node change", async () => {
     const { state, inspect } = await startBrowser();
     const before = await inspect();

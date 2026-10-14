@@ -57,9 +57,16 @@ export const captureFrames = (
       continue;
     }
     if (maximum !== undefined && items.length >= maximum) continue;
+    const parentFrameId = cdpStringValue(frame.parentId);
+    // Only the enclosing tree's root may legitimately omit parent evidence.
+    if (
+      (tree !== root || Object.hasOwn(frame, "parentId")) &&
+      (parentFrameId === undefined || parentFrameId.length === 0)
+    )
+      completeness?.exclude("frames", "invalid_protocol_value");
     items.push({
       frame_id: frameId,
-      parent_frame_id: cdpStringValue(frame.parentId) ?? null,
+      parent_frame_id: parentFrameId ?? null,
       url: sanitized.url,
       origin: sanitized.origin,
     });
