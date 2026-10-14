@@ -150,6 +150,12 @@ it("keeps independent server budgets for successful results and oversized errors
 });
 
 it("bounds an oversized SDK validation error without retaining raw arguments (#3221)", async () => {
+  // Pin the default budget: a larger ambient budget would let the giant
+  // echo through and the assertions below would not hold.
+  vi.stubEnv(
+    "REA_MCP_MAX_RESPONSE_BYTES",
+    String(STDIO_DEFAULT_MAX_BUFFER_SIZE),
+  );
   const analysis = {
     execute: () =>
       Promise.resolve(
