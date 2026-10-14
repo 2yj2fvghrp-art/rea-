@@ -1337,11 +1337,7 @@ public final class ReaGhidraBridge extends HeadlessScript {
         result.add("references", references);
         if (includeIncoming) {
             TreeMap<String, Reference> incoming = new TreeMap<>();
-            ReferenceIterator incomingIterator = currentProgram.getReferenceManager().getReferencesTo(address);
-            while (incomingIterator.hasNext()) {
-                monitor.checkCancelled();
-                addReference(incoming, incomingIterator.next());
-            }
+            visitReferencesTo(address, reference -> addReference(incoming, reference));
             List<Reference> orderedIncoming = new ArrayList<>(incoming.values());
             orderedIncoming.sort(REFERENCE_ORDER);
             JsonArray incomingReferences = new JsonArray();
@@ -1393,16 +1389,8 @@ public final class ReaGhidraBridge extends HeadlessScript {
         requireKeys(params, Set.of("document", "address"));
         requireDocument(params);
         Address address = requireAddress(params, "address");
-        ReferenceIterator references = currentProgram.getReferenceManager().getReferencesTo(address);
         Set<Address> sources = new HashSet<>();
-        while (references.hasNext()) {
-            monitor.checkCancelled();
-            Reference reference = references.next();
-            if (reference.isEntryPointReference()) {
-                continue;
-            }
-            sources.add(reference.getFromAddress());
-            }
+        visitReferencesTo(address, reference -> sources.add(reference.getFromAddress()));
         List<Address> ordered = new ArrayList<>(sources);
         ordered.sort(Address::compareTo);
         JsonArray result = new JsonArray();
@@ -3660,6 +3648,17 @@ public final class ReaGhidraBridge extends HeadlessScript {
         void accept(Reference reference) throws Exception;
     }
 
+    // Loader entry points are recorded as synthetic references from the
+    // external entry space; they are neither callers nor data uses.
+    private void visitReferencesTo(Address address, ReferenceVisitor visitor) throws Exception {
+        ReferenceIterator iterator = currentProgram.getReferenceManager().getReferencesTo(address);
+        while (iterator.hasNext()) {
+            monitor.checkCancelled();
+            Reference reference = iterator.next();
+            if (!reference.isEntryPointReference()) visitor.accept(reference);
+        }
+    }
+
     private void visitReferences(Function function, String direction, ReferenceVisitor visitor)
             throws Exception {
         // References can target instruction interiors or originate in embedded
@@ -3679,15 +3678,7 @@ public final class ReaGhidraBridge extends HeadlessScript {
                     if (!reference.isEntryPointReference()) visitor.accept(reference);
                 }
             }
-            else {
-                ReferenceIterator iterator = currentProgram.getReferenceManager()
-                    .getReferencesTo(address);
-                while (iterator.hasNext()) {
-                    monitor.checkCancelled();
-                    Reference reference = iterator.next();
-                    if (!reference.isEntryPointReference()) visitor.accept(reference);
-                }
-            }
+            else visitReferencesTo(address, visitor);
         }
     }
 
