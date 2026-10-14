@@ -1,10 +1,11 @@
-import { writeFile } from "node:fs/promises";
+import { readFile, writeFile } from "node:fs/promises";
 import { join } from "node:path";
 
 import { expect } from "vitest";
 import { z } from "zod";
 
 import { javascriptApplicationAnalysisResultSchema } from "../../../src/domain/javascript/javascriptApplicationAnalysis.js";
+import { parseEvidence } from "../../../src/domain/evidence.js";
 import { analyzeJavaScriptApplication } from "../../support/javascriptApplicationScope.js";
 import { createTestTempDirectory } from "../../fixtures/temporaryDirectory.js";
 import { cliTest } from "../../support/cli/cliFixture.js";
@@ -81,6 +82,54 @@ for (const scenario of [
     },
   );
 }
+
+cliTest(
+  "prints a compact summary while retaining complete Evidence for selected views",
+  async ({ cli }) => {
+    const root = await createTestTempDirectory("rea-js-summary-output-");
+    const evidencePath = join(root, "evidence.json");
+    await writeFile(join(root, "main.js"), "export const value = 1;\n");
+
+    const summary = await cli.run({
+      arguments: [
+        "analyze-javascript-application",
+        root,
+        "--summary",
+        "--evidence-out",
+        evidencePath,
+        "--json",
+      ],
+    });
+    expect(summary.exitCode).toBe(0);
+    const fullEvidence = parseEvidence(
+      JSON.parse(await readFile(evidencePath, "utf8")),
+    );
+    const summaryEvidence = parseEvidence(summary.json);
+    expect(summaryEvidence.normalized_result).toMatchObject({
+      kind: "summary",
+      parent_evidence_id: fullEvidence.evidence_id,
+    });
+    expect(summaryEvidence.normalized_result).not.toHaveProperty(
+      "summary.semantic_graph",
+    );
+
+    const selectedView = await cli.run({
+      arguments: [
+        "inspect-analysis-view",
+        JSON.stringify({
+          source: { kind: "evidence-file", path: evidencePath },
+          view: { kind: "summary" },
+        }),
+        "--json",
+      ],
+    });
+    expect(selectedView.exitCode).toBe(0);
+    expect(parseEvidence(selectedView.json).normalized_result).toMatchObject({
+      kind: "summary",
+      parent_evidence_id: fullEvidence.evidence_id,
+    });
+  },
+);
 
 cliTest(
   "preserves a complete empty filtered JSON document",

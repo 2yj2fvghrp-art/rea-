@@ -110,7 +110,29 @@ coverage, limitations, and `normalized_result.parent_evidence_id`. Pass that ID
 to `inspect_analysis_view` for module pages or items, or to the application
 workflows as a retained reference. The summary does not repeat or truncate the
 analysis; a server without session retention refuses summary detail with
-`capability_unavailable`. CLI output is unchanged and always complete.
+`capability_unavailable`.
+
+For large CLI results, save the complete Evidence record and print only its
+summary view:
+
+```bash
+rea analyze /absolute/path/to/app.asar \
+  --summary --evidence-out /absolute/path/to/app-evidence.json --json
+```
+
+`--summary` requires `--evidence-out`. The Evidence file is written atomically
+to a new path and is never overwritten. Its `evidence_id` is the parent ID
+reported in the summary. The saved file is a single complete Evidence record;
+point `inspect-analysis-view` at it with a selected module, page, or summary
+view:
+
+```bash
+rea inspect-analysis-view '{"source":{"kind":"evidence-file","path":"/absolute/path/to/app-evidence.json"},"view":{"kind":"page","collection":"modules","offset":0,"limit":20}}' --json
+```
+
+Omit both analysis options to keep the complete Evidence on stdout.
+`--evidence-out` without `--summary` saves a copy and still emits the complete
+result.
 
 With a connected MCP `client` and the caller-selected absolute `inputPath`, this
 recipe analyzes once and pages module identities using the returned ID:
@@ -164,9 +186,10 @@ for the tool-result contract.
 
 ## Large results
 
-Use MCP `detail: "summary"` for a large application, then read selected views of
-the retained analysis. Summary changes delivery only. To reduce source parsing,
-select exact [source paths](#select-sources-before-analysis).
+Use MCP `detail: "summary"` or CLI `--summary --evidence-out PATH` for a large
+application, then read selected views of the retained analysis. Summary changes
+delivery only. To reduce source parsing, select exact
+[source paths](#select-sources-before-analysis).
 
 If a complete response exceeds the transport budget, use its retained Evidence
 ID for a summary, module page, or item, or export the bundle. See

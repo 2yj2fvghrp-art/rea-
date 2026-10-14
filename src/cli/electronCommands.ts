@@ -220,6 +220,10 @@ const registerJavaScriptApplicationCommand = (
                 : { analysis_timeout_ms: options.analysisTimeoutMs }),
             },
             signal,
+            {
+              summary: options.summary,
+              evidenceOut: options.evidenceOut,
+            },
           ),
         ),
       ),

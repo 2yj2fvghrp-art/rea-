@@ -74,6 +74,8 @@ const registerOverviewCommands = (
     options: overviewOptions.extend({
       integrityPolicy: laneIntegrityPolicy,
       sourcePath: javascriptApplicationOptions.shape.sourcePath,
+      summary: javascriptApplicationOptions.shape.summary,
+      evidenceOut: javascriptApplicationOptions.shape.evidenceOut,
     }),
     run: async ({ args, options }) => {
       // Route JavaScript targets exactly like analyze-javascript-application,
@@ -92,10 +94,27 @@ const registerOverviewCommands = (
                   : { source_paths: options.sourcePath }),
               },
               signal,
+              {
+                summary: options.summary,
+                evidenceOut: options.evidenceOut,
+              },
             ),
           ),
         );
       return logCliCommand(logger, "analyze", () => {
+        if (options.summary || options.evidenceOut !== undefined)
+          throw new AnalysisInputError(
+            "analyze_javascript_application",
+            undefined,
+            [
+              {
+                path: [options.summary ? "summary" : "evidence_out"],
+                reason: "invalid_value",
+                message:
+                  "Summary output and Evidence saving require the static JavaScript ASAR/directory analysis lane.",
+              },
+            ],
+          );
         if (options.sourcePath !== undefined)
           throw new AnalysisInputError(
             "analyze_javascript_application",
