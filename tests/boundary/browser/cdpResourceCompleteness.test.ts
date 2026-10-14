@@ -323,21 +323,84 @@ describe("resource uncertainty in production MCP registration", () => {
         parseEvidence(reply.structuredContent).normalized_result,
       );
     };
+    const expectedResource = (
+      name: string,
+      contentSize: number | null = 128,
+    ) => ({
+      resource_key: expect.any(String),
+      url: `${origin}/${name}`,
+      origin,
+      type: "Script",
+      mime_type: "text/javascript",
+      content_size: contentSize,
+    });
+    const resourceExclusions = (inspection: WebPageInspection) =>
+      inspection.completeness.excluded.filter(
+        ({ section }) => section === "resources",
+      );
     const before = await capture();
-    expect(before.resources).toHaveLength(2);
-    for (const { mode, fields, retained } of [
-      { mode: "missing", fields: undefined, retained: 0 },
-      { mode: "invalid-entry", fields: undefined, retained: 1 },
-      { mode: "valid", fields: { type: undefined }, retained: 1 },
-      { mode: "valid", fields: { contentSize: -1 }, retained: 2 },
-      { mode: "empty", fields: undefined, retained: 0 },
+    expect(
+      before.resources.toSorted((left, right) =>
+        left.url.localeCompare(right.url),
+      ),
+    ).toEqual([expectedResource("keep.js"), expectedResource("peer.js")]);
+    expect(before.completeness.unavailable_sections).not.toContain("resources");
+    expect(resourceExclusions(before)).toEqual([]);
+    for (const { mode, fields, resources, excludedCount } of [
+      {
+        mode: "missing",
+        fields: undefined,
+        resources: [],
+        excludedCount: null,
+      },
+      {
+        mode: "invalid-entry",
+        fields: undefined,
+        resources: [expectedResource("keep.js")],
+        excludedCount: 1,
+      },
+      {
+        mode: "valid",
+        fields: { type: undefined },
+        resources: [expectedResource("keep.js")],
+        excludedCount: 1,
+      },
+      {
+        mode: "valid",
+        fields: { contentSize: -1 },
+        resources: [
+          expectedResource("keep.js"),
+          expectedResource("peer.js", null),
+        ],
+        excludedCount: 1,
+      },
+      { mode: "empty", fields: undefined, resources: [], excludedCount: 0 },
     ] as const) {
       state.mode = mode;
       state.peerFields = fields;
       const after = await capture();
-      expect(after.resources).toHaveLength(retained);
+      expect(
+        after.resources.toSorted((left, right) =>
+          left.url.localeCompare(right.url),
+        ),
+      ).toEqual(resources);
+      expect(resourceExclusions(after)).toEqual(
+        mode === "empty"
+          ? []
+          : [
+              {
+                section: "resources",
+                reason: "invalid_protocol_value",
+                count: excludedCount,
+              },
+            ],
+      );
       if (mode !== "empty")
         expect(after.completeness.unavailable_sections).toContain("resources");
+      else
+        expect(after.completeness.unavailable_sections).not.toContain(
+          "resources",
+        );
       for (const [left, right] of [
         [before, after],
         [after, before],
