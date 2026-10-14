@@ -515,8 +515,9 @@ sessions before removing that recovery directory and retrying.
 On macOS, REA uses
 `/Applications/Hopper Disassembler.app/Contents/MacOS/hopper` by default.
 On Linux, it prefers executable `/opt/hopper/bin/Hopper`, then executable
-`~/.local/share/rea/hopper/bin/Hopper`; if neither exists, the former remains
-the diagnostic fallback. `HOPPER_LAUNCHER_PATH` overrides those choices:
+`~/.local/share/rea/hopper/bin/Hopper`, then the system-wide installs at
+`/opt/hopper-v4/bin/hopper` and `/usr/bin/hopper`; if none exists, the former
+remains the diagnostic fallback. `HOPPER_LAUNCHER_PATH` overrides those choices:
 
 ```bash
 export HOPPER_LAUNCHER_PATH=/absolute/path/to/Hopper

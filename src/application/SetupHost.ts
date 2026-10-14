@@ -160,6 +160,8 @@ export const systemSetupHost = (
         ...(diagnosis.hopperPath === undefined
           ? {}
           : { hopperPath: diagnosis.hopperPath }),
+        hopperLauncherConfigured:
+          environment.HOPPER_LAUNCHER_PATH !== undefined,
         providerEnvironment: {
           ...providerRegistrationEnvironment(
             diagnosis.providerInspections ?? [],

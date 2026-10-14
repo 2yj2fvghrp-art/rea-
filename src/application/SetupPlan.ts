@@ -3,6 +3,7 @@ import { join } from "node:path";
 import { isOwnedClientRegistrationCommand } from "./ClientRegistrationIdentity.js";
 import {
   linuxHopperInstallDisclosure,
+  REA_MANAGED_LINUX_HOPPER_LAUNCHER,
   type LinuxPackageFamily,
 } from "./LinuxHopper.js";
 import type { SkillDestination } from "./SetupSkill.js";
@@ -40,15 +41,26 @@ export const discoverSetupState = async (input: {
   readonly providerEnvironment: SetupProviderEnvironment;
   readonly forceHopperInstall: boolean;
   readonly proposeHopper: boolean;
+  readonly hopperLauncherConfigured: boolean;
   readonly initialDoctor: DoctorReport;
 }): Promise<SetupDiscovery> => {
   const { initialDoctor } = input;
-  const linuxHopperRepairNeeded = initialDoctor.checks.some(
-    ({ name, ok, detail }) =>
-      !ok &&
-      (name === "hopper-demo-runtime" ||
-        (name === "hopper-version" && detail === "/opt/hopper/bin/Hopper")),
-  );
+  // A launcher explicitly configured through HOPPER_LAUNCHER_PATH is the
+  // user's chosen provider: never propose a repair reinstall over it when the
+  // pinned demo-build digest or the demo runtime probe fails. Repair only
+  // applies to the REA-managed system install when nothing was configured:
+  // an existing third-party launcher (e.g. /usr/bin/hopper) keeps its own
+  // remediation instead of being replaced by a REA-managed reinstall.
+  const linuxHopperRepairNeeded =
+    !input.hopperLauncherConfigured &&
+    initialDoctor.hopperPath === REA_MANAGED_LINUX_HOPPER_LAUNCHER &&
+    initialDoctor.checks.some(
+      ({ name, ok, detail }) =>
+        !ok &&
+        (name === "hopper-demo-runtime" ||
+          (name === "hopper-version" &&
+            detail === REA_MANAGED_LINUX_HOPPER_LAUNCHER)),
+    );
   const linuxDistribution =
     input.host.platform === "linux"
       ? await input.host.linuxDistribution()

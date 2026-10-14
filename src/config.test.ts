@@ -1,6 +1,22 @@
-import { describe, expect, it } from "vitest";
+import { afterAll, beforeAll, describe, expect, it } from "vitest";
+import {
+  chmodSync,
+  copyFileSync,
+  mkdirSync,
+  mkdtempSync,
+  readFileSync,
+  rmSync,
+  writeFileSync,
+} from "node:fs";
+import { tmpdir } from "node:os";
+import { join } from "node:path";
 
-import { parseConfig } from "./config/parseConfig.js";
+import {
+  defaultHopperLauncherPath,
+  executableAvailable,
+  parseConfig,
+} from "./config/parseConfig.js";
+import { linuxHopperLauncherCandidates } from "./application/LinuxHopper.js";
 import { projectAnalysisError } from "./domain/analysisErrorProjection.js";
 
 it("reports a configuration failure for a NUL in Hopper loader arguments", () => {
@@ -324,3 +340,187 @@ describe("configuration failure diagnostics", () => {
       });
   });
 });
+
+describe("default Hopper launcher path (#2270)", () => {
+  const home = "/fixture/home";
+  const executable = (present: readonly string[]) => (path: string) =>
+    present.includes(path);
+
+  it("selects each newly discovered Linux launcher when it is the only one present", () => {
+    for (const candidate of ["/opt/hopper-v4/bin/hopper", "/usr/bin/hopper"]) {
+      expect(
+        defaultHopperLauncherPath(
+          "linux",
+          home,
+          process.env,
+          executable([candidate]),
+        ),
+      ).toBe(candidate);
+    }
+  });
+
+  it("prefers the REA-managed install over the newly discovered launchers", () => {
+    expect(
+      defaultHopperLauncherPath(
+        "linux",
+        home,
+        process.env,
+        executable([
+          "/opt/hopper/bin/Hopper",
+          "/opt/hopper-v4/bin/hopper",
+          "/usr/bin/hopper",
+        ]),
+      ),
+    ).toBe("/opt/hopper/bin/Hopper");
+  });
+
+  it("prefers the legacy user-local launcher over the newly discovered system launchers", () => {
+    const userLocal = `${home}/.local/share/rea/hopper/bin/Hopper`;
+    expect(
+      defaultHopperLauncherPath(
+        "linux",
+        home,
+        process.env,
+        executable(["/opt/hopper-v4/bin/hopper", "/usr/bin/hopper", userLocal]),
+      ),
+    ).toBe(userLocal);
+  });
+
+  it("prefers the REA-managed install over the legacy user-local launcher", () => {
+    const userLocal = `${home}/.local/share/rea/hopper/bin/Hopper`;
+    expect(
+      defaultHopperLauncherPath(
+        "linux",
+        home,
+        process.env,
+        executable(["/opt/hopper/bin/Hopper", userLocal]),
+      ),
+    ).toBe("/opt/hopper/bin/Hopper");
+  });
+
+  it("orders the shared Linux candidates: managed, user-local, then system-wide", () => {
+    expect(linuxHopperLauncherCandidates(home)).toEqual([
+      "/opt/hopper/bin/Hopper",
+      `${home}/.local/share/rea/hopper/bin/Hopper`,
+      "/opt/hopper-v4/bin/hopper",
+      "/usr/bin/hopper",
+    ]);
+  });
+
+  it("falls back to the user-local launcher, then the REA-managed path", () => {
+    const userLocal = `${home}/.local/share/rea/hopper/bin/Hopper`;
+    expect(
+      defaultHopperLauncherPath(
+        "linux",
+        home,
+        process.env,
+        executable([userLocal]),
+      ),
+    ).toBe(userLocal);
+    expect(
+      defaultHopperLauncherPath("linux", home, process.env, executable([])),
+    ).toBe("/opt/hopper/bin/Hopper");
+  });
+});
+
+describe.runIf(process.platform === "linux")(
+  "Hopper launcher readiness probe (#2995)",
+  () => {
+    // Fixtures for the default readiness probe: execute access alone is not
+    // readiness. A directory passes X_OK but is not a launcher, and a script
+    // fails the ldd leg that doctor discovery also requires.
+    // Fixture creation lives in beforeAll: Vitest invokes the describe
+    // factory during collection even when the suite is skipped, so the
+    // unconditional /bin/true copy would throw on platforms without it
+    // before the suite could be skipped.
+    let fixtureRoot = "";
+    let asDirectory = "";
+    let brokenScript = "";
+    let healthyBinary = "";
+    beforeAll(() => {
+      fixtureRoot = mkdtempSync(join(tmpdir(), "rea-hopper-probe-"));
+      asDirectory = join(fixtureRoot, "hopper-dir");
+      mkdirSync(asDirectory, { recursive: true });
+      chmodSync(asDirectory, 0o755);
+
+      brokenScript = join(fixtureRoot, "broken.sh");
+      writeFileSync(brokenScript, "#!/bin/sh\nexit 0\n", { mode: 0o755 });
+
+      healthyBinary = join(fixtureRoot, "hopper-ok");
+      copyFileSync("/bin/true", healthyBinary);
+      chmodSync(healthyBinary, 0o755);
+    });
+    afterAll(() => {
+      rmSync(fixtureRoot, { recursive: true, force: true });
+    });
+
+    it("rejects directories and launchers with unresolvable libraries", () => {
+      expect(executableAvailable(asDirectory)).toBe(false);
+      expect(executableAvailable(brokenScript)).toBe(false);
+    });
+
+    it("accepts a healthy executable binary", () => {
+      expect(executableAvailable(healthyBinary)).toBe(true);
+    });
+
+    it("rejects missing paths", () => {
+      expect(executableAvailable(join(fixtureRoot, "missing"))).toBe(false);
+    });
+
+    it("runs the linker probe under the caller-selected environment", () => {
+      const probeRoot = mkdtempSync(join(tmpdir(), "rea-hopper-env-"));
+      try {
+        // A fake ldd first on the caller-selected PATH dumps the environment
+        // it actually receives, then reports resolvable libraries.
+        const childEnvDump = join(probeRoot, "child-env.txt");
+        const fakeLdd = join(probeRoot, "ldd");
+        writeFileSync(
+          fakeLdd,
+          `#!/bin/sh\nenv | sort > ${childEnvDump}\nprintf '\\tlibc.so.6 => /lib/libc.so.6 (0x0000)\\n'\n`,
+          { mode: 0o755 },
+        );
+        const callerEnvironment = {
+          PATH: `${probeRoot}:${process.env.PATH ?? ""}`,
+          REA_PROBE_MARKER: "caller-selected-environment",
+        };
+        expect(executableAvailable(healthyBinary, callerEnvironment)).toBe(
+          true,
+        );
+        expect(readFileSync(childEnvDump, "utf8")).toContain(
+          "REA_PROBE_MARKER=caller-selected-environment",
+        );
+      } finally {
+        rmSync(probeRoot, { recursive: true, force: true });
+      }
+    });
+
+    it(
+      "fails a stalled linker probe closed within its deadline",
+      { timeout: 30_000 },
+      () => {
+        const probeRoot = mkdtempSync(join(tmpdir(), "rea-hopper-stall-"));
+        try {
+          // A PATH-selected ldd that never answers: without a probe deadline
+          // this would block parseConfig — and MCP startup — indefinitely.
+          const fakeLdd = join(probeRoot, "ldd");
+          writeFileSync(fakeLdd, "#!/bin/sh\nexec sleep 30\n", {
+            mode: 0o755,
+          });
+          const callerEnvironment = {
+            PATH: `${probeRoot}:${process.env.PATH ?? ""}`,
+          };
+          const deadlineMs = 1_000;
+          const started = Date.now();
+          expect(
+            executableAvailable(healthyBinary, callerEnvironment, deadlineMs),
+          ).toBe(false);
+          // Bounded by the deadline, not by the 30s sleep: without the fix
+          // this test hangs until its own timeout instead of returning.
+          expect(Date.now() - started).toBeLessThan(15_000);
+        } finally {
+          rmSync(probeRoot, { recursive: true, force: true });
+        }
+      },
+    );
+  },
+);

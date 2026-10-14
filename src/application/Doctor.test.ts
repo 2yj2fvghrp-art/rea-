@@ -652,6 +652,33 @@ describe("doctor Linux and Hopper discovery", () => {
   });
 });
 
+describe("doctor standard Linux Hopper paths (#2270)", () => {
+  it.each(["/opt/hopper-v4/bin/hopper", "/usr/bin/hopper"])(
+    "detects a Hopper launcher at the standard Linux path %s",
+    async (path) => {
+      const result = await runDoctor(
+        undefined,
+        host({
+          platform: "linux",
+          macosVersion: () => Promise.resolve(undefined),
+          linuxDistribution: () =>
+            Promise.resolve({
+              id: "ubuntu",
+              versionId: "24.04",
+              packageFamily: "deb",
+              hopperSetupSupported: true,
+            }),
+          executable: (candidate) => Promise.resolve(candidate === path),
+        }),
+      );
+      expect(result.hopperPath).toBe(path);
+      expect(result.checks.find(({ name }) => name === "hopper")).toMatchObject(
+        { ok: true },
+      );
+    },
+  );
+});
+
 describe("doctor target admission diagnostics", () => {
   it("preserves route-specific target diagnostics from the host", async () => {
     const targetCheck = {

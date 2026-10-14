@@ -2,7 +2,12 @@ import {
   SUPPORTED_NODE_VERSION_PROSE,
   supportsNodeVersion,
 } from "../domain/runtimeVersion.js";
-import { linuxHopperLauncherPath, supportsReaHost } from "./LinuxHopper.js";
+import {
+  linuxHopperLauncherCandidates,
+  linuxHopperLauncherPath,
+  supportsReaHost,
+  systemLinuxHopperLauncherCandidates,
+} from "./LinuxHopper.js";
 import type {
   DoctorCheck,
   DoctorHost,
@@ -11,7 +16,6 @@ import type {
 
 const DEFAULT_HOPPER =
   "/Applications/Hopper Disassembler.app/Contents/MacOS/hopper";
-const SYSTEM_LINUX_HOPPER = "/opt/hopper/bin/Hopper";
 
 /** Ordered environment diagnostics consumed by the Doctor report assembler. */
 export interface DoctorDiagnostics {
@@ -148,8 +152,16 @@ const findHopper = async (host: DoctorHost): Promise<string | undefined> => {
     host.configuredHopperPath === undefined
       ? [
           DEFAULT_HOPPER,
-          SYSTEM_LINUX_HOPPER,
-          linuxHopperLauncherPath(host.homeDirectory),
+          // On Linux the legacy user-local install stays ahead of the newly
+          // discovered system-wide installs: the Linux adapter can only run
+          // the pinned builds, so an existing launcher from REA's own setup
+          // outranks an arbitrary system build the adapter may reject.
+          ...(host.platform === "linux"
+            ? linuxHopperLauncherCandidates(host.homeDirectory)
+            : [
+                ...systemLinuxHopperLauncherCandidates,
+                linuxHopperLauncherPath(host.homeDirectory),
+              ]),
           ...(await host.manualHopperPaths()),
         ]
       : [host.configuredHopperPath];

@@ -191,6 +191,88 @@ describe("setup workflow", () => {
   });
 });
 
+describe("Hopper launcher detection (#2270)", () => {
+  const linuxDistribution = {
+    id: "ubuntu",
+    versionId: "24.04",
+    packageFamily: "deb",
+    hopperSetupSupported: true,
+  } as const;
+
+  it("does not reinstall Hopper for a configured launcher when the demo runtime check fails", async () => {
+    const host = new FakeSetupHost("linux");
+    host.distribution = linuxDistribution;
+    host.hopper = "/opt/hopper/bin/Hopper";
+    host.hopperLauncherConfigured = true;
+    host.linuxDemoRuntimeMissing = true;
+    const result = await runSetup(
+      { ...options(false), structured: false },
+      host,
+      () => Promise.resolve(true),
+    );
+    expect(result.status).toBe("needs_human");
+    expect(host.hopperInstalls).toBe(0);
+    expect(result.plannedActions.map(({ kind }) => kind)).not.toContain(
+      "install_hopper",
+    );
+  });
+
+  it("does not reinstall Hopper for a configured launcher when the version probe fails", async () => {
+    const host = new FakeSetupHost("linux");
+    host.distribution = linuxDistribution;
+    host.hopper = "/opt/hopper/bin/Hopper";
+    host.hopperLauncherConfigured = true;
+    host.unsupportedHopperVersion = true;
+    const result = await runSetup(
+      { ...options(false), structured: false },
+      host,
+      () => Promise.resolve(true),
+    );
+    expect(result.status).toBe("needs_human");
+    expect(host.hopperInstalls).toBe(0);
+    expect(result.plannedActions.map(({ kind }) => kind)).not.toContain(
+      "install_hopper",
+    );
+  });
+
+  it("still proposes repair for the REA-managed install when no launcher is configured", async () => {
+    const host = new FakeSetupHost("linux");
+    host.distribution = linuxDistribution;
+    host.hopper = "/opt/hopper/bin/Hopper";
+    host.unsupportedHopperVersion = true;
+    const result = await runSetup(
+      { ...options(false), structured: false },
+      host,
+      () => Promise.resolve(true),
+    );
+    expect(result.status).toBe("needs_human");
+    expect(host.hopperInstalls).toBe(1);
+    expect(result.plannedActions.map(({ kind }) => kind)).toContain(
+      "install_hopper",
+    );
+  });
+
+  it.each(["/usr/bin/hopper", "/opt/hopper-v4/bin/hopper"])(
+    "does not propose a repair reinstall for a discovered third-party launcher at %s when the demo runtime check fails",
+    async (launcher) => {
+      const host = new FakeSetupHost("linux");
+      host.distribution = linuxDistribution;
+      host.hopper = launcher;
+      host.linuxDemoRuntimeMissing = true;
+      const result = await runSetup(
+        { ...options(false), structured: false },
+        host,
+        () => Promise.resolve(true),
+      );
+      expect(result.status).toBe("needs_human");
+      expect(host.hopperInstalls).toBe(0);
+      expect(result.plannedActions.map(({ kind }) => kind)).not.toContain(
+        "install_hopper",
+      );
+    },
+  );
+});
+
 describe("setup workflow action selection", () => {
   it("executes only actions selected by the interactive adapter", async () => {
     const host = new FakeSetupHost();
