@@ -1,3 +1,5 @@
+import { isProxy } from "node:util/types";
+
 import { AnalysisInputError } from "../analysisErrorCore.js";
 import type { AnalysisError } from "../analysisErrorBase.js";
 import { MAX_JSON_DEPTH } from "../jsonValue.js";
@@ -27,6 +29,8 @@ export const admitAnalysisViewData = (
       ]),
     );
   const visit = (item: unknown, depth: number): Result<void, AnalysisError> => {
+    // Proxy reflection and callable constructor metadata can execute caller code.
+    if (isProxy(item) || typeof item === "function") return invalid();
     // Capture records add three levels before reported; inline Evidence adds one.
     if (
       depth > MAX_JSON_DEPTH + (inline ? 4 : 3) ||
@@ -50,12 +54,14 @@ export const admitAnalysisViewData = (
     // Walk depth-first without copying the graph. Aliases are examined each time
     // the schema copies them, so byte reservations retain the same accounting.
     if (Array.isArray(item)) {
-      // Ordinary JSON arrays have only dense own indexes and length. Extra keys
-      // or a custom prototype can override map, iteration or constructor/species
-      // behavior used by validation and cloning, even with data descriptors.
+      // JSON validation iterates arrays and cloning calls map (which reads
+      // constructor/species). Reject those traversal overrides without building
+      // an input-sized key list. Other array metadata is omitted by JSON cloning.
       if (
         Object.getPrototypeOf(item) !== Array.prototype ||
-        Reflect.ownKeys(item).length !== item.length + 1
+        Object.hasOwn(item, Symbol.iterator) ||
+        Object.hasOwn(item, "map") ||
+        Object.hasOwn(item, "constructor")
       )
         return invalid();
       for (let index = 0; index < item.length; index += 1) {

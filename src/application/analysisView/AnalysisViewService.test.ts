@@ -591,6 +591,94 @@ it.each(["summary", "capture", "api-surface"] as const)(
   },
 );
 
+it("rejects executable constructor values before schema plain-object checks", () => {
+  const parent = analysisViewCaptureEvidence();
+  let invoked = false;
+  const constructor = () => undefined;
+  Object.defineProperty(constructor, "prototype", {
+    get() {
+      invoked = true;
+      throw new Error("Constructor metadata must remain inert");
+    },
+  });
+  for (const kind of ["summary", "capture", "api-surface"] as const) {
+    expect(
+      inspectAnalysisView({
+        source: {
+          kind: "inline",
+          evidence: { ...parent, raw_result: { constructor } },
+        },
+        view: { kind },
+      }),
+    ).toMatchObject({ ok: false, error: { _tag: "AnalysisInputError" } });
+  }
+  expect(invoked).toBe(false);
+});
+
+it("rejects inline proxy values before reflection or parsing can run traps", () => {
+  const parent = analysisViewCaptureEvidence();
+  let invoked = false;
+  const trap = () => {
+    invoked = true;
+    throw new Error("Proxy behavior must remain inert");
+  };
+  const revoked = Proxy.revocable([], {});
+  revoked.revoke();
+  for (const value of [
+    new Proxy({}, { getPrototypeOf: trap, ownKeys: trap, get: trap }),
+    new Proxy(() => undefined, { get: trap }),
+    revoked.proxy,
+  ]) {
+    const result = inspectAnalysisView({
+      source: { kind: "inline", evidence: { ...parent, raw_result: value } },
+      view: { kind: "summary" },
+    });
+    expect(result).toMatchObject({
+      ok: false,
+      error: { _tag: "AnalysisInputError" },
+    });
+  }
+  expect(invoked).toBe(false);
+});
+
+it("keeps ignored array metadata inert through parsing and projection", () => {
+  const capture = analysisViewCaptureFixture();
+  const parent = createEvidence(
+    {
+      path: capture.artifact.path,
+      sha256: capture.artifact.sha256!,
+      format: "file",
+    },
+    { id: "fixture", name: "fixture", version: "1" },
+    {
+      operation: "inspect_web_network_capture",
+      parameters: { sensitive_value_count: 0 },
+      result: capture,
+      rawResult: [],
+    },
+  );
+  if (!Array.isArray(parent.raw_result)) throw new Error("Expected raw array");
+  const array = parent.raw_result;
+  let invoked = false;
+  const getter = () => {
+    invoked = true;
+    throw new Error("Ignored array metadata must remain inert");
+  };
+  for (let index = 0; index < 10_000; index += 1)
+    Object.defineProperty(array, `metadata-${index}`, { get: getter });
+  Object.defineProperty(array, Symbol("metadata"), { get: getter });
+  for (const kind of ["summary", "capture", "api-surface"] as const) {
+    const result = inspectAnalysisView({
+      source: { kind: "inline", evidence: parent },
+      view: { kind },
+    });
+    if (!result.ok) throw result.error;
+    expect(result.value.evidence_links).toEqual([parent.evidence_id]);
+  }
+  expect(invoked).toBe(false);
+  expect(parseEvidence(parent).raw_result).toEqual([]);
+});
+
 it("keeps inline-envelope admission live alongside capture validation and grouping", () => {
   // Each clone alone fits; both graphs coexist while the view is projected.
   const capture = analysisViewObjectDenseCapture(40_000);
