@@ -335,12 +335,9 @@ export const javaScriptWorkerStaticAnalysisSchema = z
           kind: z.enum(["route", "network"]),
           value: z.string(),
           mechanism: z.string(),
-          interpretation: z.literal("candidate").optional(),
+          interpretation: z.literal("candidate").exactOptional(),
         })
-        .transform(({ interpretation, ...value }) => ({
-          ...withRuntime(value),
-          ...(interpretation === undefined ? {} : { interpretation }),
-        })),
+        .transform(withRuntime),
     ),
     storage: z.array(
       z.strictObject({

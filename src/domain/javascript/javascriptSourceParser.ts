@@ -29,6 +29,29 @@ const isJSDocMargin = (value: string, offset: number): boolean => {
   return true;
 };
 
+/** A fence starts after line trivia and the optional JSDoc decoration only. */
+const isJSDocFenceStart = (value: string, offset: number): boolean => {
+  for (let cursor = offset - 1; cursor >= 0; cursor--) {
+    const character = value[cursor];
+    if (/\r|\n|\u2028|\u2029/u.test(character ?? "")) return true;
+    if (character === "*" && isJSDocMargin(value, cursor)) return true;
+    if (character !== " " && character !== "\t") return false;
+  }
+  return true;
+};
+
+const jsDocFenceTail = (value: string, offset: number) => {
+  let whitespaceOnly = true;
+  let hasBacktick = false;
+  for (let cursor = offset; cursor < value.length; cursor++) {
+    const character = value[cursor];
+    if (/\r|\n|\u2028|\u2029/u.test(character ?? "")) break;
+    if (character !== " " && character !== "\t") whitespaceOnly = false;
+    if (character === "`") hasBacktick = true;
+  }
+  return { whitespaceOnly, hasBacktick };
+};
+
 interface JSDocGrammarSpan {
   readonly end?: number;
   readonly scannedEnd: number;
@@ -100,17 +123,41 @@ const jsDocTags = (
   let quote = "";
   let annotation = false;
   let codeTicks = 0;
+  let fence: { marker: string; width: number } | undefined;
   for (let offset = 0; offset < value.length; offset++) {
     const character = value[offset];
-    if (braces === 0 && character === "`") {
+    if (braces === 0 && (character === "`" || character === "~")) {
       let ticks = 1;
-      while (value[offset + ticks] === "`") ticks += 1;
+      while (value[offset + ticks] === character) ticks += 1;
+      if (ticks >= 3 && isJSDocFenceStart(value, offset)) {
+        const tail = jsDocFenceTail(value, offset + ticks);
+        if (
+          fence === undefined &&
+          codeTicks === 0 &&
+          (character === "~" || !tail.hasBacktick)
+        ) {
+          fence = { marker: character, width: ticks };
+          offset += ticks - 1;
+          continue;
+        }
+        if (fence !== undefined) {
+          if (
+            fence.marker === character &&
+            ticks >= fence.width &&
+            tail.whitespaceOnly
+          )
+            fence = undefined;
+          offset += ticks - 1;
+          continue;
+        }
+      }
+      if (character !== "`" || fence !== undefined) continue;
       if (codeTicks === 0) codeTicks = ticks;
       else if (codeTicks === ticks) codeTicks = 0;
       offset += ticks - 1;
       continue;
     }
-    if (codeTicks > 0) continue;
+    if (codeTicks > 0 || fence !== undefined) continue;
     if (quote === "" && isJSDocMargin(value, offset)) continue;
     if (quote !== "") {
       if (character === "\\") offset += 1;
