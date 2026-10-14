@@ -597,7 +597,18 @@ const boundaries = createElectronActiveBoundaryPatches({
 });
 
 try {
-  const electron = require("electron");
+  const Module = require("node:module");
+  const path = require("node:path");
+  let electron;
+  try {
+    const target = process.argv[1]
+      ? path.resolve(process.argv[1])
+      : path.join(process.cwd(), "package.json");
+    const targetRequire = Module.createRequire(target);
+    electron = targetRequire("electron");
+  } catch {
+    electron = require("electron");
+  }
   patchEmitter(electron.app, (event, args) =>
     recordRuntime(
       event === "open-url" || event === "second-instance"
