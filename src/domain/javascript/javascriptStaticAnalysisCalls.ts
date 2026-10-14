@@ -349,7 +349,10 @@ const isRetainedRequireLoader = (
  * the loader (`require = createRequire(import.meta.url)` after
  * `let require = () => "local"`), so the establishing write is the last
  * direct-alias write that takes effect before the call — not just the first
- * initializer.
+ * initializer. A `createRequire` initializer inside a conditional branch
+ * (`if (x) { var require = createRequire(u); require("./d.cjs"); }`)
+ * establishes the alias too, but only when the call sits in that same branch
+ * — any execution reaching the call provably runs the initializer first.
  */
 const isDirectCreateRequireBinding = (
   binding: JavaScriptSemanticBindingState,
@@ -367,7 +370,6 @@ const isDirectCreateRequireBinding = (
   const isDirectAliasWrite = (
     initializer: (typeof binding.initializers)[number],
   ): boolean => {
-    if (state.conditionalInitializers.has(initializer.node)) return false;
     // Only a direct alias holds the loader: a destructured property of the
     // created require (e.g. `const { missing: require } = createRequire(...)`)
     // keeps a non-empty projection and is not the loader itself.
@@ -403,9 +405,11 @@ const isDirectCreateRequireBinding = (
         !callBeforeWrite(initializer.node) &&
         // A conditional write (e.g. `if (x) require = createRequire(u)`)
         // may never run, so it cannot install the loader: the write must
-        // provably execute before the call. `conditionalInitializers`
-        // covers conditional `var` declarations, but not conditional
-        // assignments, so this branch-alignment check handles both.
+        // provably execute before the call. The branch-alignment check
+        // covers conditional `var` declarations as well as conditional
+        // assignments — an initializer inside a branch only counts when the
+        // call sits in that same branch, where every execution reaching the
+        // call runs the initializer first.
         writeMustRunBeforeCall(initializer.node, node, callFunction, state),
     )
     .at(-1);

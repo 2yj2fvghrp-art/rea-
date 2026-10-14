@@ -203,6 +203,26 @@ const loaderCases = [
     ["./dep.cjs"],
   ],
   [
+    "conditional createRequire initializer cannot hide the loader for a call outside the branch",
+    `import { createRequire } from "node:module";\nif (condition) { var require = createRequire(import.meta.url); }\nrequire("./dep.cjs");`,
+    ["./dep.cjs"],
+  ],
+  [
+    "createRequire initializer in the other branch cannot hide the loader",
+    `import { createRequire } from "node:module";\nif (condition) { require("./dep.cjs"); } else { var require = createRequire(import.meta.url); }`,
+    ["./dep.cjs"],
+  ],
+  [
+    "createRequire initializer with the call in the same branch",
+    `import { createRequire } from "node:module";\nif (condition) { var require = createRequire(import.meta.url); require("./dep.cjs"); }`,
+    ["./dep.cjs"],
+  ],
+  [
+    "conditional createRequire assignment with the call in the same branch",
+    `import { createRequire } from "node:module";\nlet require;\nif (condition) { require = createRequire(import.meta.url); require("./dep.cjs"); }`,
+    ["./dep.cjs"],
+  ],
+  [
     "top-level call before a var declaration initializer",
     `require("./dep.cjs");\nvar require = localLoader;`,
     ["./dep.cjs"],
