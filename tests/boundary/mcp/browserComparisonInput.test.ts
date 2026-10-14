@@ -124,9 +124,13 @@ describe("browser comparison input boundary", () => {
           },
         },
       ];
-      // The projection leaves group exclusion and partner fields to the
-      // canonical runtime parser.
-      const runtimeOnlyInvalid = [
+      // Strict clients reject combinators and dependentRequired, so the
+      // projection states the groups in its description and leaves group
+      // completeness and exclusion to the canonical runtime parser.
+      expect(advertised.inputSchema.description).toContain(
+        "before + after; before_scenario + after_scenario + [normalization]",
+      );
+      const mixedGroups = [
         { ...passive, ...scenario },
         { ...passive, normalization: { rules: [] } },
         {
@@ -149,7 +153,7 @@ describe("browser comparison input boundary", () => {
           advertisedValid: false,
           runtimeValid: false,
         })),
-        ...runtimeOnlyInvalid.map((input) => ({
+        ...mixedGroups.map((input) => ({
           input,
           advertisedValid: true,
           runtimeValid: false,

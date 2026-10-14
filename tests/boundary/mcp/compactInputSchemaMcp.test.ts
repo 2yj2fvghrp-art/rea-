@@ -5,6 +5,11 @@ import { describe, expect, it } from "vitest";
 
 import { TOOL_CONTRACTS } from "../../../src/contracts/toolContracts.js";
 import {
+  schemaArrays,
+  schemaChildren,
+  schemaMaps,
+} from "../../../src/contracts/inputSchemaPresentation.js";
+import {
   COMPACT_INPUT_SCHEMA_BUDGET_BYTES,
   parseMcpInputSchemaProfile,
 } from "../../../src/config/mcpInputSchemaProfile.js";
@@ -22,6 +27,45 @@ interface AdvertisedTool {
 
 const serializedBytes = (value: unknown): number =>
   Buffer.byteLength(JSON.stringify(value), "utf8");
+
+const schemaDepth = (value: unknown, depth = 0): number => {
+  if (Array.isArray(value))
+    return Math.max(
+      depth,
+      ...value.map((child) => schemaDepth(child, depth + 1)),
+    );
+  if (typeof value !== "object" || value === null) return depth;
+  return Math.max(
+    depth,
+    ...Object.values(value).map((child) => schemaDepth(child, depth + 1)),
+  );
+};
+
+const unsupportedDependencyKeywords = (
+  schema: unknown,
+  path = "$",
+): readonly string[] => {
+  if (Array.isArray(schema))
+    return schema.flatMap((child, index) =>
+      unsupportedDependencyKeywords(child, `${path}[${index}]`),
+    );
+  if (typeof schema !== "object" || schema === null) return [];
+  return Object.entries(schema).flatMap(([key, value]) => {
+    const childPath = `${path}.${key}`;
+    if (key === "dependencies" || key === "dependentRequired")
+      return [childPath];
+    if (["const", "enum", "default", "examples"].includes(key)) return [];
+    if (schemaMaps.has(key) && typeof value === "object" && value !== null)
+      return Object.entries(value).flatMap(([name, child]) =>
+        unsupportedDependencyKeywords(child, `${childPath}.${name}`),
+      );
+    if (schemaArrays.has(key) && Array.isArray(value))
+      return unsupportedDependencyKeywords(value, childPath);
+    if (schemaChildren.has(key))
+      return unsupportedDependencyKeywords(value, childPath);
+    return [];
+  });
+};
 
 const listToolsThroughTransport = async (
   server: EvidenceMcpServer,
@@ -64,65 +108,7 @@ const fullServer = (): EvidenceMcpServer =>
     new ToolResultDelivery(STDIO_DEFAULT_MAX_BUFFER_SIZE),
   );
 
-// Gemini function declarations reject these keywords, and one unknown keyword
-// fails the client's whole tool catalog rather than the one tool (#2832).
-const geminiRejectedKeywords = new Set(["dependentRequired", "dependencies"]);
-const propertyNameMaps = new Set([
-  "properties",
-  "patternProperties",
-  "$defs",
-  "definitions",
-]);
-const literalData = new Set(["const", "enum", "default", "examples"]);
-
-const geminiRejectedKeywordPaths = (value: unknown, path: string): string[] => {
-  if (Array.isArray(value))
-    return value.flatMap((item, index) =>
-      geminiRejectedKeywordPaths(item, `${path}/${index}`),
-    );
-  if (typeof value !== "object" || value === null) return [];
-  return Object.entries(value).flatMap(([key, child]) => {
-    if (literalData.has(key)) return [];
-    if (
-      propertyNameMaps.has(key) &&
-      typeof child === "object" &&
-      child !== null
-    )
-      return Object.entries(child).flatMap(([name, schema]) =>
-        geminiRejectedKeywordPaths(schema, `${path}/${key}/${name}`),
-      );
-    return [
-      ...(geminiRejectedKeywords.has(key) ? [`${path}/${key}`] : []),
-      ...geminiRejectedKeywordPaths(child, `${path}/${key}`),
-    ];
-  });
-};
-
 describe("MCP compact input schema profile", () => {
-  it.each([
-    ["full", fullServer],
-    ["compact", compactServer],
-  ] as const)(
-    "advertises no keyword Gemini rejects in the %s profile",
-    async (_profile, createServer) => {
-      const server = createServer();
-      registerCatalog(server);
-      const tools = await listToolsThroughTransport(server);
-      expect(
-        tools.flatMap(({ name, inputSchema }) =>
-          geminiRejectedKeywordPaths(inputSchema, name),
-        ),
-      ).toEqual([]);
-      // Partner fields are guidance the profile must keep once the keyword is gone.
-      const sqlite = tools.find(
-        ({ name }) => name === "inspect_sqlite_database",
-      );
-      expect(sqlite?.inputSchema.description).toContain(
-        "columns and row_limit require table",
-      );
-    },
-  );
-
   it("advertises every tool input schema within the provider budget", async () => {
     const server = compactServer();
     registerCatalog(server);
@@ -135,6 +121,12 @@ describe("MCP compact input schema profile", () => {
         serializedBytes(inputSchema) > COMPACT_INPUT_SCHEMA_BUDGET_BYTES,
     );
     expect(oversized.map(({ name }) => name)).toEqual([]);
+    const tooDeep = tools.filter(
+      ({ inputSchema }) => schemaDepth(inputSchema) > 10,
+    );
+    expect(
+      tooDeep.map(({ name, inputSchema }) => [name, schemaDepth(inputSchema)]),
+    ).toEqual([]);
   });
 
   it("keeps output schemas and tool descriptions identical to the default profile", async () => {
@@ -178,6 +170,31 @@ describe("MCP compact input schema profile", () => {
     }
   });
 
+  it("omits Gemini-unsupported dependency keywords from both catalog profiles", async () => {
+    const full = fullServer();
+    const compact = compactServer();
+    registerCatalog(full);
+    registerCatalog(compact);
+    const [fullTools, compactTools] = await Promise.all([
+      listToolsThroughTransport(full),
+      listToolsThroughTransport(compact),
+    ]);
+    for (const tools of [fullTools, compactTools])
+      expect(
+        tools.flatMap(({ name, inputSchema }) =>
+          unsupportedDependencyKeywords(inputSchema).map(
+            (path) => `${name}${path.slice(1)}`,
+          ),
+        ),
+      ).toEqual([]);
+    const sqlite = fullTools.find(
+      ({ name }) => name === "inspect_sqlite_database",
+    );
+    expect(sqlite?.inputSchema.description).toContain(
+      "When row_limit is provided, also provide table.",
+    );
+  });
+
   it("retains parameter types and avoids client-side reference expansion", async () => {
     const server = compactServer();
     registerCatalog(server);
@@ -194,13 +211,7 @@ describe("MCP compact input schema profile", () => {
       ({ name }) => name === "compare_managed_members",
     );
     expect(comparison?.inputSchema.properties).toMatchObject({
-      left: {
-        properties: {
-          normalized_result: {
-            type: ["null", "boolean", "object", "array", "number", "string"],
-          },
-        },
-      },
+      left: { type: "object" },
     });
     const ledger = tools.find(
       ({ name }) => name === "build_reconstruction_obligation_ledger",
