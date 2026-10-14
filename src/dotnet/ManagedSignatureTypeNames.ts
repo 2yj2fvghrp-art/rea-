@@ -142,7 +142,6 @@ export const nestedTypeDigests = (
  * named and digested once, so repeated operands cost a lookup.
  */
 export const signatureTypeNames = (
-  bytes: Buffer,
   layout: ManagedMetadataLayout,
   issues: ManagedParseIssue[],
   parsedTypes: Pick<ReturnType<typeof parseTypes>, "types" | "nesting">,

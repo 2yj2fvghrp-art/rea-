@@ -7,7 +7,11 @@ import {
   ManagedDecodeBudget,
 } from "./ManagedDecodeBudget.js";
 import { inspectManagedMembersBytes } from "./ManagedMemberInspector.js";
-import { signature } from "./ManagedMemberInspectorCore.js";
+import {
+  parseTypes,
+  signature,
+  typeRanges,
+} from "./ManagedMemberInspectorCore.js";
 import {
   metadataRowOffset,
   readManagedMetadataLayout,
@@ -123,7 +127,6 @@ describe("resolved member signature digests", () => {
     const budget = new ManagedDecodeBudget();
     attachManagedDecodeBudget(layout, budget);
     const typeName = signatureTypeNames(
-      bytes,
       layout,
       [],
       {
@@ -138,6 +141,56 @@ describe("resolved member signature digests", () => {
     const reserve = vi.spyOn(budget, "reserve");
     expect(typeName(uri)).toEqual(nameDigest("System.Uri"));
     expect(reserve).not.toHaveBeenCalled();
+  });
+
+  it("bounds name loading before resolving a deep real TypeRef scope chain", () => {
+    const name = "X".repeat(2048);
+    const rows = 10_000;
+    const bytes = buildManagedPeFixture({
+      fieldSignature: Buffer.from([0x06, 0x12, (2 << 2) | 1]),
+      typeReferences: Array.from({ length: rows }, (_, index) => ({
+        namespace: "",
+        name,
+        ...(index + 1 === rows ? {} : { enclosingRow: index + 3 }),
+      })),
+    });
+    const layout = metadataLayout(bytes);
+    const first =
+      metadataRowOffset(layout, 1, 2) +
+      layout.codedIndexSize("ResolutionScope");
+    const sharedName =
+      layout.stringIndexSize === 4
+        ? bytes.readUInt32LE(first)
+        : bytes.readUInt16LE(first);
+    for (let row = 3; row <= rows + 1; row += 1) {
+      const offset =
+        metadataRowOffset(layout, 1, row) +
+        layout.codedIndexSize("ResolutionScope");
+      if (layout.stringIndexSize === 4) bytes.writeUInt32LE(sharedName, offset);
+      else bytes.writeUInt16LE(sharedName, offset);
+    }
+    const issues: Parameters<typeof managedTypeReferences>[2] = [];
+    const parsedTypes = parseTypes(
+      bytes,
+      layout,
+      typeRanges(bytes, layout, issues),
+    );
+    const resolve = signatureTypeNames(
+      layout,
+      issues,
+      parsedTypes,
+      managedTypeReferences(bytes, layout, issues),
+    );
+    expect(() => resolve((2 << 2) | 1)).not.toThrow();
+    expect(resolve((2 << 2) | 1)).toBeNull();
+    expect(issues).toEqual([]);
+    const inspection = inspectManagedMembersBytes(
+      bytes,
+      managedPeFixtureTarget(bytes),
+    );
+    expect(inspection.coverage).toEqual({ state: "complete", issues: [] });
+    expect(inspection.fields[0]).toBeDefined();
+    expect(inspection.fields[0]?.signature.resolved_sha256).toBeNull();
   });
 });
 

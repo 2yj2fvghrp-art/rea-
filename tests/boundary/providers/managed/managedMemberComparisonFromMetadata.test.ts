@@ -1923,6 +1923,20 @@ describe("managed member comparison of unresolved signatures", () => {
     expect(result.methods[0]?.dimensions).toContain("cil");
   });
 
+  it("keeps a partially decoded field's unresolved type unknown after pairing", () => {
+    const fieldSignature = Buffer.from([0x06, 0x12, (1 << 2) | 2, 0xff]);
+    const result = compareBuilds(
+      { typeSpecSignatures: typeSpecs, fieldSignature },
+      { typeSpecSignatures: [...typeSpecs].reverse(), fieldSignature },
+    );
+    expect(result.fields).toEqual([
+      expect.objectContaining({
+        status: "unknown",
+        limitations: [expect.stringMatching(/^signature-not-resolved:/u)],
+      }),
+    ]);
+  });
+
   it("retains unknown signatures when every member has an unresolved operand", () => {
     const at = (row: number) => ({
       ...unresolvedAt(row),

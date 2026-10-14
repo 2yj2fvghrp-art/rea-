@@ -202,7 +202,6 @@ export const inspectManagedMembersBytes = (
     appendManagedParseIssues(issues, exportedTypes.issues);
     const typeReferences = managedTypeReferences(bytes, layout, issues);
     const signatureTypeName = signatureTypeNames(
-      bytes,
       layout,
       issues,
       parsedTypes,

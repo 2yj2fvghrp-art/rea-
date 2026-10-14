@@ -241,10 +241,10 @@ const absenceLimitations = (
     : []),
 ];
 
-/** A decoded signature compared by raw bytes among resolved signatures. */
+/** A known signature form whose type operands still compare by raw bytes. */
 const unresolved = (member: Method | Field, resolved: boolean): boolean =>
   resolved &&
-  member.signature.parse_status === "decoded" &&
+  member.signature.kind !== "unknown" &&
   member.signature.resolved_sha256 === null;
 
 /** Equal build-local bytes cannot establish equal unresolved type operands. */
