@@ -11,6 +11,7 @@ import {
   ghidraProfileLanguageOverride,
   sameGhidraLanguageOverride,
 } from "./GhidraAnalysisProfile.js";
+import { ghidraProfileInstallationHost } from "./GhidraInstallation.fixture.js";
 import type { GhidraInstallationHost } from "./GhidraInstallation.js";
 import {
   admitGhidraLanguageOverride,
@@ -39,21 +40,6 @@ const X86_LDEFS = `<?xml version="1.0" encoding="UTF-8"?>
 </language_definitions>
 `;
 
-// Fake installation inspection; the language catalog is a real directory.
-const host: GhidraInstallationHost = {
-  platform: process.platform,
-  architecture: "x64",
-  readText: () => "application.version=12.1.4\napplication.java.min=21\n",
-  executable: () => true,
-  probeJava: () => ({
-    version: "21.0.11",
-    major: 21,
-    home: process.platform === "win32" ? "C:\\Java\\jdk-21" : "/jdk-21",
-    bits: 64,
-    runtime: "jdk",
-  }),
-};
-
 const pe: BinaryTarget = {
   path: "/fixture.exe",
   sha256: "a".repeat(64),
@@ -63,6 +49,27 @@ const pe: BinaryTarget = {
   availableArchitectures: ["x86"],
   executableRole: "application",
   managed: false,
+};
+
+// The language catalog is a real directory, so inspect its host's path syntax.
+const host: GhidraInstallationHost = {
+  ...ghidraProfileInstallationHost,
+  platform: process.platform,
+  probeJava: () => {
+    const java = ghidraProfileInstallationHost.probeJava("java", {});
+    if (java === undefined)
+      throw new Error("Missing simulated JDK observation");
+    return {
+      ...java,
+      home: process.platform === "win32" ? "C:\\Java\\jdk-21" : "/jdk-21",
+      osName:
+        process.platform === "win32"
+          ? "Windows 11"
+          : process.platform === "darwin"
+            ? "Mac OS X"
+            : "Linux",
+    };
+  },
 };
 
 let installDir = "";

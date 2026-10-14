@@ -1,8 +1,9 @@
 import { mkdir, symlink, unlink, writeFile } from "node:fs/promises";
+import * as fsPromises from "node:fs/promises";
 import { createHash } from "node:crypto";
 import { join } from "node:path";
 
-import { expect, it } from "vitest";
+import { expect, it, vi } from "vitest";
 
 import {
   hashPortableFile,
@@ -10,6 +11,11 @@ import {
   verifyPortableInventory,
 } from "../../../scripts/lib/portable-inventory.mjs";
 import { createTestTempDirectory } from "../../fixtures/temporaryDirectory.js";
+
+vi.mock("node:fs/promises", async (importOriginal) => {
+  const actual = await importOriginal<typeof import("node:fs/promises")>();
+  return { ...actual, opendir: vi.fn(actual.opendir) };
+});
 
 async function fixture() {
   const root = await createTestTempDirectory("rea-portable-inventory-");
@@ -109,10 +115,52 @@ it("rejects an omitted runtime and duplicate inventory entries", async () => {
 
 it("rejects a manifest path beyond the host file-system path limit before traversal", async () => {
   const { root } = await fixture();
-  const path = `${"segment/".repeat(1_000)}file.js`;
+  const path = `${"segment/".repeat(5_000)}file.js`;
   await expect(verifyPortableInventory(root, [{ path }])).rejects.toThrow(
     "exceeds the host path limit",
   );
+});
+
+it("closes directory handles before descent and after rejecting a deep stale file", async () => {
+  const root = await createTestTempDirectory("rea-portable-deep-");
+  const path = `${"a/".repeat(128)}file.js`;
+  await mkdir(join(root, path, ".."), { recursive: true });
+  await writeFile(join(root, path), "controlled fixture");
+  const original = (
+    await vi.importActual<typeof import("node:fs/promises")>("node:fs/promises")
+  ).opendir;
+  let active = 0;
+  let peak = 0;
+  const opened = vi
+    .spyOn(fsPromises, "opendir")
+    .mockImplementation(async (...args) => {
+      const handle = await original(...args);
+      active++;
+      peak = Math.max(peak, active);
+      const iterator = handle[Symbol.asyncIterator]();
+      handle[Symbol.asyncIterator] = async function* () {
+        try {
+          return yield* iterator;
+        } finally {
+          active--;
+        }
+      };
+      return handle;
+    });
+  try {
+    await expect(
+      verifyPortableInventory(root, [{ path }]),
+    ).resolves.toBeUndefined();
+    expect(active).toBe(0);
+    expect(peak).toBe(1);
+    await writeFile(join(root, path, "..", "stale.dll"), "stale dependency");
+    await expect(verifyPortableInventory(root, [{ path }])).rejects.toThrow(
+      "unlisted file",
+    );
+    expect(active).toBe(0);
+  } finally {
+    opened.mockRestore();
+  }
 });
 
 it("rejects directory links instead of following unlisted contents", async () => {

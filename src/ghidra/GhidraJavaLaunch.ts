@@ -6,6 +6,38 @@ import type { spawnOwnedProviderProcess } from "../process/ProviderProcess.js";
 /** Complete release configuration and warnings share this retained byte budget. */
 export const GHIDRA_LAUNCH_SUPPORT_OUTPUT_BYTES = 64 * 1024;
 
+/** JVM option environments remove quotes, including quotes inside an option. */
+const jvmEnvironmentArguments = (value: string): readonly string[] => {
+  const arguments_: string[] = [];
+  let argument = "";
+  let quote: "'" | '"' | undefined;
+  for (const character of value) {
+    if (quote !== undefined) {
+      if (character === quote) quote = undefined;
+      else argument += character;
+    } else if (character === "'" || character === '"') quote = character;
+    else if (/\s/u.test(character)) {
+      if (argument !== "") arguments_.push(argument);
+      argument = "";
+    } else argument += character;
+  }
+  if (quote !== undefined)
+    throw new Error(
+      "Invalid quoted Ghidra LaunchSupport JVM environment option",
+    );
+  if (argument !== "") arguments_.push(argument);
+  return arguments_;
+};
+
+const rejectJvmPlatformOverrides = (arguments_: readonly string[]): void => {
+  if (
+    arguments_.some((argument) => /^-Dos\.(?:arch|name)(?:=|$)/u.test(argument))
+  )
+    throw new Error(
+      "Ghidra LaunchSupport may not override os.arch or os.name; the native decompiler was validated for the inspected JVM platform.",
+    );
+};
+
 /** Launch coordinates obtained from Ghidra's own release configuration helper. */
 export const ghidraJavaLaunch = async (options: {
   readonly platform: NodeJS.Platform;
@@ -100,6 +132,17 @@ export const ghidraJavaLaunch = async (options: {
     if ((environment[key] ?? "") === "")
       environment[key] = line.slice(separator + 1);
   }
+  // The merged environment becomes the analysis JVM's environment, and the
+  // JVM applies these options variables automatically. An injected
+  // -Dos.arch/-Dos.name there selects an unvalidated native directory without
+  // appearing in vmArguments, so reject the effective values as well.
+  for (const key of [
+    "JAVA_TOOL_OPTIONS",
+    "_JAVA_OPTIONS",
+    "JDK_JAVA_OPTIONS",
+  ] as const) {
+    rejectJvmPlatformOverrides(jvmEnvironmentArguments(environment[key] ?? ""));
+  }
   const configuredArguments = await probe("-vmargs");
   options.onStderr("-vmargs", configuredArguments.stderr.text);
   const vmArguments = configuredArguments.stdout.text
@@ -111,6 +154,7 @@ export const ghidraJavaLaunch = async (options: {
     )
   )
     throw new Error("Invalid Ghidra LaunchSupport JVM argument");
+  rejectJvmPlatformOverrides(vmArguments);
   return {
     command,
     environment,

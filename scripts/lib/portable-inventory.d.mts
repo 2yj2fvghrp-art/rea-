@@ -9,7 +9,9 @@ export function readPortableManifest(path: string): Promise<{
     readonly sha256: string;
   }[];
   readonly runtime?: unknown;
-  readonly [key: string]: unknown;
+  readonly package?: unknown;
+  readonly version?: unknown;
+  readonly dependencies?: unknown;
 }>;
 export function hashPortableFile(
   path: string,

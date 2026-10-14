@@ -21,6 +21,13 @@ const provider = (platform: NodeJS.Platform) => {
       readText: () => "application.version=12.1.4\napplication.java.min=21\n",
       executable: () => true,
       probeJava: () => ({
+        osArch: "amd64",
+        osName:
+          platform === "win32"
+            ? "Windows 11"
+            : platform === "darwin"
+              ? "Mac OS X"
+              : "Linux",
         version: "21.0.11",
         major: 21,
         home: platform === "win32" ? "C:\\fixture\\jdk" : "/fixture/jdk",

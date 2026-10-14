@@ -132,8 +132,13 @@ export async function verifyPortableInventory(directory, files) {
     }
     return sortedExpected[lower]?.startsWith(prefix) === true;
   };
-  async function visit(current, prefix = "") {
-    const directoryEntries = await opendir(current);
+  // Pending relative paths are disjoint expected subtrees, bounded by the
+  // manifest. Close each iterator before descent: depth must not retain parent
+  // handles, promise frames or every growing absolute-path prefix.
+  const pending = [""];
+  while (pending.length > 0) {
+    const prefix = pending.pop();
+    const directoryEntries = await opendir(join(directory, prefix));
     for await (const entry of directoryEntries) {
       const path = prefix.length === 0 ? entry.name : `${prefix}/${entry.name}`;
       if (entry.isDirectory()) {
@@ -142,7 +147,7 @@ export async function verifyPortableInventory(directory, files) {
           throw new Error(
             `Portable inventory contains an unlisted directory: ${path}`,
           );
-        await visit(join(current, entry.name), path);
+        pending.push(path);
       } else if (!entry.isFile())
         throw new Error(
           `Portable inventory contains a non-regular entry: ${path}`,
@@ -153,7 +158,6 @@ export async function verifyPortableInventory(directory, files) {
         );
     }
   }
-  await visit(directory);
   assert.equal(
     missing.size,
     0,
