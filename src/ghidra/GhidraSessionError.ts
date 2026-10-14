@@ -272,6 +272,8 @@ const causeLaunchOutcome = (
             stderr: redact(output.stderr),
           })),
         };
+  // A failed LaunchSupport helper reports its own command outcome in the
+  // nested cause; earlier helper warnings still belong to this launch.
   if (cause.cause instanceof GhidraLaunchSupportError) return launchSupport;
   const output = cause.capturedOutput;
   if (output === undefined) return launchSupport;

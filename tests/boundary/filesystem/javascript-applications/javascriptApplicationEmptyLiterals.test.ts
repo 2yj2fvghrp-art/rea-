@@ -79,6 +79,10 @@ it("retains empty literal evidence across the application boundary surfaces", as
   );
 });
 
+/** Endpoint identity keys tag literal values apart from candidates. */
+const literalEndpointKey = (value: string): string =>
+  JSON.stringify(["literal", value]);
+
 it("keeps bridge entry paths stable through worker validation and API seed matching", async () => {
   const output = await analyzeSource(`
     const { contextBridge, ipcRenderer } = require("electron");
@@ -144,7 +148,7 @@ it("analyzes a plain long-line loader without package metadata", async () => {
   for (const node of nodes) {
     expect(node.identity).toMatchObject({
       strategy: "artifact-local-key",
-      key: node.kind === "endpoint" ? '["literal",""]' : "",
+      key: node.kind === "endpoint" ? literalEndpointKey("") : "",
     });
     expect(node.observations.map(({ label }) => label)).toEqual([null]);
   }
@@ -165,13 +169,9 @@ it("keeps exact values for empty literals without synthetic application labels",
   // a literal two-quote endpoint; both keep exact identities.
   expect(endpoints).toEqual(
     expect.arrayContaining([
-      { key: '["literal",""]', labels: [null], values: [""] },
-      {
-        key: JSON.stringify(["literal", '""']),
-        labels: ['""'],
-        values: ['""'],
-      },
-      { key: '["literal","/api"]', labels: ["/api"], values: ["/api"] },
+      { key: literalEndpointKey(""), labels: [null], values: [""] },
+      { key: literalEndpointKey('""'), labels: ['""'], values: ['""'] },
+      { key: literalEndpointKey("/api"), labels: ["/api"], values: ["/api"] },
     ]),
   );
   expect(endpoints).toHaveLength(3);
@@ -256,7 +256,7 @@ it("does not match an empty endpoint with a literal two-quote seed", async () =>
     case_sensitive: true,
   }).filter(({ node_id: nodeId }) => endpoints.has(nodeId));
   expect(matches.map(({ node_id: nodeId }) => endpoints.get(nodeId))).toEqual([
-    JSON.stringify(["literal", '""']),
+    literalEndpointKey('""'),
   ]);
 });
 

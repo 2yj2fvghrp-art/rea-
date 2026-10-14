@@ -7,19 +7,24 @@ import {
   writeFile,
 } from "node:fs/promises";
 import { join } from "node:path";
-import { stripVTControlCharacters } from "node:util";
 
 import { describe, expect, it } from "vitest";
 
 import { execFileOutput } from "../../../src/process/ExecFileOutput.js";
 import { createTestTempDirectory } from "../../fixtures/temporaryDirectory.js";
 
-const run = (root: string, command: string, arguments_: readonly string[]) =>
+const run = (
+  root: string,
+  command: string,
+  arguments_: readonly string[],
+  env?: NodeJS.ProcessEnv,
+) =>
   execFileOutput(command, arguments_, {
     cwd: root,
     stopSignal: "SIGTERM",
     timeout: 30_000,
     maxBuffer: 1024 * 1024,
+    ...(env === undefined ? {} : { env }),
   });
 
 const git = (root: string, ...arguments_: string[]) =>
@@ -73,11 +78,15 @@ const fixture = async () => {
   return root;
 };
 
+// Assertions read the child's plain-text summary. An inherited color setting
+// styled the counts in the CI lane; NO_COLOR takes precedence over FORCE_COLOR.
 const testCommand = (root: string, ...arguments_: string[]) =>
-  run(root, process.execPath, [
-    "scripts/run-development-tests.mjs",
-    ...arguments_,
-  ]);
+  run(
+    root,
+    process.execPath,
+    ["scripts/run-development-tests.mjs", ...arguments_],
+    { ...process.env, NO_COLOR: "1" },
+  );
 
 describe("development test runner exact selection", () => {
   it("matches selected path casing to the host filesystem", async () => {
@@ -175,27 +184,13 @@ describe("development test runner exact selection", () => {
       join(root, "src", "failure.test.ts"),
       'import { it } from "vitest"; it("selected failure", () => { throw new Error("selected regression"); });\n',
     );
-    const failure = await testCommand(
-      root,
-      "focused",
-      "src/value.test.ts",
-      "src/failure.test.ts",
-    ).catch((cause: unknown) => cause);
-    expect(failure).toMatchObject({
+    await expect(
+      testCommand(root, "focused", "src/value.test.ts", "src/failure.test.ts"),
+    ).rejects.toMatchObject({
       code: 1,
+      stdout: expect.stringContaining("1 failed | 1 passed"),
       stderr: expect.stringContaining("selected regression"),
     });
-    if (
-      !(failure instanceof Error) ||
-      !("stdout" in failure) ||
-      typeof failure.stdout !== "string"
-    )
-      throw new Error("Expected a test failure with captured stdout", {
-        cause: failure,
-      });
-    expect(stripVTControlCharacters(failure.stdout)).toContain(
-      "1 failed | 1 passed",
-    );
     expect(await readFile(join(root, "selected.txt"), "utf8")).toBe("1");
   });
 
@@ -206,9 +201,7 @@ describe("development test runner exact selection", () => {
       'export default { test: { projects: ["domain", "evaluation"].map(name => ({ test: { name, include: ["src/value.test.ts"] } })) } };\n',
     );
     const result = await testCommand(root, "focused", "src/value.test.ts");
-    expect(stripVTControlCharacters(result.stdout)).toMatch(
-      /Test Files\s+2 passed/u,
-    );
+    expect(result.stdout).toMatch(/Test Files\s+2 passed/u);
   });
 
   it("fails an exact file with no tests even when another selected file passes", async () => {

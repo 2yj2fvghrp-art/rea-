@@ -55,10 +55,13 @@ describe("DirectoryArtifactReader resource ownership", () => {
     const movedRoot = `${root}-original`;
     try {
       const entries = reader.entries()[Symbol.asyncIterator]();
-      expect([
+      // Root entries follow the filesystem's directory order; descendants are
+      // read only after the root is exhausted.
+      const rootEntries = [
         (await entries.next()).value?.path,
         (await entries.next()).value?.path,
-      ]).toEqual(expect.arrayContaining(["sub", "sample.txt"]));
+      ];
+      expect(rootEntries.sort()).toEqual(["sample.txt", "sub"]);
 
       await rename(root, movedRoot);
       await mkdir(root);

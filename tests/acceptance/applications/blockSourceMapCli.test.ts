@@ -72,8 +72,8 @@ cliTest.for(["CLI", "stdio MCP"] as const)(
         properties: {
           declared_url: url,
           declared_url_sha256: digest,
-          resolution_status: "resolved",
           resolved_path: url,
+          resolution_status: "resolved",
           available: true,
         },
         evidence: expect.objectContaining({
@@ -95,8 +95,8 @@ cliTest.for(["CLI", "stdio MCP"] as const)(
         target_node_id: map?.node_id,
         properties: {
           declared_url_sha256: digest,
-          resolution_status: "resolved",
           resolved_path: url,
+          resolution_status: "resolved",
         },
       }),
     );

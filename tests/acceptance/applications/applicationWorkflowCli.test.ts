@@ -484,8 +484,8 @@ it("preserves complete line-comment source-map URLs through CLI and MCP", async 
         properties: {
           declared_url: declaredUrl,
           declared_url_sha256: digest,
-          resolution_status: "resolved",
           resolved_path: "app.js.map",
+          resolution_status: "resolved",
           available: true,
         },
         evidence: expect.objectContaining({
@@ -507,8 +507,8 @@ it("preserves complete line-comment source-map URLs through CLI and MCP", async 
         target_node_id: map?.node_id,
         properties: {
           declared_url_sha256: digest,
-          resolution_status: "resolved",
           resolved_path: "app.js.map",
+          resolution_status: "resolved",
         },
       }),
     );
@@ -566,8 +566,8 @@ it("resolves source-map URL paths once without changing their declarations", asy
         properties: {
           declared_url: declaredUrl,
           declared_url_sha256: digest,
-          resolution_status: "resolved",
           resolved_path: path,
+          resolution_status: "resolved",
           available: true,
         },
         evidence: expect.objectContaining({
@@ -592,8 +592,8 @@ it("resolves source-map URL paths once without changing their declarations", asy
         target_node_id: map?.node_id,
         properties: {
           declared_url_sha256: digest,
-          resolution_status: "resolved",
           resolved_path: path,
+          resolution_status: "resolved",
         },
       }),
     );
@@ -1583,7 +1583,10 @@ it("retains bundled isolated-world contextBridge APIs through dedicated and gene
           world: "isolated",
           world_id: { status: "literal", value: 1001, expression: null },
           api_key: "isolatedApi",
+          api_status: "object-literal",
           members: ["ping"],
+          unknown_members: 0,
+          // The proven Webpack bootstrap resolves `load(2)` directly.
           resolution_basis: "direct-syntax",
         }),
         evidence: expect.objectContaining({

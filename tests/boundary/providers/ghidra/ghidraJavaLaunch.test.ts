@@ -189,7 +189,9 @@ describe.skipIf(process.platform === "win32")(
         if (mode === "env-failure") {
           expect(cause).toMatchObject({
             cause: {
+              name: "GhidraLaunchSupportError",
               command_outcome: {
+                killed: false,
                 stderr: expect.stringContaining(`-envvars: ${warning}`),
               },
               cause: { code: 3 },
@@ -208,7 +210,9 @@ describe.skipIf(process.platform === "win32")(
         if (mode === "vm-failure")
           expect(cause).toMatchObject({
             cause: {
+              name: "GhidraLaunchSupportError",
               command_outcome: {
+                killed: false,
                 stderr: expect.stringContaining(`-vmargs: ${warning}`),
               },
               cause: { code: 3 },

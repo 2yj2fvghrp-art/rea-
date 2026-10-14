@@ -779,20 +779,21 @@ describe("native IDA attached operation admission", () => {
     await client.close();
   });
 
-  it("lists only the admitted document while rejecting headless-only containment", async () => {
+  it("reports the bound document but not headless-only address resolution", async () => {
     const { client, producer, target } = await fixture();
-    const result = await client.execute("resolve_containing_procedure", {
+    const containing = await client.execute("resolve_containing_procedure", {
       address: "0x1000",
     });
-    expect(result.ok).toBe(false);
-    if (!result.ok)
-      expect(result.error._tag).toBe("AnalysisCapabilityUnavailableError");
+    expect(containing.ok).toBe(false);
+    if (!containing.ok)
+      expect(containing.error._tag).toBe("AnalysisCapabilityUnavailableError");
+
     const documents = await client.execute("list_documents", {});
     if (!documents.ok) throw documents.error;
     expect(documents.value.result).toEqual([target.path]);
     expect(
       producer.calls.some(({ name }) => name === "lookup_funcs"),
-      "no containment lookup is dispatched upstream",
+      "nothing is dispatched upstream",
     ).toBe(false);
     await client.close();
   });
