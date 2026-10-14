@@ -1,16 +1,21 @@
 import { writeFile } from "node:fs/promises";
 import { join } from "node:path";
-import { describe, expect, it } from "vitest";
+import { describe, expect, it, onTestFinished } from "vitest";
 
 import { CdpBrowserProvider } from "../../../src/browser/CdpBrowserProvider.js";
 import { inspectWebPageInputSchema } from "../../../src/domain/browserObservation.js";
-import type { WebPageInspection } from "../../../src/domain/browserObservationSchemas.js";
+import {
+  webPageInspectionSchema,
+  type WebPageInspection,
+} from "../../../src/domain/browserObservationSchemas.js";
+import { parseEvidence } from "../../../src/domain/evidence.js";
 import { compareWebCaptures } from "../../../src/domain/webCaptureDiff.js";
 import { compareWebCapturesInputSchema } from "../../../src/domain/webCaptureDiffSchemas.js";
 import { startFakeCdpBrowser } from "../../fixtures/fakeCdpBrowser.js";
 import { runCliJson } from "../../fixtures/cliJsonProcess.js";
 import { createTestTempDirectory } from "../../fixtures/temporaryDirectory.js";
 import { trackBrowser } from "./cdpBrowserProvider.support.js";
+import { createApplicationMcpHarness } from "../../fixtures/applicationMcpHarness.js";
 
 type ResourceMode =
   | "valid"
@@ -120,7 +125,12 @@ const startBrowser = async () => {
     if (!result.ok) throw result.error;
     return result.value;
   };
-  return { state, inspect, origin: browser.allowedOrigin };
+  return {
+    state,
+    inspect,
+    origin: browser.allowedOrigin,
+    endpoint: browser.endpoint,
+  };
 };
 
 const compareResources = (
@@ -285,6 +295,80 @@ describe("resource inventory omissions through CDP", () => {
       changes: [{ change: "removed" }, { change: "removed" }],
     });
     expect(compareResources(after, after).status).toBe("unchanged");
+  });
+});
+
+describe("resource uncertainty in production MCP registration", () => {
+  it("delivers partial resources and preserves comparison uncertainty through the SDK", async () => {
+    const { state, origin, endpoint } = await startBrowser();
+    const harness = await createApplicationMcpHarness({
+      serverOptions: { browserObservation: new CdpBrowserProvider() },
+    });
+    onTestFinished(harness.close);
+    const capture = async () => {
+      const reply = await harness.client.callTool({
+        name: "inspect_web_page",
+        arguments: {
+          cdp_endpoint: endpoint,
+          allowed_origins: [origin],
+          target_id: "allowed-page",
+          observation_ms: 0,
+        },
+      });
+      expect(reply.isError).not.toBe(true);
+      expect(reply.structuredContent).toMatchObject({
+        operation: "inspect_web_page",
+      });
+      return webPageInspectionSchema.parse(
+        parseEvidence(reply.structuredContent).normalized_result,
+      );
+    };
+    const before = await capture();
+    expect(before.resources).toHaveLength(2);
+    for (const { mode, fields, retained } of [
+      { mode: "missing", fields: undefined, retained: 0 },
+      { mode: "invalid-entry", fields: undefined, retained: 1 },
+      { mode: "valid", fields: { type: undefined }, retained: 1 },
+      { mode: "valid", fields: { contentSize: -1 }, retained: 2 },
+      { mode: "empty", fields: undefined, retained: 0 },
+    ] as const) {
+      state.mode = mode;
+      state.peerFields = fields;
+      const after = await capture();
+      expect(after.resources).toHaveLength(retained);
+      if (mode !== "empty")
+        expect(after.completeness.unavailable_sections).toContain("resources");
+      for (const [left, right] of [
+        [before, after],
+        [after, before],
+        [after, after],
+      ] as const) {
+        const reply = await harness.client.callTool({
+          name: "compare_web_captures",
+          arguments: {
+            before: { inspection: left },
+            after: { inspection: right },
+          },
+        });
+        expect(reply.isError).not.toBe(true);
+        expect(reply.structuredContent).toMatchObject({
+          operation: "compare_web_captures",
+          normalized_result: {
+            dimensions: {
+              resources: {
+                status:
+                  mode !== "empty"
+                    ? "unknown"
+                    : left === right
+                      ? "unchanged"
+                      : "changed",
+                total_changes: mode === "empty" && left !== right ? 2 : 0,
+              },
+            },
+          },
+        });
+      }
+    }
   });
 });
 
