@@ -55,8 +55,10 @@ cliTest(
     });
     expect(refused.stdout).toContain("symbolic link");
     const doctor = await run(["doctor", "--client", "claude_code", "--skill"]);
-    expect(doctor.json).not.toMatchObject({
-      identity: { skill: { state: "aligned" } },
+    expect(doctor.exitCode, doctor.stdout).toBe(1);
+    expect(doctor.json).toMatchObject({
+      healthy: false,
+      identity: { skill: { state: "missing" } },
     });
     const registration = await run([
       "setup",
