@@ -5,6 +5,7 @@ import {
   interfaceBuilderSummaryViewResultSchema,
   machoSummaryViewResultSchema,
   managedArtifactSummaryViewResultSchema,
+  managedMemberSummaryViewResultSchema,
 } from "../domain/analysisView/analysisView.js";
 import { evidenceBundleSummarySchema } from "../domain/evidenceRecordSummary.js";
 import { BINARY_ARCHITECTURES } from "../domain/binaryTargetTypes.js";
@@ -368,7 +369,7 @@ export const enhancedOutputSchemas: Readonly<Record<string, z.ZodObject>> = {
             name: z.string(),
             start: z.string(),
             end: z.string(),
-            length: z.number().min(0),
+            length: z.number().min(0).nullable(),
             image_base: z.string().exactOptional(),
             address_space: z.string().exactOptional(),
           }),
@@ -427,7 +428,12 @@ export const managedOutputSchemas: Readonly<Record<string, z.ZodObject>> = {
       managedArtifactSummaryViewResultSchema,
     ]),
   ),
-  inspect_managed_members: evidenceResultOf(managedMemberInspectionSchema),
+  inspect_managed_members: evidenceResultOf(
+    z.union([
+      managedMemberInspectionSchema,
+      managedMemberSummaryViewResultSchema,
+    ]),
+  ),
   inspect_managed_native_boundaries: evidenceResultOf(
     managedNativeBoundaryInspectionSchema,
   ),

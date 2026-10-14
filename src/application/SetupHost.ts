@@ -31,6 +31,7 @@ import {
   skillDestinations,
   canonicalSkillNeedsInstall,
   installCanonicalSkill,
+  validateCanonicalSkillDirectories,
 } from "./SetupSkill.js";
 import {
   clientConfigurationAligned,
@@ -175,6 +176,7 @@ export const systemSetupHost = (
           ...providerRegistrationEnvironment(
             diagnosis.providerInspections ?? [],
           ),
+          ...doctorHost.providerRegistrationEnvironment?.(),
           ...(diagnosis.hopperPath === undefined
             ? {}
             : { HOPPER_LAUNCHER_PATH: diagnosis.hopperPath }),
@@ -222,6 +224,13 @@ export const systemSetupHost = (
         environment,
         platform,
         resources,
+      ),
+    validateSkillDirectories: (clientIds) =>
+      validateCanonicalSkillDirectories(
+        homeDirectory,
+        clientIds,
+        environment,
+        platform,
       ),
     installSkill: (clientIds) =>
       installCanonicalSkill(

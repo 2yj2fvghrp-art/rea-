@@ -122,6 +122,16 @@ See [client configuration](client-configuration.md) for client-specific roots,
 profiles, and environment overrides. A mixed selection plans each distinct
 destination. Selecting the skill without a client uses `~/.agents/skills`.
 Setup leaves existing skill copies in other locations untouched.
+Setup refuses symbolic links at the selected skill directory or its managed
+`references` directory, matching uninstall and update's ownership rules. Use a
+regular skill directory, or select `--skill=false` to configure the client
+registration without installing the bundled skill.
+The final selected directories are checked before approval and again before
+setup changes any client or Hopper installation. Unselected client destinations
+do not block other setup choices. Doctor reports linked or non-directory skill
+paths as `unmanaged`, names the affected paths, and provides those alternatives;
+an unreadable skill identity remains `unknown`. Uninstall retains and reports
+files it cannot safely remove, including their ownership manifest.
 
 `rea setup --skill-client claude_code --yes --json` refreshes and verifies the
 selected skill destination independently of MCP registration selection. The
@@ -325,7 +335,8 @@ selected engine. See [provider selection](cli.md#choose-a-provider).
 On Linux, REA's shared process supervisor requires a procps-compatible `ps`
 on REA's `PATH` for ownership checks before launching a child. Ghidra, JADX,
 firmware tools and static JavaScript/Electron analysis use these checks.
-Install `procps` or put another procps-compatible `ps` on `PATH` before
+Install your distribution's `procps` or `procps-ng` package, or put another
+procps-compatible `ps` on `PATH` before
 running those workflows. A missing or incompatible command causes a refusal
 before the supervised child starts.
 
@@ -521,10 +532,10 @@ on Linux continues to use its supported demo-launch route.
 
 Hopper lease directories must be readable and owned by the current user.
 REA validates and secures an opened directory before reserving a lease. If
-directory access fails, the error identifies the path and recovery steps;
-REA leaves its permissions unchanged. Check ownership and parent-directory
-access, then restore owner-only read, write, and search permissions (`0700`)
-on a directory you own before retrying.
+opening that directory fails with a permission error, the diagnostic identifies
+the path and recovery steps while leaving its permissions unchanged. Check
+ownership and parent-directory access, then restore owner-only read, write, and
+search permissions (`0700`) on a directory you own before retrying.
 
 On supported Linux distributions, approved setup verifies Hopper's official
 `.deb`, `.rpm`, or Arch package before invoking the native package manager.
