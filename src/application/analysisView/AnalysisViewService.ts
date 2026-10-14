@@ -23,6 +23,7 @@ import {
 import { jsonValueSchema } from "../../domain/jsonValue.js";
 import { err, ok, type Result } from "../../domain/result.js";
 import { WebNetworkApiSurfaceAccumulator } from "../../domain/analysisView/WebNetworkApiSurfaceAccumulator.js";
+import { admitAnalysisViewData } from "../../domain/analysisView/analysisViewDataAdmission.js";
 
 /** Authenticate a selected-view request and project already completed Evidence. */
 export const inspectAnalysisView = (
@@ -54,8 +55,11 @@ export const inspectAnalysisViewValidated = (
           input.view.include_query_parameter_names === true,
         )
       : undefined;
-  if (input.source.kind === "inline" && accumulator !== undefined) {
-    const admitted = accumulator.admitInlineEvidence(input.source.evidence);
+  if (input.source.kind === "inline") {
+    const admitted =
+      accumulator === undefined
+        ? admitAnalysisViewData(input.source.evidence, true)
+        : accumulator.admitInlineEvidence(input.source.evidence);
     if (!admitted.ok) return admitted;
   }
   const resolved = resolveAnalysisViewSource(input.source, lookup);

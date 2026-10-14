@@ -433,32 +433,112 @@ it("refuses an object-dense borrowed capture before making a full schema clone",
   expect(ledger.forAnalysis(parent.evidence_id)).toBe(borrowed);
 });
 
-it("borrows inline Evidence until admission without invoking nested accessors", () => {
-  let accessed = false;
-  const evidence = {
-    get normalized_result() {
+it.each(["summary", "capture", "api-surface"] as const)(
+  "rejects inline accessors before parsing a %s view",
+  (kind) => {
+    let accessed = false;
+    const evidence = {
+      get normalized_result() {
+        accessed = true;
+        throw new Error("Evidence must be admitted before parsing");
+      },
+    };
+    const input = {
+      source: { kind: "inline", evidence },
+      view: { kind },
+    };
+    const parsed = inspectAnalysisViewInputSchema.parse(input);
+    if (parsed.source.kind !== "inline")
+      throw new Error("Expected inline input");
+    expect(parsed.source.evidence).toBe(evidence);
+    expect(inspectAnalysisView(input)).toMatchObject({
+      ok: false,
+      error: { _tag: "AnalysisInputError" },
+    });
+    expect(accessed).toBe(false);
+  },
+);
+
+it.each(["summary", "capture", "api-surface"] as const)(
+  "rejects nested, hidden and inherited inline accessors for %s",
+  (kind) => {
+    const parent = analysisViewCaptureEvidence();
+    let accessed = false;
+    const getter = () => {
       accessed = true;
-      throw new Error("Evidence must be admitted before parsing");
-    },
-  };
-  const input = {
-    source: { kind: "inline", evidence },
-    view: { kind: "api-surface" },
-  };
-  const parsed = inspectAnalysisViewInputSchema.parse(input);
-  if (parsed.source.kind !== "inline") throw new Error("Expected inline input");
-  expect(parsed.source.evidence).toBe(evidence);
-  expect(inspectAnalysisView(input)).toMatchObject({
-    ok: false,
-    error: { _tag: "AnalysisInputError" },
-  });
-  expect(accessed).toBe(false);
-});
+      throw new Error("Inline accessors must remain inert");
+    };
+    const nested = {
+      get value() {
+        return getter();
+      },
+    };
+    const hidden = Object.defineProperty({}, "value", { get: getter });
+    const array = Object.defineProperty([null], 0, { get: getter });
+    const inherited: unknown = Object.create({
+      get value() {
+        return getter();
+      },
+    });
+    const cyclic: Record<string, unknown> = {};
+    cyclic["self"] = cyclic;
+    for (const data of [nested, hidden, array, inherited, cyclic]) {
+      // A complete envelope reaches payload parsing and Evidence authentication.
+      const input = {
+        source: {
+          kind: "inline" as const,
+          evidence: { ...parent, raw_result: data },
+        },
+        view: { kind },
+      };
+      for (const result of [
+        inspectAnalysisView(input),
+        inspectAnalysisViewValidated(
+          inspectAnalysisViewInputSchema.parse(input),
+        ),
+      ])
+        expect(result).toMatchObject({
+          ok: false,
+          error: { _tag: "AnalysisInputError" },
+        });
+    }
+    expect(accessed).toBe(false);
+  },
+);
+
+it.each(["summary", "capture", "api-surface"] as const)(
+  "preserves ordinary inline Evidence for %s",
+  (kind) => {
+    const parent = analysisViewCaptureEvidence();
+    const before = JSON.stringify(parent);
+    const result = inspectAnalysisView({
+      source: { kind: "inline", evidence: parent },
+      view: { kind },
+    });
+    if (!result.ok) throw result.error;
+    expect(parseEvidence(result.value)).toEqual(result.value);
+    expect(result.value.evidence_links).toEqual([parent.evidence_id]);
+    expect(result.value.normalized_result).toMatchObject({
+      kind,
+      parent_evidence_id: parent.evidence_id,
+    });
+    expect(JSON.stringify(parent)).toBe(before);
+    expect(Object.isFrozen(parent)).toBe(false);
+  },
+);
 
 it("keeps inline-envelope admission live alongside capture validation and grouping", () => {
   // Each clone alone fits; both graphs coexist while the view is projected.
   const capture = analysisViewObjectDenseCapture(40_000);
   const parent = analysisViewCaptureEvidence(capture);
+  for (const kind of ["summary", "capture"] as const) {
+    const projected = inspectAnalysisView({
+      source: { kind: "inline", evidence: parent },
+      view: { kind },
+    });
+    if (!projected.ok) throw projected.error;
+    expect(projected.value.evidence_links).toEqual([parent.evidence_id]);
+  }
   const retained = inspectAnalysisView(
     {
       source: { kind: "retained-evidence", evidence_id: parent.evidence_id },
