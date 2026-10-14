@@ -1,3 +1,4 @@
+import { compareUnicodeCodePoints } from "../unicodeCodePointOrder.js";
 import type { AndroidManifestFacts } from "./androidManifestFacts.js";
 
 /** One caller-selected member and what REA could read of its manifest. */
@@ -40,11 +41,20 @@ export type SplitRole =
 /**
  * The effective version code as a decimal string: `versionCodeMajor` in the
  * high 32 bits and `versionCode` in the low 32 bits. `null` when the low part
- * is not declared; an undeclared major counts as 0.
+ * is not declared, or when either part is declared but unresolved; an
+ * undeclared major counts as 0.
  */
 export const effectiveVersionCode = (
-  facts: Pick<AndroidManifestFacts, "version_code" | "version_code_major">,
+  facts: Pick<
+    AndroidManifestFacts,
+    "version_code" | "version_code_major" | "unresolved_attributes"
+  >,
 ): string | null => {
+  if (
+    facts.unresolved_attributes.includes("manifest@versionCode") ||
+    facts.unresolved_attributes.includes("manifest@versionCodeMajor")
+  )
+    return null;
   if (facts.version_code === null) return null;
   const major = BigInt((facts.version_code_major ?? 0) >>> 0);
   return ((major << 32n) | BigInt(facts.version_code >>> 0)).toString();
@@ -72,7 +82,17 @@ export interface SplitSetReport {
     readonly split: string;
     readonly members: readonly string[];
   }[];
+  /** Parents confirmed absent: every selected manifest was read and named. */
   readonly missing_parents: readonly {
+    readonly member: string;
+    readonly configures: string;
+  }[];
+  /**
+   * Parents that are not among the known split names, but whose absence cannot
+   * be confirmed because a selected member is unreadable or has an unresolved
+   * `split`.
+   */
+  readonly unresolved_parent_lookups: readonly {
     readonly member: string;
     readonly configures: string;
   }[];
@@ -112,7 +132,7 @@ const agreement = <T extends string | number>(
   const values = [...byValue.entries()]
     .map(([value, members]) => ({ value, members: [...members].sort() }))
     .sort((left, right) =>
-      String(left.value).localeCompare(String(right.value)),
+      compareUnicodeCodePoints(String(left.value), String(right.value)),
     );
   const declared = values.filter((entry) => entry.value !== null);
   // Disagreement among declared values is established even if other members
@@ -164,17 +184,26 @@ export const checkAndroidSplitSet = (
   const duplicate_split_names = [...bySplit.entries()]
     .filter(([, ids]) => ids.length > 1)
     .map(([split, ids]) => ({ split, members: [...ids].sort() }))
-    .sort((left, right) => left.split.localeCompare(right.split));
+    .sort((left, right) => compareUnicodeCodePoints(left.split, right.split));
 
   const declaredSplits = new Set(bySplit.keys());
-  const missing_parents = readable
+  // Absence of a parent is confirmed only when every selected member was read
+  // and its split name is known; otherwise the parent may be an unlisted one.
+  const splitNamesKnown =
+    unreadable.length === 0 &&
+    !readable.some(({ facts }) =>
+      facts.unresolved_attributes.includes("manifest@split"),
+    );
+  const parentless = readable
     .flatMap(({ id, facts }) =>
       facts.config_for_split !== null &&
       !declaredSplits.has(facts.config_for_split)
         ? [{ member: id, configures: facts.config_for_split }]
         : [],
     )
-    .sort((left, right) => left.member.localeCompare(right.member));
+    .sort((left, right) => compareUnicodeCodePoints(left.member, right.member));
+  const missing_parents = splitNamesKnown ? parentless : [];
+  const unresolved_parent_lookups = splitNamesKnown ? [] : parentless;
 
   const base_member_count = members.filter(
     (member) => member.role.kind === "base",
@@ -209,6 +238,11 @@ export const checkAndroidSplitSet = (
     coverage_reasons.push(
       `member ${missing.member} configures ${missing.configures}, which is not in the supplied set`,
     );
+  for (const lookup of unresolved_parent_lookups)
+    coverage_reasons.push(
+      `member ${lookup.member} configures ${lookup.configures}, which could not be matched because a selected member's split name is unknown`,
+    );
+  coverage_reasons.sort(compareUnicodeCodePoints);
 
   return {
     members,
@@ -225,6 +259,7 @@ export const checkAndroidSplitSet = (
     ),
     duplicate_split_names,
     missing_parents,
+    unresolved_parent_lookups,
     base_member_count,
     coverage: coverage_reasons.length === 0 ? "complete" : "partial",
     coverage_reasons,
