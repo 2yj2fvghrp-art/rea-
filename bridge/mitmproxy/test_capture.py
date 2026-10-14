@@ -201,9 +201,46 @@ class TransportUserinfoTests(unittest.TestCase):
             ("https://user@[::1]:8443/x", "https://[::1]:8443/x"),
             ("https://user@host:/x", "https://host:/x"),
             ("wss://user:pass@host:65535", "wss://host:65535"),
+            ("https://user@0x7f.1/", "https://0x7f.1/"),
+            ("https://user@1.2.3.4./", "https://1.2.3.4./"),
+            ("https://user@4294967295/", "https://4294967295/"),
+            ("https://user@1.2.3.08a/", "https://1.2.3.08a/"),
+            ("https://user@[::ffff:1.2.3.4]/", "https://[::ffff:1.2.3.4]/"),
         ]:
             with self.subTest(value=value):
                 self.assertEqual(capture.without_userinfo(value), expected)
+
+    def test_trailing_controls_and_spaces_do_not_hide_userinfo(self):
+        # WHATWG strips trailing C0 controls and spaces before parsing.
+        for suffix in [b" ", b"\x01", b"\x00 \x1f"]:
+            with self.subTest(suffix=suffix):
+                value = b"https://user:pw@example.test" + suffix
+                text, sidecar, redactions = location(value, b"https")
+                self.assertEqual(text, "https://example.test" + suffix.decode("latin-1"))
+                self.assertEqual(sidecar["state"], "redacted")
+                self.assertEqual(len(redactions), 1)
+
+    def test_rejected_ip_literals_keep_their_source(self):
+        for value in [
+            "https://user:pass@256.256.256.256/path",
+            "https://user@1.2.3.4.5/",
+            "https://user@1.2.3.09/",
+            "https://user@4294967296/",
+            "https://user@a.0x/",
+            "https://user@1..2/",
+            "https://user@1." + "9" * 5000 + "/",
+            "https://user@[1::2::3]/",
+            "https://user@[::1%25eth0]/",
+        ]:
+            with self.subTest(value=value[:40]):
+                self.assertEqual(capture.without_userinfo(value), value)
+
+    def test_overlong_ports_are_compared_without_numeric_overflow(self):
+        # Python 3.11+ refuses int() on decimal strings over 4300 digits.
+        accepted = "https://user@host:" + "0" * 5000 + "80/x"
+        self.assertEqual(capture.without_userinfo(accepted), "https://host:" + "0" * 5000 + "80/x")
+        rejected = "https://user@host:" + "9" * 5000 + "/x"
+        self.assertEqual(capture.without_userinfo(rejected), rejected)
 
     def test_non_special_schemes_keep_backslashes_in_the_authority(self):
         self.assertEqual(capture.without_userinfo("foo://a\\b@host/x"), "foo://host/x")

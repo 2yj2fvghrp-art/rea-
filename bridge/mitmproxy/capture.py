@@ -6,6 +6,7 @@ The containing mitmdump process and its configuration directory are REA-owned.
 
 import base64
 import hashlib
+import ipaddress
 import json
 import math
 import re
@@ -47,7 +48,8 @@ SCHEME_PREFIX = r"^[\x00-\x20]*([a-z][a-z0-9+.-]*):"
 NETWORK_PREFIX = r"^[\x00-\x20]*[/\\]{2}"
 URL_IGNORABLE_CONTROLS = "\t\n\r"
 URL_CONTROL_TRANSLATION = {ord(char): None for char in URL_IGNORABLE_CONTROLS}
-FORBIDDEN_DOMAIN_CODE_POINTS = {chr(code) for code in range(0x21)} | set("#%/:<>?@[\\]^|\x7f")
+C0_CONTROL_OR_SPACE = "".join(chr(code) for code in range(0x21))
+FORBIDDEN_DOMAIN_CODE_POINTS = set(C0_CONTROL_OR_SPACE) | set("#%/:<>?@[\\]^|\x7f")
 
 
 def authority_start(text, base_scheme=None):
@@ -89,16 +91,59 @@ def authority_start(text, base_scheme=None):
     return start, True
 
 
+IPV4_DIGITS = {8: "01234567", 10: "0123456789", 16: "0123456789abcdefABCDEF"}
+
+
+def ipv4_number(part):
+    """WHATWG IPv4 number parser: decimal, 0x hex or 0-prefixed octal, else None."""
+    if part == "":
+        return None
+    radix, digits = 10, part
+    if part[:2] in ("0x", "0X"):
+        radix, digits = 16, part[2:]
+    elif len(part) > 1 and part[0] == "0":
+        radix, digits = 8, part[1:]
+    if digits == "":
+        return 0
+    if any(char not in IPV4_DIGITS[radix] for char in digits):
+        return None
+    # Bound decimal text before int(): Python limits decimal conversions to
+    # 4300 digits, and anything past 10 significant digits exceeds IPv4.
+    significant = digits.lstrip("0")
+    if radix == 10 and len(significant) > 10:
+        return 2**32
+    return int(digits, radix)
+
+
+def domain_parses(domain):
+    """Apply WHATWG's ends-in-a-number check and IPv4 parser to a domain."""
+    parts = domain.split(".")
+    if parts[-1] == "" and len(parts) > 1:
+        parts.pop()
+    last = parts[-1]
+    if not ((last != "" and last.isascii() and last.isdigit()) or ipv4_number(last) is not None):
+        return True
+    numbers = [ipv4_number(part) for part in parts]
+    if len(parts) > 4 or any(number is None for number in numbers):
+        return False
+    return all(number <= 255 for number in numbers[:-1]) and numbers[-1] < 256 ** (5 - len(numbers))
+
+
 def special_host_parses(host_port):
     """Whether WHATWG could accept a special authority's host and port.
 
     A rejected host fails the whole URL, so it has no credentials to remove.
-    This mirrors the forbidden-code-point, empty-host and port rules; IDNA,
-    IPv4 range and IPv6 syntax failures are not modeled and still redact.
+    This mirrors the forbidden-code-point, empty-host, IPv4, IPv6 and port
+    rules; IDNA failures are not modeled and still redact.
     """
     if host_port.startswith("["):
         host_end = host_port.find("]") + 1
-        if host_end == 0:
+        literal = host_port[1 : host_end - 1]
+        if host_end == 0 or "%" in literal:
+            return False
+        try:
+            ipaddress.IPv6Address(literal)
+        except ValueError:
             return False
     else:
         colon = host_port.find(":")
@@ -106,11 +151,17 @@ def special_host_parses(host_port):
         host = unquote_to_bytes(host_port[:host_end]).decode("utf-8", errors="replace")
         if host == "" or any(char in FORBIDDEN_DOMAIN_CODE_POINTS for char in host):
             return False
+        if not domain_parses(host.lower()):
+            return False
     port = host_port[host_end:]
     if port == "":
         return True
     digits = port[1:]
-    return port[0] == ":" and (digits == "" or (digits.isascii() and digits.isdigit() and int(digits) <= 65535))
+    if port[0] != ":" or not (digits == "" or (digits.isascii() and digits.isdigit())):
+        return False
+    # Bound the text first: int() refuses decimal strings over 4300 digits.
+    significant = digits.lstrip("0")
+    return len(significant) <= 5 and int(significant or "0") <= 65535
 
 
 def without_userinfo(value, base_scheme=None):
@@ -123,7 +174,8 @@ def without_userinfo(value, base_scheme=None):
     text = value.decode("latin-1") if binary else value
     # WHATWG removes these controls before interpreting scheme/separators.
     # Keep that parse view separate from the exact source spelling and bytes.
-    parsed_text = text.translate(URL_CONTROL_TRANSLATION)
+    # It also drops trailing C0 controls and spaces; offsets are unchanged.
+    parsed_text = text.translate(URL_CONTROL_TRANSLATION).rstrip(C0_CONTROL_OR_SPACE)
     located = authority_start(parsed_text, base_scheme)
     if located is None:
         return value
