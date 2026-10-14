@@ -9,16 +9,15 @@ export interface HopperResponseStreamOptions {
   readonly hasQueued: (id: number) => boolean;
   readonly nextRequestId: () => number;
   readonly abort: (message: string, cause?: Error) => void;
+  /** Fail the request owning a reply too long to assemble; false ends the session. */
+  readonly oversized: () => boolean;
 }
 
 /** Incrementally validates Hopper NDJSON response frames. */
 export class HopperResponseStream {
   readonly #lines = new ProviderResponseLines({
     onLine: (line) => this.#acceptLine(line),
-    onOverflow: () =>
-      this.options.abort(
-        "Hopper response line exceeds the runtime string length limit",
-      ),
+    onOverflow: () => this.options.oversized(),
   });
 
   constructor(readonly options: HopperResponseStreamOptions) {}

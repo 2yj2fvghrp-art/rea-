@@ -138,10 +138,7 @@ export class GhidraClient {
       this.#responseRouter.route(line);
       return true;
     },
-    onOverflow: () =>
-      this.#abortProtocol(
-        "Ghidra response line exceeds the runtime string length limit",
-      ),
+    onOverflow: () => this.#failOversizedResponse(),
   });
   readonly #onSocketData = (chunk: string): void =>
     this.#responseBuffer.push(chunk);
@@ -952,6 +949,19 @@ export class GhidraClient {
   #abortProtocol(message: string, cause?: Error): void {
     this.#failAll(this.#failure("protocol", message, cause));
     this.#socket?.destroy();
+  }
+
+  /** Requests are serial, so a sole pending request owns an oversized reply. */
+  #failOversizedResponse(): boolean {
+    const message =
+      "Ghidra response line exceeds the runtime string length limit";
+    const id = this.#nextId - 1;
+    if (this.#pending.size === 1 && this.#pending.has(id)) {
+      this.#pending.settle(id, err(this.#failure("resource", message)));
+      return true;
+    }
+    this.#abortProtocol(message);
+    return false;
   }
 
   #failAll(error: GhidraSessionError): void {
