@@ -31,6 +31,17 @@ export interface ObjcDispatchReaders {
 const hex = (value: bigint) => `0x${value.toString(16)}`;
 const decoded = { status: "decoded" as const, reason: null };
 
+/**
+ * Byte alignment of one ivar from its stored raw alignment. The value is the
+ * log2 exponent, except objc4's WORD_ALIGN sentinel (~(uint32_t)0), which
+ * `ivar_t::alignment()` maps to `1 << WORD_SHIFT` — 8 in the supported 64-bit
+ * layout. Other out-of-range values stay unknown rather than guessing.
+ */
+const ivarByteAlignment = (raw: number): number | null => {
+  if (raw === 0xffff_ffff) return 8;
+  return raw < 31 ? 2 ** raw : null;
+};
+
 /** Name of a class defined in this image, from its class_ro_t. */
 const localClassName = (read: ObjcDispatchReaders, address: bigint): string =>
   read.string(read.pointer((read.pointer(address + 32n) & ~7n) + 24n));
@@ -298,8 +309,7 @@ export const decodeObjcDispatchFacets = (input: {
           type_encoding: read.string(read.pointer(entry + 16n)),
           offset: value,
           size: read.u32(entry + 28n),
-          alignment:
-            read.u32(entry + 24n) < 31 ? 2 ** read.u32(entry + 24n) : null,
+          alignment: ivarByteAlignment(read.u32(entry + 24n)),
           location: read.location(entry),
           decode:
             value === null
