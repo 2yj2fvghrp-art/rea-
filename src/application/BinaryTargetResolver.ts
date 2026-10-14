@@ -112,7 +112,12 @@ export const parseBinaryTarget = async (
       Result<BinaryTarget, BinaryTargetError | AnalysisCancelledError>
     >(
       path,
-      async (handle, metadata) => {
+      async (
+        handle,
+        metadata,
+      ): Promise<
+        Result<BinaryTarget, BinaryTargetError | AnalysisCancelledError>
+      > => {
         throwIfTargetResolutionCancelled(signal);
         if (formatHint === "raw-binary") {
           if (targetKind !== undefined && targetKind !== "executable")
@@ -263,7 +268,10 @@ export const parseBinaryTarget = async (
             );
           debugCompanion = companion.value;
         }
-        return ok({
+        // Companion admission above rejects every non-Mach-O format, so the
+        // companion spread can only ever extend the Mach-O variants; the
+        // union's Elf arms cannot carry it at runtime.
+        const executableTarget = {
           path,
           sourcePath,
           ...bundle,
@@ -273,7 +281,8 @@ export const parseBinaryTarget = async (
           ...(debugCompanion === undefined
             ? {}
             : { debugCompanion: { ...debugCompanion } }),
-        });
+        } as BinaryTarget;
+        return ok(executableTarget);
       },
       {
         symlinks: "reject",
