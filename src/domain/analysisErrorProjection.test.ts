@@ -414,6 +414,9 @@ it("gives attached service-worker policy refusals actionable recovery", () => {
     "REA does not remove existing registrations",
   );
   expect(projected.message).not.toContain("rea doctor");
+  expect(projected.message).toContain(
+    "If the registration guard cannot be verified",
+  );
   expect(projected.remediation.action).toBe(projected.message);
   expect(analysisErrorProjectionSchema.safeParse(projected).success).toBe(true);
   const unrelated = projectAnalysisError(
