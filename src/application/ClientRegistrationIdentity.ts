@@ -114,12 +114,19 @@ const isOwnedPackageReference = (packageReference: string): boolean => {
 /** Check that one parsed command points to REA's MCP entry point. */
 export const isOwnedClientRegistrationCommand = (
   command: readonly string[],
-  currentCommandPath: string = resolve(process.argv[1] ?? "unknown"),
+  ...args: [currentCommandPath?: string | undefined]
 ): boolean => {
+  const currentCommandPath =
+    args.length > 0
+      ? args[0]
+      : process.argv[1] !== undefined
+        ? resolve(process.argv[1])
+        : "unknown";
   if (
     command.length === 3 &&
     command[2] === "mcp" &&
     resolve(command[0] ?? "") === resolve(process.execPath) &&
+    currentCommandPath !== undefined &&
     resolve(command[1] ?? "") === currentCommandPath
   )
     return true;
@@ -130,7 +137,8 @@ export const isOwnedClientRegistrationCommand = (
       executable === PRODUCT_IDENTITY.cliBinary ||
       (isAbsolute(executable) &&
         basename(executable) === PRODUCT_IDENTITY.cliBinary) ||
-      resolve(executable) === currentCommandPath
+      (currentCommandPath !== undefined &&
+        resolve(executable) === currentCommandPath)
     )
       return true;
   }

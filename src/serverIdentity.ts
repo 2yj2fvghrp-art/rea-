@@ -31,7 +31,10 @@ export const createServerIdentity = (input: {
   readonly client?: ConnectedClientIdentity;
   readonly protocolVersion?: string | undefined;
 }) => {
-  const serverPath = resolve(process.argv[1] ?? "unknown");
+  const serverPath =
+    typeof process !== "undefined" && process.argv?.[1] !== undefined
+      ? resolve(process.argv[1])
+      : "unknown";
   const reasons: string[] = [];
   if (
     input.expected?.package_version !== undefined &&

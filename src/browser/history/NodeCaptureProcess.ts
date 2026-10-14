@@ -12,10 +12,30 @@ const requestSchema = z.strictObject({
 
 /** Parse untrusted captures in an owned heap and return one complete bounded reply. */
 const main = async (): Promise<void> => {
-  const format = z.enum(["har", "saz", "qlog"]).parse(process.argv[3]);
-  const request = requestSchema.parse(
-    JSON.parse(await readFile(process.argv[2] ?? "", "utf8")),
-  );
+  const requestPath = process.argv[2];
+  if (requestPath === undefined)
+    throw new Error("Missing capture worker request path argument.");
+  const formatArg = process.argv[3];
+  if (formatArg === undefined)
+    throw new Error("Missing capture worker format argument.");
+  const format = z.enum(["har", "saz", "qlog"]).parse(formatArg);
+  let rawRequest: string;
+  try {
+    rawRequest = await readFile(requestPath, "utf8");
+  } catch (error) {
+    throw new Error(
+      `Cannot read capture worker request: ${error instanceof Error ? error.message : String(error)}`,
+    );
+  }
+  let parsedJson: unknown;
+  try {
+    parsedJson = JSON.parse(rawRequest);
+  } catch (error) {
+    throw new Error(
+      `Invalid JSON in capture worker request: ${error instanceof Error ? error.message : String(error)}`,
+    );
+  }
+  const request = requestSchema.parse(parsedJson);
   let reply: unknown;
   try {
     let value;

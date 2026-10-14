@@ -84,16 +84,28 @@ export const createAgentEvaluationFixtures = async (
   ]);
   await createPackage(desktop, javascript);
   await createPackage(notesDirectory, notesElectron);
+  let javascriptBytes: Buffer;
+  let notesElectronBytes: Buffer;
+  try {
+    [javascriptBytes, notesElectronBytes] = await Promise.all([
+      readFile(javascript),
+      readFile(notesElectron),
+    ]);
+  } catch (error) {
+    throw new Error(
+      `Failed to read evaluation fixture packages: ${error instanceof Error ? error.message : String(error)}`,
+    );
+  }
   return {
     javascript,
     javascriptSha256: createHash("sha256")
-      .update(await readFile(javascript))
+      .update(javascriptBytes)
       .digest("hex"),
     javascriptShapeLeft,
     javascriptShapeRight,
     notesElectron,
     notesElectronSha256: createHash("sha256")
-      .update(await readFile(notesElectron))
+      .update(notesElectronBytes)
       .digest("hex"),
   };
 };
