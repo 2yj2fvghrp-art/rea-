@@ -23,9 +23,13 @@
 
 <code>npx rea-agents setup</code>
 
+</div>
+
 > [!IMPORTANT]
 > REA-এর অফিসিয়াল উৎস: [morluto/rea](https://github.com/morluto/rea), [rea.tools](https://rea.tools/), [rea-agents](https://www.npmjs.com/package/rea-agents) (npm)।
 > ইনস্টলেশন ও release লিংকের জন্য এই অফিসিয়াল উৎসগুলোই অনুসরণ করুন। একই রকম repository নাম বা কপি করা README দেখে কোনো download অফিসিয়াল বলে ধরে নেওয়া যায় না।
+
+<div align="center">
 
 <br />
 
