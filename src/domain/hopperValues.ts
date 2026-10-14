@@ -24,18 +24,19 @@ export interface SegmentSummary {
   readonly address_space?: string;
 }
 
-/** Return a bounded byte distance between canonical addresses in one space. */
-export const addressDistance = (start: string, end: string): number => {
+/**
+ * Return the byte distance from a canonical start to an exclusive end in one
+ * space, or null when the coordinates do not establish an exact safe length.
+ */
+export const addressDistance = (start: string, end: string): number | null => {
   const left = addressCoordinate(start);
   const right = addressCoordinate(end);
-  if (left === null || right === null || left.space !== right.space) return 0;
+  if (left === null || right === null || left.space !== right.space)
+    return null;
   const distance = right.offset - left.offset;
-  if (distance <= 0n) return 0;
-  return Number(
-    distance > BigInt(Number.MAX_SAFE_INTEGER)
-      ? BigInt(Number.MAX_SAFE_INTEGER)
-      : distance,
-  );
+  return distance < 0n || distance > BigInt(Number.MAX_SAFE_INTEGER)
+    ? null
+    : Number(distance);
 };
 
 const procedureMapSchema = z.record(z.string(), z.string());

@@ -368,7 +368,14 @@ export const enhancedOutputSchemas: Readonly<Record<string, z.ZodObject>> = {
             name: z.string(),
             start: z.string(),
             end: z.string(),
-            length: z.number().min(0),
+            length: z
+              .number()
+              .int()
+              .min(0)
+              .nullable()
+              .describe(
+                "Bytes from start to the exclusive end; null when the provider coordinates are not canonical, use different address spaces, are reversed, or exceed a safe integer.",
+              ),
             image_base: z.string().exactOptional(),
             address_space: z.string().exactOptional(),
           }),

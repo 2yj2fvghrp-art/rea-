@@ -264,6 +264,47 @@ describe("enhanced MCP tools", () => {
   });
 });
 
+it("reports unknown segment lengths without dropping the overview", async () => {
+  const ranges = [
+    ["0x1000", "0x1000"],
+    ["0X1000", "0X2000"],
+    ["not-an-address", "0x2000"],
+    ["ram:0x1000", "io:0x2000"],
+    ["0x2000", "0x1000"],
+    ["0x0", "0x20000000000000"],
+  ];
+  const client = await connect({
+    execute: (name) => {
+      if (name === "list_segments")
+        return Promise.resolve(
+          ok(
+            ranges.map(([start, end]) => ({
+              name: "seg",
+              start,
+              end,
+              readable: null,
+              writable: null,
+              executable: null,
+            })),
+          ),
+        );
+      if (name === "current_document") return Promise.resolve(ok("fixture"));
+      if (name === "list_procedures" || name === "list_strings")
+        return Promise.resolve(ok([]));
+      throw new Error(`Unexpected analysis operation: ${name}`);
+    },
+  });
+  const result = jsonResult(
+    await client.callTool({ name: "binary_overview", arguments: {} }),
+  );
+  expect(result).toMatchObject({ segment_count: 6, procedure_count: 0 });
+  expect(
+    (result as { segments: { length: number | null }[] }).segments.map(
+      ({ length }) => length,
+    ),
+  ).toEqual([0, null, null, null, null, null]);
+});
+
 const overviewPort = (
   current: Result<AnalysisExecution, AnalysisError>,
   documents: readonly string[],
