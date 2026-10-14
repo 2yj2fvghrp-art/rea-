@@ -57,6 +57,19 @@ in the file the installed app reads:
   back to `%APPDATA%`. Doctor then reports `claude_desktop` as invalid, and
   uninstall stops before removing anything for any client.
 
+Setup defaults Claude Desktop's REA entry to
+`"REA_MCP_INPUT_SCHEMA_PROFILE": "compact"` in `env`. Compact schemas inline
+local references and expose explicit array/object parameter types, avoiding the
+schema shape implicated in [#3408](https://github.com/morluto/rea/issues/3408)
+(Windows Claude Desktop 2.37337.1). Compact advertisements can reduce nested
+schema constraints; REA still validates complete canonical inputs. Setup applies
+this profile after the existing REA environment, replacing an earlier schema
+profile while preserving other settings. To update an earlier registration,
+rerun `rea setup --client claude_desktop`, or add the setting to
+`mcpServers.rea.env` while preserving other settings, then restart the client.
+Setup behavior and advertised parameter types are covered by automated tests;
+validation in the native Claude Desktop client is pending.
+
 Quit Claude Desktop fully before approving setup; closing its window is not
 enough. A running Claude Desktop can rewrite its configuration from memory and
 drop the registration. This was observed with the Windows MSIX build. Start
