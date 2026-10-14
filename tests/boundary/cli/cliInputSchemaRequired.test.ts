@@ -132,6 +132,40 @@ describe("CLI advertised input schemas", () => {
   });
 });
 
+describe("reference-source CLI advertised input schema", () => {
+  it("advertises the nonnegative outline depth the parser enforces", async () => {
+    const cli = createCli({});
+    const advertised = await advertisedSchema(cli, "import-reference-source");
+    const ajv = new Ajv2020({ strict: false });
+    const options = ajv.compile(advertised.options ?? {});
+
+    // Zod's `.safe()` states the safe-integer range, so it must not be applied
+    // after `.nonnegative()`: that order replaces the lower bound with
+    // -MAX_SAFE_INTEGER and advertises a negative depth the command rejects.
+    expect(advertised.options?.properties?.["outlineDepth"]).toMatchObject({
+      minimum: 0,
+      maximum: Number.MAX_SAFE_INTEGER,
+    });
+    expect(options({ detail: "summary", outlineDepth: -1 })).toBe(false);
+    expect(options({ detail: "summary", outlineDepth: 0 })).toBe(true);
+    expect(options({ detail: "summary", outlineDepth: 1 })).toBe(true);
+    expect(options({ detail: "summary", outlineDepth: 2 })).toBe(true);
+    expect(
+      options({
+        detail: "summary",
+        outlineDepth: Number.MAX_SAFE_INTEGER + 1,
+      }),
+    ).toBe(false);
+
+    // The parser must keep the same lower bound the schema advertises.
+    expect(
+      parserSchema(cli, "import-reference-source", "options")?.safeParse({
+        outlineDepth: -1,
+      }).success,
+    ).toBe(false);
+  });
+});
+
 describe("firmware CLI advertised input schema", () => {
   it("keeps limits and defaults from its shared input contract", async () => {
     const cli = createCli({});

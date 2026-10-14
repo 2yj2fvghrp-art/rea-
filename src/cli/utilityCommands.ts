@@ -252,8 +252,8 @@ const registerReferenceSourceCommand = (
       outlineDepth: z
         .number()
         .int()
-        .nonnegative()
         .safe()
+        .nonnegative()
         .optional()
         .describe(
           "Summary outline path depth (default: 2; 0 omits entries); requires --detail summary",
