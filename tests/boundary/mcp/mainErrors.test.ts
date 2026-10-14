@@ -1,7 +1,10 @@
 import type { ServeStdioOptions } from "@modelcontextprotocol/server/stdio";
+import { spawnSync } from "node:child_process";
+import { resolve } from "node:path";
+import { pathToFileURL } from "node:url";
 import { describe, expect, it } from "vitest";
 
-import { isDirectEntrypoint, run, runEntrypoint } from "../../../src/main.js";
+import { run, runEntrypoint } from "../../../src/main.js";
 
 type RuntimeDependencies = NonNullable<Parameters<typeof run>[0]>;
 
@@ -35,6 +38,25 @@ const dependencies = ({
 });
 
 describe("MCP runtime errors", () => {
+  it("imports the compiled runtime when argv[1] is a missing synthetic path", () => {
+    const runtimeUrl = pathToFileURL(resolve("dist/main.js")).href;
+    const script = [
+      'process.argv[1] = "/rea-test-missing-entrypoint/main.js";',
+      `await import(${JSON.stringify(runtimeUrl)});`,
+      'console.log("IMPORT_OK");',
+    ].join("\n");
+    const child = spawnSync(
+      process.execPath,
+      ["--input-type=module", "--eval", script],
+      { cwd: process.cwd(), encoding: "utf8", timeout: 5_000 },
+    );
+
+    expect(child.error).toBeUndefined();
+    expect(child.status).toBe(0);
+    expect(child.stdout).toBe("IMPORT_OK\n");
+    expect(child.stderr).toBe("");
+  });
+
   it("reports connection loss without the transport cause", async () => {
     const output: string[] = [];
     const shutdown: Array<() => void> = [];
@@ -152,28 +174,5 @@ describe("MCP runtime errors", () => {
       "REA could not start. Run `rea doctor`, then restart REA from your MCP client.\n",
     ]);
     expect(exitCodes).toEqual([1]);
-  });
-
-  it("safely returns false when entryPath is undefined", () => {
-    expect(isDirectEntrypoint(undefined, "file:///some/target.js")).toBe(false);
-
-    const originalArgv1 = process.argv[1];
-    try {
-      delete process.argv[1];
-      expect(isDirectEntrypoint()).toBe(false);
-    } finally {
-      if (originalArgv1 !== undefined) {
-        process.argv[1] = originalArgv1;
-      }
-    }
-  });
-
-  it("safely handles non-existent or invalid entryPath without throwing", () => {
-    expect(
-      isDirectEntrypoint(
-        "/non/existent/path/that/cannot/be/resolved/script.js",
-        "file:///some/target.js",
-      ),
-    ).toBe(false);
   });
 });

@@ -109,22 +109,20 @@ export const runEntrypoint = async (
   }
 };
 
-export const isDirectEntrypoint = (
-  ...args: [entryPath?: string | undefined, currentUrl?: string]
+/** Return false when the runtime's argv path is synthetic or no longer exists. */
+const isDirectEntrypoint = (
+  entryPath: string | undefined,
+  moduleUrl: string,
 ): boolean => {
-  const entryPath = args.length > 0 ? args[0] : process.argv[1];
-  const currentUrl =
-    args.length > 1 && args[1] !== undefined ? args[1] : import.meta.url;
-  if (entryPath === undefined) {
-    return false;
-  }
+  if (entryPath === undefined) return false;
   try {
-    return pathToFileURL(realpathSync(entryPath)).href === currentUrl;
+    return pathToFileURL(realpathSync(entryPath)).href === moduleUrl;
   } catch {
     return false;
   }
 };
 
-if (isDirectEntrypoint()) {
+const entryPath = process.argv[1];
+if (isDirectEntrypoint(entryPath, import.meta.url)) {
   void runEntrypoint();
 }
