@@ -115,7 +115,7 @@ const managedTypeSchema = z.object({
     .nullable()
     .default(null)
     .describe(
-      "Enclosing TypeDef of a nested type from the NestedClass table; null for a top-level type or when nesting was not read",
+      "Observed enclosing TypeDef from NestedClass; null when no enclosing entry was available, which alone does not establish top-level identity.",
     ),
   field_list: z.object({
     first_row: z.number().int().min(1).nullable(),

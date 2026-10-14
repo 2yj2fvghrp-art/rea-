@@ -557,6 +557,50 @@ describe("managed nested types", () => {
     expect(result.coverage.issues).toEqual([]);
   });
 
+  it.each([2, 3, 4, 5, 6, 7])(
+    "keeps nested visibility %i unresolved when its parent entry is missing",
+    (visibility) => {
+      const bytes = buildManagedNestedTypeFixture({ nestedClassRows: [] });
+      const target = () => managedPeFixtureTarget(bytes, "/fixture/nested.dll");
+      const row = inspectManagedMembersBytes(bytes, target()).types.find(
+        (type) => type.token === "0x02000004",
+      )!.row_offset;
+      bytes.writeUInt32LE((bytes.readUInt32LE(row) & ~7) | visibility, row);
+      const result = inspectManagedMembersBytes(bytes, target());
+      expect(result.nesting_read).toBe(true);
+      expect(
+        result.types.find((type) => type.token === "0x02000004"),
+      ).toMatchObject({ enclosing_type_token: null, name_sha256: null });
+      expect(result.coverage.issues).toContainEqual(
+        expect.objectContaining({
+          code: "invalid-row",
+          scope: "metadata.TypeDef:0x02000004",
+          offset: row,
+        }),
+      );
+    },
+  );
+
+  it("retains a selected child's contradictory parent issue exactly once", () => {
+    const bytes = buildManagedNestedTypeFixture();
+    const target = () => managedPeFixtureTarget(bytes, "/fixture/nested.dll");
+    const row = inspectManagedMembersBytes(bytes, target()).types.find(
+      (type) => type.token === "0x02000004",
+    )!.row_offset;
+    bytes.writeUInt32LE((bytes.readUInt32LE(row) & ~7) | 1, row);
+    const result = inspectManagedMembersBytes(bytes, target(), {
+      typeNames: ["Leaf"],
+    });
+    expect(result.types).toHaveLength(1);
+    expect(result.types[0]?.name_sha256).toBeNull();
+    expect(result.coverage.state).toBe("partial");
+    expect(
+      result.coverage.issues.filter(
+        (issue) => issue.scope === "metadata.TypeDef:0x02000004",
+      ),
+    ).toEqual([expect.objectContaining({ code: "invalid-row", offset: row })]);
+  });
+
   it("reports NestedClass rows that do not pair distinct existing types once", () => {
     const result = inspectNested({
       nestedClassRows: [

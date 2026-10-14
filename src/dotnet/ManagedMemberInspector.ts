@@ -252,7 +252,6 @@ export const inspectManagedMembersBytes = (
       methods.core,
     ]);
     appendManagedParseIssues(issues, targets.issues);
-    const coverageIssues = uniqueManagedParseIssues(issues);
     const incompleteMembers =
       [...fields.fields, ...memberRefs.refs, ...methods.methods].some(
         (member) => member.signature.parse_status !== "decoded",
@@ -283,6 +282,7 @@ export const inspectManagedMembersBytes = (
       (count, type) => count + Number(type.name_sha256 === null),
       0,
     );
+    const coverageIssues = uniqueManagedParseIssues(issues);
     return managedMemberInspectionSchema.parse(
       admitManagedProjection(
         {
@@ -325,7 +325,7 @@ export const inspectManagedMembersBytes = (
             ...(unnamedTypes === 0
               ? []
               : [
-                  `${String(unnamedTypes)} returned TypeDef name identity(s) remain unresolved; incomplete, missing, cyclic or over-deep enclosing facts cannot be repaired by bare display names.`,
+                  `${String(unnamedTypes)} returned TypeDef name identity(s) remain unresolved; incomplete, missing, contradictory, cyclic or over-deep enclosing facts cannot be repaired by bare display names.`,
                 ]),
             "Metadata tokens are build-local coordinates and are only meaningful with the reported artifact SHA-256 and MVID.",
             "CIL instruction anchors are decoded from file-backed method bodies only; no target assembly is loaded or executed.",

@@ -84,10 +84,10 @@ const nestedInspection = (
     ),
   };
 };
-// Evidence recorded before nesting was read has neither field.
+// Historical Evidence has neither nesting facts nor declared-name digests.
 const recordedBefore = ({ nesting_read, types, ...rest }: Inspection) => ({
   ...rest,
-  types: types.map(({ enclosing_type_token, ...type }) => type),
+  types: types.map(({ enclosing_type_token, name_sha256, ...type }) => type),
 });
 const compare = (
   left: ReturnType<typeof nestedInspection>,
@@ -161,6 +161,18 @@ const pairs = (comparison: ReturnType<typeof compare>) => {
 };
 const original = nestedInspection();
 const swapped = nestedInspection({ swapEnclosing: true });
+
+it("does not equate missing nested parents with genuinely top-level types", () => {
+  const missing = nestedInspection({ nestedClassRows: [] });
+  const topLevel = nestedInspection({ topLevelTypes: true });
+  const result = compare(missing, topLevel);
+  expect(result.summary.unchanged).toBe(0);
+  expect(
+    [...result.methods, ...result.fields].every(
+      ({ status }) => status === "unknown",
+    ),
+  ).toBe(true);
+});
 
 it.each(["left", "right"] as const)(
   "preserves a current enclosing-cycle gap beside %s historical Evidence",
@@ -336,7 +348,7 @@ describe("managed member comparison of nested types", () => {
   });
 
   it("does not pair a nested type with a top-level type of the same name", () => {
-    const topLevel = nestedInspection({ nestedClassRows: [] });
+    const topLevel = nestedInspection({ topLevelTypes: true });
 
     expect(
       topLevel.inspection.types.find((type) => type.token === "0x02000004")

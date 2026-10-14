@@ -253,7 +253,7 @@ preserves observed differences, structural inferences, and unknowns separately.
 Cross-version matching first pairs members of the same declared type and name.
 A current declared type uses its observed `name_sha256`, so same-named nested
 types in different enclosing types stay distinct even in selected inventories.
-Malformed, missing, cyclic or over-deep enclosing identity remains unknown;
+Malformed, missing, contradictory, cyclic or over-deep enclosing identity remains unknown;
 the comparison preserves display names without using them to repair that gap.
 Historical observations retain an explicitly limited bare-name mode when either
 side predates the identity facts. A known current identity gap still remains

@@ -168,10 +168,27 @@ export const managedTypeNameDigests = (
       return null;
     }
     if (type === undefined) return null;
+    const enclosingRow = parsedTypes.nesting.enclosing.get(row) ?? null;
+    // ECMA-335 TypeAttributes.VisibilityMask: 0/1 are top-level, 2..7 nested.
+    const nested = (type.flags & 0x7) >= 2;
+    if (nested !== (enclosingRow !== null)) {
+      managedDecodeBudget(layout).reserve(512, type.row_offset);
+      readManagedValue(() => {
+        throw managedFailure(
+          "invalid-row",
+          `metadata.TypeDef:${type.token}`,
+          nested
+            ? `Nested TypeDef ${type.token} has no NestedClass enclosing entry`
+            : `Top-level TypeDef ${type.token} has a NestedClass enclosing entry`,
+          type.row_offset,
+        );
+      }, issues);
+      return null;
+    }
     return {
       namespace: type.namespace,
       name: type.name,
-      enclosingRow: parsedTypes.nesting.enclosing.get(row) ?? null,
+      enclosingRow,
     };
   }, retain);
   const references = nestedTypeDigests((row) => {

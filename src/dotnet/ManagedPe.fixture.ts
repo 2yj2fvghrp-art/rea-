@@ -826,6 +826,9 @@ const fixtureMetadataRows = ({
     indexes,
     heapSizes,
   });
+  const nestedRows = new Set(
+    (options.nestedTypes ?? []).map(([nested]) => nested),
+  );
   const rows = new Map<number, readonly Buffer[]>([
     [
       0,
@@ -836,9 +839,10 @@ const fixtureMetadataRows = ({
     typeRefTable(options, indexes, heapSizes, widths),
     [
       2,
-      [...indexes.additionalTypeNames, indexes.typeName].map((name) =>
+      [...indexes.additionalTypeNames, indexes.typeName].map((name, index) =>
         typeDefRow({
           name,
+          flags: nestedRows.has(index + 1) ? 0x0010_0002 : 0x0010_0001,
           namespace: indexes.typeNamespace,
           fieldList: 1,
           methodList: 1,
@@ -1338,10 +1342,12 @@ export const buildManagedNestedTypeFixture = ({
   swapEnclosing = false,
   nestedClassRows,
   literalTopLevelName,
+  topLevelTypes = false,
 }: {
   readonly swapEnclosing?: boolean;
   readonly nestedClassRows?: readonly (readonly [number, number])[];
   readonly literalTopLevelName?: string;
+  readonly topLevelTypes?: boolean;
 } = {}): Buffer => {
   const image = buildManagedFixtureImage({}, (methodRva) => {
     const strings = new StringHeap();
@@ -1354,7 +1360,7 @@ export const buildManagedNestedTypeFixture = ({
       "A",
       "B",
       "Inner",
-      literalTopLevelName ?? "Inner",
+      literalTopLevelName ?? (topLevelTypes ? "OtherInner" : "Inner"),
       "Leaf",
     ].map((name) => strings.add(name));
     const methodName = strings.add("M");
@@ -1392,7 +1398,9 @@ export const buildManagedNestedTypeFixture = ({
             methodListSize: 2,
             extendsRaw: index === 0 ? 0 : (1 << 2) | 1,
             flags:
-              index <= 2 || (index === 4 && literalTopLevelName !== undefined)
+              index <= 2 ||
+              topLevelTypes ||
+              (index === 4 && literalTopLevelName !== undefined)
                 ? 0x0010_0001
                 : 0x0010_0002,
           }),
@@ -1417,11 +1425,14 @@ export const buildManagedNestedTypeFixture = ({
       [
         41,
         (
-          nestedClassRows ?? [
-            [4, swapEnclosing ? 3 : 2],
-            [5, swapEnclosing ? 2 : 3],
-            [6, 4],
-          ]
+          nestedClassRows ??
+          (topLevelTypes
+            ? []
+            : [
+                [4, swapEnclosing ? 3 : 2],
+                [5, swapEnclosing ? 2 : 3],
+                [6, 4],
+              ])
         )
           .filter(
             ([nested]) => literalTopLevelName === undefined || nested !== 5,
