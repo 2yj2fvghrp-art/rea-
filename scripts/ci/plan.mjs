@@ -175,6 +175,11 @@ if (tier === "reused") {
         file.startsWith(".github/ISSUE_TEMPLATE/")
       ) {
         selected.docs = true;
+        // Authored code and its Node package scopes belong to static checkers.
+        selected.code ||=
+          file.startsWith("docs/") &&
+          (/\.(?:[cm]?[jt]s|[jt]sx)$/u.test(file) ||
+            file.endsWith("/package.json"));
         selected.website ||= matchesAny(file, SCOPES.website);
         continue;
       }
