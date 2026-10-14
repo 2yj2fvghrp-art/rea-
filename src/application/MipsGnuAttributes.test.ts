@@ -8,14 +8,17 @@ const u32 = (value: number, little: boolean): number[] => {
   return [...bytes];
 };
 
-/** Build `A`, one vendor subsection and one scope, as GNU as and ld lay them out. */
 const section = (
   attributes: readonly number[],
   {
     little = true,
     vendor = "gnu",
     scope = 1,
-  }: { little?: boolean; vendor?: string; scope?: number } = {},
+  }: {
+    readonly little?: boolean;
+    readonly vendor?: string;
+    readonly scope?: number;
+  } = {},
 ): Buffer => {
   const scoped = [
     scope,
@@ -33,65 +36,55 @@ const section = (
 
 describe("MIPS GNU attribute parsing", () => {
   it.each([true, false])(
-    "reads the FP and MSA ABI tags GCC emits (little=%s)",
+    "reads MIPS FP and MSA ABI attributes in ELF byte order (little=%s)",
     (little) => {
       expect(
-        parseMipsGnuAttributes(section([4, 1], { little }), little),
-      ).toEqual({ ok: true, value: { fpAbi: 1, msa: null } });
-      expect(
-        parseMipsGnuAttributes(section([4, 3, 8, 0], { little }), little),
-      ).toEqual({ ok: true, value: { fpAbi: 3, msa: 0 } });
+        parseMipsGnuAttributes(section([4, 1, 8, 0], { little }), little),
+      ).toEqual({ ok: true, value: { fpAbi: 1, msa: 0 } });
     },
   );
 
-  it("decodes multi-byte ULEB128 values and accepts an empty attribute section", () => {
+  it("retains a multi-byte value and a missing tag separately", () => {
     expect(parseMipsGnuAttributes(section([4, 0x85, 0x01]), true)).toEqual({
       ok: true,
       value: { fpAbi: 133, msa: null },
     });
-    expect(parseMipsGnuAttributes(Buffer.from([0x41]), true)).toEqual({
+    expect(parseMipsGnuAttributes(section([]), true)).toEqual({
       ok: true,
       value: { fpAbi: null, msa: null },
     });
   });
 
-  it("requires lengths in the ELF byte order", () => {
-    expect(
-      parseMipsGnuAttributes(section([4, 1], { little: true }), false).ok,
-    ).toBe(false);
-  });
-
   it.each([
-    ["an unsupported format version", Buffer.from([0x42]), /format version/u],
-    ["a truncated subsection length", Buffer.from([0x41, 1, 0]), /truncated/u],
+    ["unknown version", Buffer.from([0x42]), /format version/u],
+    ["truncated vendor length", Buffer.from([0x41, 1, 0]), /truncated/u],
     [
-      "a subsection longer than the section",
+      "overrunning vendor subsection",
       Buffer.from([0x41, ...u32(64, true), 0x67, 0x6e, 0x75, 0]),
       /does not fit the section/u,
     ],
     [
-      "an unterminated vendor name",
+      "unterminated vendor",
       Buffer.from([0x41, ...u32(7, true), 0x67, 0x6e, 0x75]),
       /unterminated/u,
     ],
-    ["another vendor", section([4, 1], { vendor: "arm" }), /non-GNU vendor/u],
+    ["non-GNU vendor", section([4, 1], { vendor: "arm" }), /non-GNU vendor/u],
     ["section scope", section([4, 1], { scope: 2 }), /sections or symbols/u],
     ["symbol scope", section([4, 1], { scope: 3 }), /sections or symbols/u],
-    ["an unknown tag", section([6, 1]), /tag 6/u],
-    ["Tag_compatibility", section([32, 0, 0]), /tag 32/u],
+    ["unknown tag", section([6, 1]), /tag 6/u],
     [
-      "a repeated FP tag",
+      "duplicate FP tag",
       section([4, 1, 4, 1]),
       /duplicate MIPS GNU floating-point/u,
     ],
-    ["a repeated MSA tag", section([8, 0, 8, 0]), /duplicate MIPS GNU MSA/u],
+    ["duplicate MSA tag", section([8, 0, 8, 0]), /duplicate MIPS GNU MSA/u],
     [
-      "an unterminated value",
+      "truncated value",
       section([4, 0x81]),
       /malformed MIPS GNU attribute value/u,
     ],
     [
-      "a value wider than 32 bits",
+      "value wider than 32 bits",
       section([4, 0xff, 0xff, 0xff, 0xff, 0x1f]),
       /malformed MIPS GNU attribute value/u,
     ],
@@ -101,16 +94,21 @@ describe("MIPS GNU attribute parsing", () => {
     if (!result.ok) expect(result.error).toMatch(reason);
   });
 
-  it("refuses a scope whose length overruns its subsection", () => {
+  it("requires subsection lengths in the ELF byte order", () => {
+    expect(
+      parseMipsGnuAttributes(section([4, 1], { little: true }), false).ok,
+    ).toBe(false);
+  });
+
+  it("refuses a scope length beyond its vendor subsection", () => {
     const bytes = section([4, 1]);
-    // Scope length sits after "A", the subsection length and "gnu\0".
     bytes.writeUInt32LE(64, 1 + 4 + 4 + 1);
     const result = parseMipsGnuAttributes(bytes, true);
     expect(result.ok).toBe(false);
     if (!result.ok) expect(result.error).toMatch(/scope length/u);
   });
 
-  it("refuses a second gnu vendor subsection", () => {
+  it("refuses a repeated GNU vendor subsection", () => {
     const one = section([4, 1]);
     const result = parseMipsGnuAttributes(
       Buffer.concat([one, one.subarray(1)]),

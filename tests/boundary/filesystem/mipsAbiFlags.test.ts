@@ -2,14 +2,12 @@ import assert from "node:assert/strict";
 import { createHash } from "node:crypto";
 import { open, readFile, writeFile } from "node:fs/promises";
 import { join } from "node:path";
-import { describe, it } from "vitest";
+import { expect, it } from "vitest";
 import { parseBinaryTarget } from "../../../src/application/BinaryTargetResolver.js";
 import { AnalysisCancelledError } from "../../../src/domain/analysisErrorCore.js";
+import { jsonObjectSchema } from "../../../src/domain/jsonValue.js";
 import { createTestTempDirectory } from "../../fixtures/temporaryDirectory.js";
-import type {
-  BinaryTarget,
-  MipsElfMetadata,
-} from "../../../src/domain/binaryTargetTypes.js";
+import type { MipsElfMetadata } from "../../../src/domain/binaryTargetTypes.js";
 import { readMipsElfMetadata } from "../../../src/application/MipsElfMetadata.js";
 import { ok } from "../../../src/domain/result.js";
 import {
@@ -56,6 +54,62 @@ const fixture = (little = true): Buffer => {
   bytes.set([0, 0, 32, 2, 1, 1, 0, 5], abiOffset);
   return bytes;
 };
+const attributeSection = (
+  attributes: readonly number[],
+  little = true,
+): Buffer => {
+  const subsectionLength = 1 + 4 + attributes.length;
+  const vendor = Buffer.from("gnu\0", "latin1");
+  const sectionLength = 4 + vendor.length + subsectionLength;
+  const bytes = Buffer.alloc(1 + sectionLength);
+  bytes[0] = 0x41;
+  if (little) {
+    bytes.writeUInt32LE(sectionLength, 1);
+    bytes.writeUInt32LE(subsectionLength, 1 + 4 + vendor.length + 1);
+  } else {
+    bytes.writeUInt32BE(sectionLength, 1);
+    bytes.writeUInt32BE(subsectionLength, 1 + 4 + vendor.length + 1);
+  }
+  vendor.copy(bytes, 5);
+  bytes[9] = 1; // Tag_File scope.
+  bytes.set(attributes, 14);
+  return bytes;
+};
+const withGnuAttributes = (
+  source: Buffer,
+  payloads: readonly Buffer[],
+  little = true,
+): Buffer => {
+  const payloadStart = abiOffset + 24;
+  const payloadBytes = payloads.reduce(
+    (total, payload) => total + payload.length,
+    0,
+  );
+  const bytes = Buffer.alloc(
+    Math.max(source.length, payloadStart + payloadBytes),
+  );
+  source.copy(bytes);
+  let payloadOffset = payloadStart;
+  const write16 = (value: number, offset: number) =>
+    little
+      ? bytes.writeUInt16LE(value, offset)
+      : bytes.writeUInt16BE(value, offset);
+  const write32 = (value: number, offset: number) =>
+    little
+      ? bytes.writeUInt32LE(value, offset)
+      : bytes.writeUInt32BE(value, offset);
+  write16(2 + payloads.length, 48);
+  write16(0, 50); // Section names are not needed for numeric-type detection.
+  payloads.forEach((payload, index) => {
+    const header = 128 + (2 + index) * 40;
+    write32(0x6ffffff5, header + 4);
+    write32(payloadOffset, header + 16);
+    write32(payload.length, header + 20);
+    payload.copy(bytes, payloadOffset);
+    payloadOffset += payload.length;
+  });
+  return bytes;
+};
 const writeFixture = async (bytes: Buffer): Promise<string> => {
   const directory = await createTestTempDirectory("rea-mips-abi-test-");
   const path = join(directory, "fixture.elf");
@@ -80,7 +134,7 @@ const resolveFixture = async (bytes: Buffer) => {
   assert.deepEqual(await readFile(path), bytes);
   return result.value;
 };
-const inspect = async (
+const inspectDeclarations = async (
   bytes: Buffer,
   little = true,
   checkCancelled: () => void = () => {},
@@ -93,10 +147,18 @@ const inspect = async (
       metadata(little),
       checkCancelled,
     );
-    return result.ok ? ok(result.value.abiFlags) : result;
+    return result;
   } finally {
     await handle.close();
   }
+};
+const inspect = async (
+  bytes: Buffer,
+  little = true,
+  checkCancelled: () => void = () => {},
+) => {
+  const result = await inspectDeclarations(bytes, little, checkCancelled);
+  return result.ok ? ok(result.value.abiFlags) : result;
 };
 const target = (mips: MipsElfMetadata) => ({
   path: "/fixture.elf",
@@ -105,7 +167,7 @@ const target = (mips: MipsElfMetadata) => ({
   format: "elf" as const,
   architecture: "mips" as const,
   availableArchitectures: ["mips"] as const,
-  mips,
+  mips: { gnuAttributes: null, ...mips },
 });
 
 for (const little of [true, false]) {
@@ -376,158 +438,116 @@ it("projects a malformed out-of-probe ABI record as a target error", async () =>
   assert.deepEqual(await readFile(path), bytes);
 });
 
-/** Add a third section header carrying an `SHT_GNU_ATTRIBUTES` payload. */
-const withGnuAttributes = (
-  bytes: Buffer,
-  little: boolean,
-  attributes: readonly number[],
-): Buffer => {
-  const u16 = (value: number, offset: number) =>
-    little
-      ? bytes.writeUInt16LE(value, offset)
-      : bytes.writeUInt16BE(value, offset);
-  const u32 = (value: number, offset: number) =>
-    little
-      ? bytes.writeUInt32LE(value, offset)
-      : bytes.writeUInt32BE(value, offset);
-  const payload = abiOffset + 24;
-  const scopeLength = 1 + 4 + attributes.length;
-  const vendorLength = 4 + 4 + scopeLength;
-  bytes[payload] = 0x41;
-  u32(vendorLength, payload + 1);
-  bytes.write("gnu\0", payload + 5, "latin1");
-  bytes[payload + 9] = 1; // Tag_File
-  u32(scopeLength, payload + 10);
-  bytes.set(attributes, payload + 14);
-  u16(3, 48);
-  u32(0x6ffffff5, 212); // SHT_GNU_ATTRIBUTES; the name is never consulted.
-  u32(payload, 224);
-  u32(1 + vendorLength, 228);
-  return bytes;
-};
-
-/** The `gnu_attributes` value the analysis profile commits, if any. */
-const committedGnuAttributes = (resolved: BinaryTarget): unknown => {
-  const elf = ghidraMipsProfileParameters(resolved).mips_elf;
-  return elf !== null &&
-    typeof elf === "object" &&
-    !Array.isArray(elf) &&
-    "gnu_attributes" in elf
-    ? elf.gnu_attributes
-    : undefined;
-};
-
 for (const little of [true, false]) {
-  it(`admits GNU ABI attributes that agree with the ABI flags record (${little ? "LE" : "BE"})`, async () => {
-    // The fixture record declares fp_abi 5 (FPXX).
-    const resolved = await resolveFixture(
-      withGnuAttributes(fixture(little), little, [4, 5, 8, 0]),
+  it(`reads bounded GNU FP/MSA attributes through the full target resolver (${little ? "LE" : "BE"})`, async () => {
+    const bytes = withGnuAttributes(
+      fixture(little),
+      [attributeSection([4, 5, 8, 0], little)],
+      little,
     );
+    const result = await inspectDeclarations(bytes, little);
+    assert.ok(result.ok);
+    assert.deepEqual(result.value.gnuAttributes, { fpAbi: 5, msa: 0 });
+    const resolved = await resolveFixture(bytes);
     assert.deepEqual(resolved.mips.gnuAttributes, { fpAbi: 5, msa: 0 });
     assert.equal(ghidraMipsUnsupportedReason(resolved), null);
-    assert.deepEqual(committedGnuAttributes(resolved), { fp_abi: 5, msa: 0 });
+    const profileParameters = jsonObjectSchema.parse(
+      ghidraMipsProfileParameters(resolved),
+    );
+    expect(profileParameters.mips_elf).toMatchObject({
+      gnu_attributes: { fp_abi: 5, msa: 0 },
+    });
   });
 }
 
-it("keeps an absent attribute section distinct from an uninspected one", async () => {
-  const resolved = await resolveFixture(fixture());
-  assert.equal(resolved.mips.gnuAttributes, null);
-  assert.equal(committedGnuAttributes(resolved), null);
+it("reconciles FP tags with ABI flags while treating FP ANY as no requirement", async () => {
+  const any = withGnuAttributes(fixture(), [attributeSection([4, 0])]);
+  const accepted = await inspectDeclarations(any);
+  assert.ok(accepted.ok);
+  assert.equal(accepted.value.gnuAttributes?.fpAbi, 0);
+
+  const conflict = withGnuAttributes(fixture(), [attributeSection([4, 1])]);
+  const rejected = await inspectDeclarations(conflict);
+  assert.ok(!rejected.ok);
+  assert.match(
+    rejected.error,
+    /conflicting MIPS ABI flags and GNU floating-point ABI/u,
+  );
 });
 
-it("treats Val_GNU_MIPS_ABI_FP_ANY as no floating-point requirement", async () => {
-  const resolved = await resolveFixture(
-    withGnuAttributes(fixture(), true, [4, 0]),
+it("retains unsupported MSA declarations but refuses provider selection", async () => {
+  const bytes = withGnuAttributes(fixture(), [attributeSection([8, 1])]);
+  const resolved = await resolveFixture(bytes);
+  assert.deepEqual(resolved.mips.gnuAttributes, { fpAbi: null, msa: 1 });
+  assert.match(
+    ghidraMipsUnsupportedReason(resolved) ?? "",
+    /MSA ABI attribute declares an unsupported/u,
   );
-  assert.deepEqual(resolved.mips.gnuAttributes, { fpAbi: 0, msa: null });
-  assert.equal(ghidraMipsUnsupportedReason(resolved), null);
 });
 
 it.each([
+  [0, null],
+  [1, null],
+  [5, null],
+  [2, /GNU floating-point ABI attribute/u],
+  [3, /GNU floating-point ABI attribute/u],
+] as const)(
+  "applies recordless admission to GNU FP value %i",
+  async (fpAbi, reason) => {
+    const bytes = fixture();
+    bytes.writeUInt32LE(0x50000001, 36); // Recordless MIPS32 legacy header.
+    bytes.writeUInt32LE(0, 52); // No PT_MIPS_ABIFLAGS.
+    bytes.writeUInt32LE(0, 172); // No SHT_MIPS_ABIFLAGS.
+    const withAttributes = withGnuAttributes(bytes, [
+      attributeSection([4, fpAbi]),
+    ]);
+    const resolved = await resolveFixture(withAttributes);
+    const unsupported = ghidraMipsUnsupportedReason(resolved);
+    if (reason === null) assert.equal(unsupported, null);
+    else assert.match(unsupported ?? "", reason);
+  },
+);
+
+it.each([
+  ["an unknown attribute tag", [6, 1], /tag 6/u],
   [
-    "a floating-point ABI that contradicts the ABI flags record",
-    [4, 1],
-    /conflicting MIPS ABI flags and GNU floating-point/u,
+    "a duplicate attribute section",
+    [4, 5],
+    /duplicate MIPS GNU attribute sections/u,
   ],
-  ["an attribute tag REA does not interpret", [6, 1], /GNU attribute tag 6/u],
-] as const)("refuses %s", async (_label, attributes, reason) => {
-  const result = await inspect(withGnuAttributes(fixture(), true, attributes));
-  assert.ok(!result.ok);
-  assert.match(result.error, reason);
-});
-
-it("refuses the 128-bit MSA vector argument ABI at provider admission", async () => {
-  const resolved = await resolveFixture(
-    withGnuAttributes(fixture(), true, [4, 5, 8, 1]),
-  );
-  assert.match(ghidraMipsUnsupportedReason(resolved) ?? "", /128-bit MSA/u);
-});
-
-it("refuses a second GNU attribute section", async () => {
-  const bytes = withGnuAttributes(fixture(), true, [4, 5]);
-  // Turn the section-header ABI record into a copy of the attribute header.
-  bytes.copy(bytes, 168, 208, 248);
-  const result = await inspect(bytes);
-  assert.ok(!result.ok);
-  assert.match(result.error, /duplicate MIPS GNU attribute sections/u);
-});
-
-for (const little of [true, false]) {
-  it(`bounds the attribute section before reading attacker-controlled sizes (${little ? "LE" : "BE"})`, async () => {
-    const bytes = fixture(little);
-    const write16 = little
-      ? (value: number, offset: number) => bytes.writeUInt16LE(value, offset)
-      : (value: number, offset: number) => bytes.writeUInt16BE(value, offset);
-    const write32 = little
-      ? (value: number, offset: number) => bytes.writeUInt32LE(value, offset)
-      : (value: number, offset: number) => bytes.writeUInt32BE(value, offset);
-    write32(0xffffffff, 168); // Unknown name; the section type is authoritative.
-    write32(0x6ffffff5, 172); // SHT_GNU_ATTRIBUTES.
-    write32(0xfffffff0, 184); // Must not be read as a payload offset.
-    write32(0xffffffff, 188); // Must not control allocation.
-    write16(0, 50); // No section-name string table is required for detection.
-    const result = await inspect(bytes, little);
+] as const)(
+  "refuses %s while inspecting section contents",
+  async (label, attr, reason) => {
+    const payload = attributeSection(attr);
+    const bytes = withGnuAttributes(
+      fixture(),
+      label === "a duplicate attribute section"
+        ? [payload, payload]
+        : [payload],
+    );
+    const result = await inspectDeclarations(bytes);
     assert.ok(!result.ok);
-    assert.match(result.error, /outside REA's inspected bound of 4096 bytes/u);
-  });
-}
+    assert.match(result.error, reason);
+  },
+);
 
-describe("recordless legacy images", () => {
-  // EF_MIPS_ARCH_32R2 with no ABI field and no ABI flags record in either table.
-  const legacy = (attributes: readonly number[]): Buffer => {
-    const bytes = withGnuAttributes(fixture(), true, attributes);
-    bytes.writeUInt32LE(0x70000001, 36);
-    bytes.writeUInt32LE(0, 52);
-    bytes.writeUInt32LE(0, 172);
-    return bytes;
-  };
-  it.each([
-    ["double-precision", 1],
-    ["FPXX", 5],
-    ["no-requirement", 0],
-  ])(
-    "admits a %s GNU declaration the default compiler specification covers",
-    async (_label, fpAbi) => {
-      const resolved = await resolveFixture(legacy([4, fpAbi]));
-      assert.equal(resolved.mips.abiFlags, null);
-      assert.deepEqual(resolved.mips.gnuAttributes, { fpAbi, msa: null });
-      assert.equal(ghidraMipsUnsupportedReason(resolved), null);
-    },
-  );
-  it.each([
-    ["soft-float", 3],
-    ["single-precision", 2],
-    ["FP64", 6],
-  ])(
-    "refuses a %s GNU declaration without an ABI flags record",
-    async (_label, fpAbi) => {
-      const resolved = await resolveFixture(legacy([4, fpAbi]));
-      assert.match(
-        ghidraMipsUnsupportedReason(resolved) ?? "",
-        /Without an ABI flags record/u,
-      );
-    },
-  );
+it("checks the GNU attribute size bound before attempting its file read", async () => {
+  const bytes = withGnuAttributes(fixture(), [attributeSection([4, 5])]);
+  bytes.writeUInt32LE(0xfffffff0, 224);
+  bytes.writeUInt32LE(4097, 228);
+  const result = await inspectDeclarations(bytes);
+  assert.ok(!result.ok);
+  assert.match(result.error, /outside REA's inspected bound of 4096 bytes/u);
+});
+
+it("uses section type and bounds the GNU attribute payload extent", async () => {
+  const bytes = withGnuAttributes(fixture(), [attributeSection([4, 5])]);
+  bytes.writeUInt32LE(0xffffffff, 208); // Unknown name; type remains authoritative.
+  bytes.writeUInt16LE(0, 50); // No section-name string table is required.
+  bytes.writeUInt32LE(bytes.length + 1, 224);
+  const result = await inspectDeclarations(bytes);
+  assert.ok(!result.ok);
+  assert.match(result.error, /GNU attribute section lies outside the file/u);
 });
 
 it("preserves cancellation instead of turning it into malformed target data", async () => {

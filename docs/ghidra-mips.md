@@ -52,30 +52,29 @@ section names or the record being inside the initial 4 KiB header probe.
 Program and section declarations must agree; duplicate, conflicting, truncated
 or out-of-file records are rejected. Stripped section tables and section-only
 records are supported. Extended table numbering is explicitly unsupported.
-GNU `SHT_GNU_ATTRIBUTES` sections, which GCC and GNU ld emit in nearly every
-MIPS object, are found by numeric section type; section names are never
-consulted, and a section larger than 4 KiB is refused before it is read. REA
-parses the ELF attributes format strictly (format version `A`, length fields in
-the ELF byte order, ULEB128 tags and values) and interprets only the `gnu`
-vendor's file-scope `Tag_GNU_MIPS_ABI_FP` (4) and `Tag_GNU_MIPS_ABI_MSA` (8).
-Other vendors, section- or symbol-scoped attributes, unknown or repeated tags,
-repeated attribute sections and malformed lengths are refused rather than
-skipped. The FP tag uses the ABI flags `fp_abi` numbering (GNU ld derives one
-from the other); a nonzero tag must equal the record's `fp_abi`, and 0
-(`Val_GNU_MIPS_ABI_FP_ANY`) declares no requirement. Provider admission
-refuses the 128-bit MSA vector argument ABI (MSA tag 1). Without an ABI flags
-record, a recordless image is admitted only when its FP tag is absent, 0, or
-declares double-precision or FPXX hard float, the declarations the
-declared-ABI lane admits under the default o32 compiler specification. The
-parsed attributes are committed as `mips_elf.gnu_attributes` in the analysis
-profile. For carved ELFs whose section table extends beyond the captured file,
-REA examines every complete captured section header and records the
-unavailable headers as a limitation.
-The provider refuses an incomplete ABI declaration inspection even when a
-program-header ABI record is valid, because an unavailable section header could
-carry an unsupported or conflicting declaration. A missing program-header record
-does not make ABI declarations in uncaptured sections absent or supply a
-default ABI.
+GNU `SHT_GNU_ATTRIBUTES` sections are located by numeric section type; section
+names never control detection. REA reads at most 4096 payload bytes and parses
+format version `A`, the `gnu` vendor's file-scope `Tag_GNU_MIPS_ABI_FP` (4) and
+`Tag_GNU_MIPS_ABI_MSA` (8) only. Unknown vendors, scopes or tags, repeated
+declarations, malformed lengths, and out-of-file or oversized payloads remain
+refusals. A nonzero FP tag must match the separate ABI flags `fp_abi` record;
+value 0 (`ANY`) declares no requirement. The [GNU Object Attributes v1
+format](https://sourceware.org/binutils/docs/as/Object-Attributes-v1.html) and
+[GNU MIPS tag definitions](https://sourceware.org/binutils/docs/as/GNU-Object-Attributes.html)
+are the format references. The MSA tag describes the vector
+argument ABI, while the ABI flags ASE field describes instruction-set
+extensions; REA does not treat those as interchangeable. The 128-bit MSA
+argument ABI and unknown nonzero MSA values remain unsupported. Without a
+separate ABI flags record, FP attribute values are admitted only when absent,
+`ANY` (0), double precision (1), or FPXX (5), the values covered by the
+recordless profile. Parsed values are retained in the MIPS analysis profile.
+For carved ELFs whose section table extends
+beyond the captured file, REA examines every complete captured section header
+and records the unavailable headers as a limitation. The provider refuses an
+incomplete ABI declaration inspection even when a program-header ABI record is
+valid, because an unavailable section header could carry an unsupported or
+conflicting declaration. A missing program-header record does not make ABI
+declarations in uncaptured sections absent or supply a default ABI.
 The field layout follows
 [`Elf_MIPS_ABIFlags_v0`](https://github.com/bminor/glibc/blob/master/elf/elf.h).
 

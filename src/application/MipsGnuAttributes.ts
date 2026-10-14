@@ -1,49 +1,43 @@
 import type { MipsGnuAttributes } from "../domain/binaryTargetTypes.js";
 import { err, ok, type Result } from "../domain/result.js";
 
-/**
- * Largest `SHT_GNU_ATTRIBUTES` payload REA reads. GCC and GNU ld emit a few
- * dozen bytes; the bound keeps the declared section size from driving
- * allocation.
- */
+/** Bound the section read before its declared size can drive allocation. */
 export const MIPS_GNU_ATTRIBUTES_MAX_BYTES = 4096;
 
-const FORMAT_VERSION = 0x41; // 'A'
+const FORMAT_VERSION = 0x41;
 const TAG_FILE = 1;
 const TAG_GNU_MIPS_ABI_FP = 4;
 const TAG_GNU_MIPS_ABI_MSA = 8;
 
 /**
- * Parse a MIPS `SHT_GNU_ATTRIBUTES` section strictly: format version `A`, one
- * `gnu` vendor subsection, and `Tag_File` attributes REA understands. Lengths
- * use the ELF byte order and must account for the section exactly. Other
- * vendors, section/symbol scopes, unknown or repeated tags and malformed data
- * are errors: declarations REA cannot interpret are never skipped.
+ * Read only GNU file-scope MIPS ABI attributes REA understands. Unknown
+ * vendors, scopes and tags fail closed; their declarations are not skipped.
  */
 export const parseMipsGnuAttributes = (
   bytes: Buffer,
-  little: boolean,
+  littleEndian: boolean,
 ): Result<MipsGnuAttributes, string> => {
   if (bytes.length === 0 || bytes[0] !== FORMAT_VERSION)
     return err("unsupported MIPS GNU attribute section format version");
-  const u32 = (offset: number): number =>
-    little ? bytes.readUInt32LE(offset) : bytes.readUInt32BE(offset);
-  // Attribute tags and values are ULEB128; MIPS values fit in 32 bits.
-  const uleb = (
-    position: number,
+
+  const readU32 = (offset: number): number =>
+    littleEndian ? bytes.readUInt32LE(offset) : bytes.readUInt32BE(offset);
+  const readUleb = (
+    offset: number,
     end: number,
   ): { readonly value: number; readonly next: number } | undefined => {
     let value = 0;
-    for (let index = 0; index < 5 && position + index < end; index += 1) {
-      const byte = bytes[position + index]!;
+    for (let index = 0; index < 5 && offset + index < end; index += 1) {
+      const byte = bytes[offset + index]!;
       value += (byte & 0x7f) * 2 ** (7 * index);
       if ((byte & 0x80) === 0)
         return value <= 0xffffffff
-          ? { value, next: position + index + 1 }
+          ? { value, next: offset + index + 1 }
           : undefined;
     }
     return undefined;
   };
+
   let fpAbi: number | null = null;
   let msa: number | null = null;
   let vendorSeen = false;
@@ -51,26 +45,27 @@ export const parseMipsGnuAttributes = (
   while (position < bytes.length) {
     if (bytes.length - position < 4)
       return err("truncated MIPS GNU attribute subsection length");
-    const length = u32(position);
+    const length = readU32(position);
     if (length < 4 || length > bytes.length - position)
       return err(
         "MIPS GNU attribute subsection length does not fit the section",
       );
     const end = position + length;
-    const nameEnd = bytes.indexOf(0, position + 4);
-    if (nameEnd < 0 || nameEnd >= end)
+    const vendorEnd = bytes.indexOf(0, position + 4);
+    if (vendorEnd < 0 || vendorEnd >= end)
       return err("unterminated MIPS GNU attribute vendor name");
-    if (bytes.toString("latin1", position + 4, nameEnd) !== "gnu")
+    if (bytes.toString("latin1", position + 4, vendorEnd) !== "gnu")
       return err(
         "MIPS ELF declares non-GNU vendor attributes that REA does not inspect",
       );
     if (vendorSeen)
       return err("duplicate MIPS GNU attribute vendor subsections");
     vendorSeen = true;
-    let cursor = nameEnd + 1;
+
+    let cursor = vendorEnd + 1;
     while (cursor < end) {
       const scopeStart = cursor;
-      const scope = uleb(cursor, end);
+      const scope = readUleb(cursor, end);
       if (scope === undefined)
         return err("malformed MIPS GNU attribute scope tag");
       if (scope.value !== TAG_FILE)
@@ -79,7 +74,7 @@ export const parseMipsGnuAttributes = (
         );
       if (end - scope.next < 4)
         return err("truncated MIPS GNU attribute scope length");
-      const scopeLength = u32(scope.next);
+      const scopeLength = readU32(scope.next);
       if (
         scopeLength < scope.next + 4 - scopeStart ||
         scopeLength > end - scopeStart
@@ -90,7 +85,7 @@ export const parseMipsGnuAttributes = (
       const scopeEnd = scopeStart + scopeLength;
       cursor = scope.next + 4;
       while (cursor < scopeEnd) {
-        const tag = uleb(cursor, scopeEnd);
+        const tag = readUleb(cursor, scopeEnd);
         if (tag === undefined) return err("malformed MIPS GNU attribute tag");
         if (
           tag.value !== TAG_GNU_MIPS_ABI_FP &&
@@ -99,7 +94,7 @@ export const parseMipsGnuAttributes = (
           return err(
             `MIPS ELF declares GNU attribute tag ${tag.value}, which REA does not inspect`,
           );
-        const value = uleb(tag.next, scopeEnd);
+        const value = readUleb(tag.next, scopeEnd);
         if (value === undefined)
           return err("malformed MIPS GNU attribute value");
         if (tag.value === TAG_GNU_MIPS_ABI_FP) {
@@ -112,6 +107,7 @@ export const parseMipsGnuAttributes = (
         }
         cursor = value.next;
       }
+      cursor = scopeEnd;
     }
     position = end;
   }

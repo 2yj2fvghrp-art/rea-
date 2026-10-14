@@ -30,10 +30,9 @@ export const ghidraProcessorUnsupportedReason = (
     return ghidraMipsUnsupportedReason(target);
   const metadata = target.mips;
   if (metadata === undefined) return "PSP analysis requires ELF metadata.";
-  // PSP's own rules below require an ABI flags record, so this applies the
-  // vector-ABI refusal the generic lane uses.
-  const gnuReason = ghidraMipsGnuAttributesUnsupportedReason(metadata);
-  if (gnuReason !== null) return gnuReason;
+  const gnuAttributesReason =
+    ghidraMipsGnuAttributesUnsupportedReason(metadata);
+  if (gnuAttributesReason !== null) return gnuAttributesReason;
   if (metadata.elfClass !== 32 || metadata.byteOrder !== "little")
     return "The PSP Allegrex profile requires little-endian ELF32.";
   if (metadata.type !== 2)

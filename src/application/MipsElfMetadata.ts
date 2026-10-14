@@ -163,8 +163,6 @@ export const readMipsElfMetadata = async (
       if (table.optional && type === SHT_GNU_ATTRIBUTES) {
         if (gnuAttributes !== null)
           return err("duplicate MIPS GNU attribute sections");
-        // The numeric type identifies the section; its declared size is
-        // bounded before allocation and its name is never consulted.
         const size = u32(contents.value, position + 20);
         if (size === 0 || size > MIPS_GNU_ATTRIBUTES_MAX_BYTES)
           return err(
@@ -248,8 +246,6 @@ export const readMipsElfMetadata = async (
     flags1: u32(record, 16),
     flags2: u32(record, 20),
   };
-  // GNU ld derives ABI flags fp_abi from Tag_GNU_MIPS_ABI_FP and warns when
-  // they disagree; 0 (Val_GNU_MIPS_ABI_FP_ANY) declares no requirement.
   if (
     gnuAttributes !== null &&
     gnuAttributes.fpAbi !== null &&

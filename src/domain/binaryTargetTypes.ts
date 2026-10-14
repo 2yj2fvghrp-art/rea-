@@ -88,14 +88,11 @@ export interface MipsAbiFlags {
   readonly flags2: number;
 }
 
-/**
- * File-scope GNU object attributes REA parses from `SHT_GNU_ATTRIBUTES`.
- * A null field was not declared. Values are kept verbatim.
- */
+/** File-scope GNU object attributes parsed from `SHT_GNU_ATTRIBUTES`. */
 export interface MipsGnuAttributes {
-  /** Tag_GNU_MIPS_ABI_FP, numbered like the ABI flags `fp_abi`; 0 means any. */
+  /** Tag_GNU_MIPS_ABI_FP; null means this file did not declare the tag. */
   readonly fpAbi: number | null;
-  /** Tag_GNU_MIPS_ABI_MSA vector-argument ABI: 0 means any, 1 the 128-bit MSA ABI. */
+  /** Tag_GNU_MIPS_ABI_MSA vector-argument ABI; null means undeclared. */
   readonly msa: number | null;
 }
 
