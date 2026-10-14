@@ -15,11 +15,9 @@ import {
   type MachoImageFacts,
 } from "../../domain/apple/dylibResolution.js";
 import { projectInputIssues } from "../../domain/inputIssueProjection.js";
-import {
-  ArtifactReaderFailure,
-  type ArtifactEntry,
-} from "../ArtifactReader.js";
+import { ArtifactReaderFailure } from "../ArtifactReader.js";
 import { DirectoryArtifactReader } from "../DirectoryArtifactReader.js";
+import { consumeWithOrderedReads } from "../OrderedReads.js";
 import { hasMachoMagic, readMachoImage } from "./MachoLoadCommandReader.js";
 
 const OPERATION = "trace_dylib_resolution";
@@ -190,68 +188,26 @@ const executableRoots = async (
   const roots: string[] = [];
   const unclassified: string[] = [];
   // Bundles hold tens of thousands of files and few Mach-O images, so the
-  // magic reads overlap the walk. They settle in walk order: classification,
-  // and which failure is reported, match a one-at-a-time scan.
-  const pending: {
-    readonly path: string;
-    readonly magic: Promise<
-      | { readonly ok: true; readonly value: boolean }
-      | { readonly ok: false; readonly error: unknown }
-    >;
-  }[] = [];
-  const classifyNext = async (): Promise<void> => {
-    const next = pending.shift();
-    if (next === undefined) return;
-    const magic = await next.magic;
-    if (!magic.ok) throw magic.error;
-    if (!magic.value) return;
-    const facts = await view.image(next.path);
-    if (facts.status === "malformed" || facts.status === "unsupported")
-      unclassified.push(next.path);
-    else if (
-      facts.status === "parsed" &&
-      facts.slices.some(({ file_type: type }) => type === "execute")
-    )
-      roots.push(next.path);
-  };
-  const walk = new DirectoryArtifactReader(root)
-    .entries(signal)
-    [Symbol.asyncIterator]();
-  let walking = true;
-  try {
-    while (walking) {
-      let step: IteratorResult<ArtifactEntry>;
-      try {
-        step = await walk.next();
-      } catch (cause: unknown) {
-        walking = false;
-        // Entries before the failed step are classified first, so their own
-        // failures are reported as a one-at-a-time scan would report them.
-        while (pending.length > 0) await classifyNext();
-        throw cause;
-      }
-      if (step.done === true) {
-        walking = false;
-        break;
-      }
-      const entry = step.value;
-      if (entry.kind !== "file") continue;
-      pending.push({
-        path: entry.path,
-        magic: startsWithMachoMagic(entry.adapterKey).then(
-          (value) => ({ ok: true, value }) as const,
-          (error: unknown) => ({ ok: false, error }) as const,
-        ),
-      });
-      if (pending.length >= MAGIC_READ_CONCURRENCY) await classifyNext();
-    }
-    while (pending.length > 0) await classifyNext();
-  } finally {
-    // A failure ended the walk early: close it as `for await` would, which
-    // keeps that failure, then settle every started read before leaving.
-    if (walking) await walk.return?.().catch(() => undefined);
-    await Promise.all(pending.map(({ magic }) => magic));
-  }
+  // magic reads overlap the walk while results are classified in walk order.
+  await consumeWithOrderedReads(
+    new DirectoryArtifactReader(root).entries(signal),
+    MAGIC_READ_CONCURRENCY,
+    (entry) =>
+      entry.kind === "file"
+        ? startsWithMachoMagic(entry.adapterKey)
+        : undefined,
+    async (entry, macho) => {
+      if (!macho) return;
+      const facts = await view.image(entry.path);
+      if (facts.status === "malformed" || facts.status === "unsupported")
+        unclassified.push(entry.path);
+      else if (
+        facts.status === "parsed" &&
+        facts.slices.some(({ file_type: type }) => type === "execute")
+      )
+        roots.push(entry.path);
+    },
+  );
   return {
     roots: roots.sort(compare),
     unclassified: unclassified.sort(compare),
