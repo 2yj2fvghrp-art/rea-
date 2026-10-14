@@ -70,6 +70,26 @@ describe("parseAdbDevicesOutput", () => {
     expect(devices).toHaveLength(1);
   });
 
+  it("recognizes daemon startup notices emitted on stderr", () => {
+    const stdout = [
+      "List of devices attached",
+      "emulator-5554          device transport_id:1",
+      "",
+    ].join("\n");
+    const stderr = [
+      "* daemon not running; starting now at tcp:5037",
+      "* daemon started successfully",
+      "",
+    ].join("\n");
+    const { devices, daemonStarted, unparsedLines } = parseAdbDevicesOutput(
+      stdout,
+      stderr,
+    );
+    expect(daemonStarted).toBe(true);
+    expect(unparsedLines).toEqual([]);
+    expect(devices).toHaveLength(1);
+  });
+
   it("keeps non-device states such as unauthorized and offline", () => {
     const output = [
       "List of devices attached",
