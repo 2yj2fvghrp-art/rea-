@@ -39,16 +39,19 @@ export const discoverSetupState = async (input: {
   readonly host: SetupHost;
   readonly providerEnvironment: SetupProviderEnvironment;
   readonly forceHopperInstall: boolean;
+  readonly hopperLauncherConfigured?: boolean;
   readonly proposeHopper: boolean;
   readonly initialDoctor: DoctorReport;
 }): Promise<SetupDiscovery> => {
   const { initialDoctor } = input;
-  const linuxHopperRepairNeeded = initialDoctor.checks.some(
-    ({ name, ok, detail }) =>
-      !ok &&
-      (name === "hopper-demo-runtime" ||
-        (name === "hopper-version" && detail === "/opt/hopper/bin/Hopper")),
-  );
+  const linuxHopperRepairNeeded =
+    input.hopperLauncherConfigured !== true &&
+    initialDoctor.checks.some(
+      ({ name, ok, detail }) =>
+        !ok &&
+        (name === "hopper-demo-runtime" ||
+          (name === "hopper-version" && detail === "/opt/hopper/bin/Hopper")),
+    );
   const linuxDistribution =
     input.host.platform === "linux"
       ? await input.host.linuxDistribution()
@@ -56,7 +59,8 @@ export const discoverSetupState = async (input: {
   const hopperInstallSupported =
     (input.host.platform === "darwin" &&
       majorVersion((await input.host.macosVersion()) ?? "0") >= 12) ||
-    (input.host.platform === "linux" && linuxDistribution?.supported === true);
+    (input.host.platform === "linux" &&
+      linuxDistribution?.hopperSetupSupported === true);
   const installHopper =
     input.forceHopperInstall ||
     (hopperInstallSupported &&

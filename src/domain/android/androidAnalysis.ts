@@ -98,11 +98,11 @@ const textCoverage = z.strictObject({
   text: z.string(),
   reported_total_bytes: z.number().int().nonnegative().nullable(),
 });
-/** A DEX prototype: parameter descriptors followed by the return descriptor. */
+/** A DEX prototype; hex parentheses also keep the advertised class valid in v mode. */
 export const dexDescriptorSchema = z
   .string()
   .regex(
-    /^\((?:\[*(?:[ZBSCIJFD]|L[^;()]+;))*\)(?:V|\[*(?:[ZBSCIJFD]|L[^;()]+;))$/u,
+    /^\((?:\[*(?:[ZBSCIJFD]|L[^;\x28\x29]+;))*\)(?:V|\[*(?:[ZBSCIJFD]|L[^;\x28\x29]+;))$/u,
   );
 
 const method = z.strictObject({
@@ -187,8 +187,8 @@ export const androidResultSchemas = {
         top_class: z.string(),
         source_line: z.null(),
         dex_offset: z.null(),
-        /** false means transport-bounded instruction evidence; null/omitted is unknown. */
-        direct_invokes_exhaustive: z.boolean().nullable().default(null),
+        /** false means transport-bounded instruction evidence; null is unknown. */
+        direct_invokes_exhaustive: z.boolean().nullable(),
         /** Raw direct invoke instructions inside this using node, when available. */
         direct_invokes: z
           .array(

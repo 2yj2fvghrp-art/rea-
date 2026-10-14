@@ -19,7 +19,7 @@ additional permission flag or degraded mode is required.
 - a 64-bit full JDK inside that installation's declared Java range (JDK 21 or newer, with no maximum, for current 12.1 releases);
 - an explicit native, non-managed x86 or x86-64 PE application/DLL, or a
   [raw NMOS 6502 image](raw-binary.md#nmos-6502) with a caller-supplied entry; and
-- the 25 read-only Ghidra inventory, memory, and function-analysis operations.
+- the 26 read-only Ghidra inventory, memory, and function-analysis operations.
 
 Loaded memory reads and file offsets preserve Ghidra's observed source mappings.
 PE load-image inspection returns an explicit unsupported attestation status.
@@ -29,8 +29,10 @@ admitted raw NMOS 6502 mapping on Windows. Windows P0 admission remains limited
 to native PE and raw NMOS 6502 images. For x64 PE
 NativeAOT RTR 9.1, the read-only snapshot parser can report metadata through
 `inspect_native_load_image` and `inspect_native_data_type` without a JAR or
-database mutation. A real Windows-host NativeAOT Ghidra run is still required
-to establish the complete host workflow.
+database mutation: MethodTable relationships, virtual slots and frozen strings.
+`analyze_function` decompiles slot targets. Database reads of the rehydrated
+bytes (`read_bytes`, `search_strings`) return nothing on this host. See
+[NativeAOT](ghidra-nativeaot.md).
 
 This boundary does not establish general Windows feature parity. Ghidra GUI
 state, annotations, other target architectures and formats, and Hopper-only
@@ -76,6 +78,19 @@ OS failures. It checks the Ghidra release, headless launcher, full JDK, x64
 host, and native controls. A missing or mismatched addon requires the matching
 Windows x64 package; changing MCP registration cannot supply that artifact.
 A filesystem or access failure identifies the failed native constraint.
+An incompatible host uses `unsupported_host`. Missing, mismatched or unloadable
+native artifacts use `runtime_missing` and doctor classification
+`missing_dependency`. A failed native invocation or invalid inspection uses
+`runtime_unavailable` and doctor classification `runtime_failure`; it does not
+mean Windows x64 itself is unsupported. Provider diagnostics retain the failure
+stage under `windows_native_failure`, together with the corresponding remediation.
+Self-test failures preserve the native operation and OS error text. Check the
+process's writable local NTFS temporary directory and the reported filesystem,
+DACL, Job Object or cleanup constraint, then rerun doctor after resolving it.
+Ghidra or Java reinstallation cannot resolve a native self-test failure. The
+provider remains unavailable until all native controls are proven; a later query
+may retry a failed native invocation, while artifact or malformed-inspection
+failures remain stable for the process lifetime.
 Other doctor checks, including unconfigured agent integrations, can remain
 unready while Ghidra itself is available.
 

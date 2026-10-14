@@ -810,7 +810,6 @@ describe("web source-map sourcesContent validation", () => {
   it.each([
     ["a scalar sourcesContent value", { sourcesContent: "source" }],
     ["a non-string, non-null source entry", { sourcesContent: [42] }],
-    ["a sourcesContent array with the wrong length", { sourcesContent: [] }],
   ])("reports %s as invalid", async (_description, content) => {
     const result = await fetchWebSourceMaps([request], input(), undefined, {
       fetch: () =>
@@ -840,6 +839,50 @@ describe("web source-map sourcesContent validation", () => {
       ],
     });
   });
+
+  it.each([
+    ["shorter", ["import './a.ts';"]],
+    ["longer", ["import './a.ts';", null, "unused trailing content"]],
+  ])(
+    "keeps every source declaration when sourcesContent is %s than sources",
+    async (_length, sourcesContent) => {
+      const result = await fetchWebSourceMaps([request], input(), undefined, {
+        fetch: () =>
+          Promise.resolve(
+            new Response(
+              JSON.stringify({
+                version: 3,
+                sources: ["a.ts", "b.ts"],
+                sourcesContent,
+                names: [],
+                mappings: "",
+              }),
+              { status: 200 },
+            ),
+          ),
+      });
+
+      expect(result.items[0]).toMatchObject({
+        status: "included",
+        limitation: null,
+        original_sources: [
+          {
+            source_index: 0,
+            declaration_index: 0,
+            source: `${origin}/assets/a.ts`,
+            artifact: { text: "import './a.ts';" },
+          },
+          {
+            source_index: 1,
+            declaration_index: 1,
+            source: `${origin}/assets/b.ts`,
+            artifact: null,
+          },
+        ],
+      });
+      expect(result.items[0]?.original_sources).toHaveLength(2);
+    },
+  );
 
   it("accepts null source-map source contents", async () => {
     const result = await fetchWebSourceMaps([request], input(), undefined, {
@@ -945,6 +988,41 @@ describe("source-map original dependency syntax", () => {
       result.items[0]?.original_module_edges.map(({ specifier }) => specifier),
     ).toEqual(["./real.js", "./dynamic.js", "./common.cjs"]);
   });
+
+  it("reads expression-free template module specifiers as literals", async () => {
+    const text = [
+      "import(`./dep.js`);",
+      "import(`./dep.${name}.js`);",
+      "require(`./common.cjs`);",
+      "require(`./${name}.cjs`);",
+    ].join("\n");
+    const result = await fetchWebSourceMaps([request], input(), undefined, {
+      fetch: () =>
+        Promise.resolve(
+          new Response(
+            JSON.stringify({
+              version: 3,
+              names: [],
+              sources: ["main.ts"],
+              sourcesContent: [text],
+              mappings: "AAAA",
+            }),
+          ),
+        ),
+    });
+    const item = result.items[0];
+    if (item?.status !== "included") throw new Error("map not included");
+    expect(item.original_module_edges).toEqual([
+      expect.objectContaining({
+        kind: "dynamic_import",
+        specifier: "./dep.js",
+        resolved_source: `${origin}/assets/dep.js`,
+      }),
+      expect.objectContaining({ kind: "require", specifier: "./common.cjs" }),
+    ]);
+    expect(item.original_sources[0]?.artifact?.text).toBe(text);
+    expect(item.mappings).toHaveLength(1);
+  });
 });
 
 describe("source-map original syntax boundaries", () => {
@@ -1025,6 +1103,21 @@ describe("source-map dependency coverage of hard-to-parse sources", () => {
       ["./lib.js"],
     ],
     [
+      "whole-statement type-only import",
+      'import type { Value } from "./types.js";',
+      [],
+    ],
+    [
+      "whole-statement type-only export",
+      'export type { Value } from "./types.js";',
+      [],
+    ],
+    [
+      "inline type import retains module side effects",
+      'import { type Value } from "./types.js";',
+      ["./types.js"],
+    ],
+    [
       "a local import alias",
       'import lib = localAlias;\nimport "./a.js";',
       ["./a.js"],
@@ -1035,6 +1128,34 @@ describe("source-map dependency coverage of hard-to-parse sources", () => {
     expect(
       result.items[0]?.original_module_edges.map(({ specifier }) => specifier),
     ).toEqual(expected);
+  });
+
+  it("selects parser mode from the original source URL pathname", async () => {
+    const result = await fetchWebSourceMaps([request], input(), undefined, {
+      fetch: () =>
+        Promise.resolve(
+          new Response(
+            JSON.stringify({
+              version: 3,
+              names: [],
+              sources: ["main.ts?revision=2#view.tsx"],
+              sourcesContent: [`import "./dep.ts"; const value = <number>1;`],
+              mappings: "AAAA",
+            }),
+          ),
+        ),
+    });
+    expect(result.items[0]?.status).toBe("included");
+    expect(result.items[0]?.limitation).toBeNull();
+    expect(result.items[0]?.original_sources[0]?.source).toBe(
+      `${origin}/assets/main.ts?revision=2#view.tsx`,
+    );
+    expect(result.items[0]?.original_module_edges).toEqual([
+      expect.objectContaining({
+        specifier: "./dep.ts",
+        resolved_source: `${origin}/assets/dep.ts`,
+      }),
+    ]);
   });
 
   it("keeps recovered edges from a partly recovered source and reports them as partial", async () => {

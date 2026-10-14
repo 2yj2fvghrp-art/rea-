@@ -62,6 +62,10 @@ function classifyPackage(base, head) {
     ]),
   ].filter((key) => beforeScripts?.[key] !== afterScripts?.[key]);
   for (const script of changed) {
+    if (/^test:(coverage|mutation):reverse-tools$/.test(script)) {
+      selected.reverse_tools = true;
+      continue;
+    }
     if (script === "test:sqlite" || script === "test:sqlite:run") {
       selected.sqlite = true;
       continue;
@@ -162,6 +166,7 @@ if (tier === "reused") {
       .split("\0")
       .filter(Boolean);
     for (const file of files) {
+      if (matchesAny(file, SCOPES.reverse_tools)) selected.reverse_tools = true;
       if (
         /^(README(?:_[^/]+)?\.md|AGENTS\.md|CONTRIBUTING\.md|CHANGELOG\.md|SECURITY\.md|native\/windows\/README\.md|\.github\/pull_request_template\.md)$/.test(
           file,
@@ -170,6 +175,8 @@ if (tier === "reused") {
         file.startsWith(".github/ISSUE_TEMPLATE/")
       ) {
         selected.docs = true;
+        // Authored documentation code also belongs to the static checkers.
+        selected.code ||= /^docs\/.*\.(?:[cm]?[jt]s|[jt]sx)$/su.test(file);
         selected.website ||= matchesAny(file, SCOPES.website);
         continue;
       }
@@ -197,6 +204,9 @@ if (tier === "reused") {
         if (GUARDED_WORKFLOWS.has(file)) selected.code = true;
         if (file !== ".github/workflows/ci.yml") continue;
       }
+      // The Notes example is also the source-owned agent evaluation fixture.
+      if (file.startsWith("website/public/examples/notes-electron/"))
+        selected.code = true;
       if (owners.length === 1 && owners[0] === "website") continue;
       if (/^src\/(contracts|domain)\//.test(file)) selected.docs = true;
       if (file === "package.json") {

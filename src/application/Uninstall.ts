@@ -231,12 +231,21 @@ export const systemUninstallHost = (
       const clients = supportedClients(home, platform, environment);
       redirection = appDataRedirection(clients);
       return Promise.resolve(
-        clients.flatMap((client) =>
-          uninstallConfigPaths(client).map((configPath) => ({
+        clients.flatMap((client) => [
+          ...uninstallConfigPaths(client).map((configPath) => ({
             ...client,
             configPath,
           })),
-        ),
+          ...(client.zcodeFallbackPath === undefined
+            ? []
+            : [
+                {
+                  ...client,
+                  configPath: client.zcodeFallbackPath,
+                  format: "zcode_fallback" as const,
+                },
+              ]),
+        ]),
       );
     },
     inspectClient: async (client) => {
@@ -627,11 +636,16 @@ const removeManagedSkills = async (
   platform: NodeJS.Platform,
   writeBlocker?: (path: string) => string | undefined,
 ): Promise<UninstallItem> => {
-  // Every destination shares one summary item, so each result is labeled by
-  // the directory it refers to.
+  // Every destination shares one summary item; preserve both client and path.
   const results = await Promise.all(
-    skillDestinations(home, undefined, environment, platform).map(({ path }) =>
-      removeManagedSkill(path, path, fileSystem, writeBlocker),
+    skillDestinations(home, undefined, environment, platform).map(
+      ({ client, path }) =>
+        removeManagedSkill(
+          path,
+          `${client} (${path})`,
+          fileSystem,
+          writeBlocker,
+        ),
     ),
   );
   const failed = results.find(({ status }) => status === "failed");

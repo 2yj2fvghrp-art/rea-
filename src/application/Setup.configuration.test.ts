@@ -4,6 +4,7 @@ import { join, resolve } from "node:path";
 import { FakeSetupHost, options } from "./Setup.fixture.js";
 import { runSetup } from "./Setup.js";
 import { setupRegistrationCommand } from "./SetupHost.js";
+import { discoverSetupState } from "./SetupPlan.js";
 import type { MsixPackageView } from "./MsixPackageStorage.js";
 import type { SetupClient } from "./SupportedClients.js";
 
@@ -57,7 +58,7 @@ describe("setup workflow", () => {
       id: "ubuntu",
       versionId: "24.04",
       packageFamily: "deb",
-      supported: true,
+      hopperSetupSupported: true,
     };
     host.hopper = "/opt/hopper/bin/Hopper";
     host.linuxDemoRuntimeMissing = true;
@@ -79,7 +80,7 @@ describe("setup workflow", () => {
       id: "ubuntu",
       versionId: "24.04",
       packageFamily: "deb",
-      supported: true,
+      hopperSetupSupported: true,
     };
     host.hopper = "/custom/Hopper";
     host.unsupportedHopperVersion = true;
@@ -188,6 +189,51 @@ describe("setup workflow", () => {
       operation: "update",
     });
     expect(host.configurations).toBe(0);
+  });
+});
+
+describe("configured Linux Hopper selection", () => {
+  it("keeps an explicitly configured launcher even when demo checks fail", async () => {
+    const host = new FakeSetupHost("linux");
+    host.distribution = {
+      id: "ubuntu",
+      versionId: "24.04",
+      packageFamily: "deb",
+      hopperSetupSupported: true,
+    };
+    host.hopper = "/opt/hopper/bin/Hopper";
+    host.hopperLauncherConfigured = true;
+    host.linuxDemoRuntimeMissing = true;
+    const doctor = await host.doctor();
+    const discovery = await discoverSetupState({
+      host,
+      providerEnvironment: { HOPPER_LAUNCHER_PATH: host.hopper },
+      forceHopperInstall: false,
+      proposeHopper: true,
+      hopperLauncherConfigured: true,
+      initialDoctor: doctor,
+    });
+    expect(discovery.installHopper).toBe(false);
+  });
+
+  it("still offers repair for an unconfigured REA managed install", async () => {
+    const host = new FakeSetupHost("linux");
+    host.distribution = {
+      id: "ubuntu",
+      versionId: "24.04",
+      packageFamily: "deb",
+      hopperSetupSupported: true,
+    };
+    host.hopper = "/opt/hopper/bin/Hopper";
+    host.unsupportedHopperVersion = true;
+    const discovery = await discoverSetupState({
+      host,
+      providerEnvironment: { HOPPER_LAUNCHER_PATH: host.hopper },
+      forceHopperInstall: false,
+      proposeHopper: true,
+      initialDoctor: await host.doctor(),
+    });
+    expect(discovery.installHopper).toBe(true);
   });
 });
 
