@@ -10,6 +10,9 @@ SHA returned by Release Please. Before either registry is published, the release
 run calls full CI qualification at that exact revision, including coverage,
 portable providers, and every native package host. Later main commits cannot
 change or cancel that proof.
+The required reverse-tools lane runs fresh coverage and both mutation
+preflights. Complete mutation sweeps run separately on a schedule or manual
+dispatch and do not block publication; see [the testing guide](testing.md).
 Ordinary main pushes and closed, unmerged PRs cannot publish packages. Check
 both publication jobs and the published-package canary; a merged PR or GitHub
 tag alone does not establish that publication finished. Retry failed jobs in
@@ -84,8 +87,10 @@ registry metadata or changelog disagrees with that version before creating a tag
 
 ### Compatibility and version selection
 
-For the 6.2 candidate, review the [6.1 to 6.2 migration guide](migration-6.2.md)
-alongside the changelog before publication.
+Before publishing a candidate, review its changelog's breaking changes and the
+migration notes for the release being prepared. The
+[6.1 to 6.2 migration guide](migration-6.2.md) records that release's changes;
+it is a historical reference, not the compatibility checklist for later releases.
 
 REA uses Release Please's `always-bump-minor` strategy: every release increments
 minor and resets patch, including releases with breaking changes. For example,

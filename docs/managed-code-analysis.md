@@ -81,6 +81,40 @@ including the existing `inspect-analysis-view` CLI. Session record lifetime and
 export/import semantics remain unchanged. A server without Evidence retention
 rejects selected summary before analysis; complete delivery remains available.
 
+### Member summary and retained member rows
+
+Complete `inspect_managed_members` delivery always includes the assembly-wide
+`member_refs` and `exported_types`, which `type_names` does not narrow, so even
+one selected or unmatched type can return megabytes. Select
+`{"path":"/absolute/path/Assembly.dll","type_names":["Namespace.Type"],"detail":"summary"}`
+to keep the complete source in the session and receive identity, metadata
+status, the selection with its unmatched names, coverage/issues, the separate
+user-string coverage, limitations and per-collection counts. Then page original
+rows with view kind `managed-members`:
+
+```json
+{
+  "source": {
+    "kind": "retained-evidence",
+    "evidence_id": "<parent_evidence_id>"
+  },
+  "view": {
+    "kind": "managed-members",
+    "collection": "call_edges",
+    "offset": 0,
+    "limit": 64
+  }
+}
+```
+
+Collections are `types`, `exported_types`, `fields`, `methods`, `member_refs`,
+`call_edges`, `field_accesses` and `user_strings` (the literals). Each page names
+its collection, retains original rows, order, tokens, signatures and body facts,
+and carries the source selection and coverage; `user_strings` pages carry the
+literal pool's own coverage. Older Evidence that never examined exported types
+or user strings reports a null count and refuses those pages rather than
+returning an empty one.
+
 ## Shipped scope
 
 The canonical parser admits PE/CLI bytes and their metadata/CIL without loading
@@ -209,19 +243,27 @@ native/runtime questions retain their own authority and coverage.
 Names and semantic labels do not establish durable member identity. Comparison
 preserves observed differences, structural inferences, and unknowns separately.
 
-Cross-version matching first prefers exact raw CIL/signature identity, with
-equal decoded fingerprints. Equal decoded fingerprints alone cannot establish
-an exact match: they omit switch targets and collapse distinct NaN encodings.
-When that does not match, it pairs an exact declared type, method name, and raw
-signature before trying structural body shape. The exact-signature key uses names only
-as part of that full tuple; names alone never select a pair. Duplicate tuples
-remain ambiguous rather than being paired by token order. Fields follow the
-same exact tiers. The raw signature is exact whether or not REA decoded it, so
-undecoded signatures pair by that tuple too, but they never enter structural
-rounds. An unmatched member is therefore reported as `unknown`, not added or
-removed, when its own signature was not decoded or when the other side has an
-unpaired member, one-sided or ambiguous, with the same declared type and name
-whose signature was not decoded.
+Cross-version matching first pairs members of the same declared type and name:
+methods by exact CIL/signature identity, then by raw signature, then by
+structural body shape; fields by raw signature. Exact CIL/signature identity
+requires equal raw CIL digests and decoded fingerprints. Equal decoded
+fingerprints alone cannot establish an exact match: they omit switch targets
+and collapse distinct NaN encodings. Only then may a remap pair a
+renamed or moved member across declared types or names: a method by exact
+CIL/signature identity or structural body shape, a field by exact decoded
+signature. A remap never takes a member whose own declared type and name remain
+unpaired on the other side, so a member is never taken from its own changed
+counterpart. A member whose declaring type is unresolved could belong to any
+type, so it pairs by name only when no other member shares its exact
+CIL/signature key, never by structural shape alone, and any remap group it
+joins stays ambiguous. The exact-signature key uses names only as part of that
+full tuple; names alone never select a pair. Duplicate tuples remain ambiguous
+rather than being paired by token order. The raw signature is exact whether or
+not REA decoded it, so undecoded signatures pair by that tuple too, but they
+never enter structural rounds. An unmatched member is therefore reported as
+`unknown`, not added or removed, when its own signature was not decoded or when
+the other side has an unpaired member, one-sided or ambiguous, with the same
+declared type and name whose signature was not decoded.
 
 For a matched method, an unavailable or partial body makes body-shape facets
 unknown while preserving observed signature differences. For complete bodies,
@@ -281,6 +323,9 @@ function implements a specific managed method.
 `verify_managed_native_boundaries` compares declared P/Invoke module and entry
 point identities with supplied native export or function evidence. Name/module
 matches establish declaration links; they do not establish that a call executed.
+When either side lacks a usable module identity, a matching name remains
+unresolved and retains the candidate evidence; REA reports a module mismatch
+only when both identities are available and differ.
 
 Metadata tokens are not native addresses. Native body mapping for C++/CLI,
 ReadyToRun, NativeAOT, and IL2CPP requires separately verified format and provider
@@ -318,8 +363,9 @@ these indirections for member ownership and local attribute-constructor types;
 field and method tokens still identify the original definition rows.
 `field_list` and `method_list` retain the metadata's list coordinates, which
 refer to the pointer table when present rather than necessarily contiguous
-definition rows. Malformed or ambiguous pointers leave the owner unknown with
-partial coverage while preserving readable member and attribute facts.
+definition rows. Invalid or nonmonotonic list coordinates and malformed or
+ambiguous pointers leave affected owners unknown with partial coverage while
+preserving readable member and attribute facts.
 The retained inverse indexes are admitted against the existing representation
 budget before allocation.
 
