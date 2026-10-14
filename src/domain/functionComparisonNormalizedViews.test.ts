@@ -466,6 +466,50 @@ describe("normalized view edge cases", () => {
   });
 });
 
+describe("normalized view long assembly lines", () => {
+  it.each([
+    ["many operands", false],
+    ["many operands", true],
+    ["one expression", false],
+    ["one expression", true],
+  ] as const)(
+    "preserves reference uniqueness in long lines with %s (repeated target: %s)",
+    (form, repeated) => {
+      const constants = Array.from({ length: 2_000 }, () => "0x30");
+      const make = (base: string, target: string) => {
+        const use = repeated ? `${target} + ${target}` : target;
+        const operand =
+          form === "many operands"
+            ? `${constants.join(", ")}, [${use}]`
+            : `[${constants.join(" + ")} + ${use}]`;
+        return syntheticDossier({
+          base,
+          name: `FUN_${BigInt(base).toString(16)}`,
+          pseudocode: "void f(void) {}",
+          assembly: [`${base}: MOV EAX, ${operand} ; preserved comment`],
+          outgoingReferences: [
+            {
+              source: base,
+              target,
+              operandIndex: form === "many operands" ? constants.length + 1 : 1,
+            },
+          ],
+        });
+      };
+      const [left, right] = syntheticPair(
+        make("0x411700", "0x9000"),
+        make("0x511700", "0xa000"),
+      );
+      const result = compareFunctions(left, right, {
+        includeNormalizedViews: true,
+      });
+      expect(view(result, "assembly_normalized")).toMatchObject({
+        status: repeated ? "changed" : "unchanged",
+      });
+    },
+  );
+});
+
 describe("normalized view address projection", () => {
   it("keeps distinct in-body branch offsets distinct", () => {
     const [left, right] = syntheticPair(
@@ -1061,6 +1105,12 @@ describe("normalized view static/runtime consumer", () => {
     );
     expect(() =>
       correlate("pseudocode_normalized", unclosedComparison),
+    ).toThrow(/outside its top-level closure/u);
+    expect(() =>
+      verifyReconstruction(
+        claim("assembly_normalized", unclosedComparison),
+        createEvidenceBundle([editedLeft, editedRight, unclosedComparison]),
+      ),
     ).toThrow(/outside its top-level closure/u);
   });
 });

@@ -1,6 +1,7 @@
 import { parseAddress } from "./functionComparisonNormalization.js";
 
 const HEXADECIMAL_ADDRESS = /(?<![0-9A-Za-z_:])0x[0-9a-f]+/giu;
+const ASSEMBLY_ADDRESS_TOKEN = /(?<![0-9A-Za-z_])0x[0-9a-f]+/giu;
 
 export interface TextAddressLocation {
   readonly instructionAddress: bigint | null;
@@ -125,30 +126,44 @@ const hasAddressSpaceQualifier = (
 const isWhitespace = (character: string | undefined): boolean =>
   character !== undefined && /\s/u.test(character);
 
-/** Locate an assembly token and its exact operand position, when available. */
-export const textAddressLocation = (
+/** Locate tokens in source order, retaining only the current parsed assembly line. */
+export const createTextAddressLocator = (
   text: string,
-  tokenOffset: number,
-  address: bigint,
   assembly: boolean,
-): TextAddressLocation => {
-  if (!assembly) return emptyAddressLocation();
-  const lineStart = text.lastIndexOf("\n", tokenOffset - 1) + 1;
-  const isAddressSpaceQualified = hasAddressSpaceQualifier(
-    text,
-    lineStart,
-    tokenOffset,
-  );
-  const newline = text.indexOf("\n", tokenOffset);
-  const lineEnd = newline < 0 ? text.length : newline;
-  const line = text.slice(lineStart, lineEnd);
+): ((tokenOffset: number) => TextAddressLocation) => {
+  const empty = emptyAddressLocation();
+  if (!assembly) return () => empty;
+  let lineStart = -1;
+  let lineEnd = -1;
+  let locations = new Map<number, TextAddressLocation>();
+  return (tokenOffset) => {
+    if (tokenOffset < lineStart || tokenOffset >= lineEnd) {
+      lineStart = text.lastIndexOf("\n", tokenOffset - 1) + 1;
+      const newline = text.indexOf("\n", tokenOffset);
+      lineEnd = newline < 0 ? text.length : newline;
+      locations = parseAssemblyLine(text.slice(lineStart, lineEnd), lineStart);
+    }
+    return locations.get(tokenOffset) ?? empty;
+  };
+};
+
+/** Parse operand boundaries and occurrence counts once, never per numeric use. */
+const parseAssemblyLine = (
+  line: string,
+  lineStart: number,
+): Map<number, TextAddressLocation> => {
+  const locations = new Map<number, TextAddressLocation>();
   const prefix = /^(\s*)(0x[0-9a-f]+):\s*/iu.exec(line);
-  if (prefix === null)
-    return { ...emptyAddressLocation(), isAddressSpaceQualified };
+  if (prefix === null) {
+    for (const token of line.matchAll(ASSEMBLY_ADDRESS_TOKEN))
+      locations.set(lineStart + token.index, {
+        ...emptyAddressLocation(),
+        isAddressSpaceQualified: hasAddressSpaceQualifier(line, 0, token.index),
+      });
+    return locations;
+  }
 
   const instructionAddress = parseAddress((prefix[2] ?? "").toLowerCase());
-  const tokenInLine = tokenOffset - lineStart;
-  const isInstructionAddress = tokenInLine === (prefix[1] ?? "").length;
   const instructionStart = prefix[0].length;
   const instruction = line.slice(instructionStart);
   const mnemonic = /^([a-z][a-z0-9_.]*)\b/iu.exec(instruction)?.[1];
@@ -159,41 +174,63 @@ export const textAddressLocation = (
     line.slice(operandsStart),
     operandsStart,
   );
-  const operandIndex = operandRanges.findIndex(
-    ({ start, end }) => tokenInLine >= start && tokenInLine < end,
-  );
-  const operandRange = operandRanges[operandIndex];
+  const finalOperand = operandRanges.at(-1);
   const directOperand =
-    operandRange === undefined
+    finalOperand === undefined
       ? ""
-      : line.slice(operandRange.start, operandRange.end).trim();
-  const isControlFlowTarget =
+      : line.slice(finalOperand.start, finalOperand.end).trim();
+  const hasDirectControlFlowTarget =
     /^(?:callq?|lcall|bl|blx|blr|jal|jalr|jmpq?|ljmp|j[a-z]+|b(?:\.[a-z]+)?|br|cbz|cbnz|tbz|tbnz|tbb|tbh)$/u.test(
       lowerMnemonic,
-    ) &&
-    operandIndex === operandRanges.length - 1 &&
-    /^#?0x[0-9a-f]+$/iu.test(directOperand);
-  const operandAddressOccurrences =
-    operandRange === undefined
-      ? 0
-      : [...line.matchAll(HEXADECIMAL_ADDRESS)].filter(
-          (match) =>
-            (match.index ?? -1) >= operandRange.start &&
-            (match.index ?? -1) < operandRange.end &&
-            parseAddress(match[0].toLowerCase()) === address,
-        ).length;
-  const instructionAddressOccurrences = [
-    ...line.matchAll(HEXADECIMAL_ADDRESS),
-  ].filter((match) => (match.index ?? -1) >= operandsStart).length;
-  return {
-    instructionAddress,
-    isInstructionAddress,
-    isControlFlowTarget,
-    isAddressSpaceQualified,
-    operandIndex: operandIndex < 0 ? null : operandIndex,
-    operandAddressOccurrences,
-    instructionAddressOccurrences,
-  };
+    ) && /^#?0x[0-9a-f]+$/iu.test(directOperand);
+  const counts = operandRanges.map(() => new Map<bigint, number>());
+  let instructionAddressOccurrences = 0;
+  let operandCursor = 0;
+  for (const token of line.matchAll(HEXADECIMAL_ADDRESS)) {
+    if (token.index >= operandsStart) instructionAddressOccurrences += 1;
+    while (
+      operandCursor < operandRanges.length &&
+      token.index >= operandRanges[operandCursor]!.end
+    )
+      operandCursor += 1;
+    const range = operandRanges[operandCursor];
+    const occurrences = counts[operandCursor];
+    if (
+      range === undefined ||
+      token.index < range.start ||
+      occurrences === undefined
+    )
+      continue;
+    const address = parseAddress(token[0].toLowerCase());
+    if (address !== null)
+      occurrences.set(address, (occurrences.get(address) ?? 0) + 1);
+  }
+  operandCursor = 0;
+  for (const token of line.matchAll(ASSEMBLY_ADDRESS_TOKEN)) {
+    while (
+      operandCursor < operandRanges.length &&
+      token.index >= operandRanges[operandCursor]!.end
+    )
+      operandCursor += 1;
+    const range = operandRanges[operandCursor];
+    const operandIndex =
+      range !== undefined && token.index >= range.start ? operandCursor : null;
+    const address = parseAddress(token[0].toLowerCase());
+    locations.set(lineStart + token.index, {
+      instructionAddress,
+      isInstructionAddress: token.index === (prefix[1] ?? "").length,
+      isControlFlowTarget:
+        hasDirectControlFlowTarget && operandIndex === operandRanges.length - 1,
+      isAddressSpaceQualified: hasAddressSpaceQualifier(line, 0, token.index),
+      operandIndex,
+      operandAddressOccurrences:
+        operandIndex === null || address === null
+          ? 0
+          : (counts[operandIndex]?.get(address) ?? 0),
+      instructionAddressOccurrences,
+    });
+  }
+  return locations;
 };
 
 const emptyAddressLocation = (): TextAddressLocation => ({

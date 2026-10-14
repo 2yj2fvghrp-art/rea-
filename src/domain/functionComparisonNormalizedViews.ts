@@ -9,7 +9,7 @@ import {
 import type { FunctionSnapshot } from "./functionDossierEvidence.js";
 import { parseAddress } from "./functionComparisonNormalization.js";
 import {
-  textAddressLocation,
+  createTextAddressLocator,
   transformProviderText,
 } from "./functionComparisonTextParsing.js";
 import type {
@@ -82,6 +82,10 @@ const normalizeText = (
   let maskedAddresses = 0;
   let visibleAddresses = 0;
   let maskedCalleeTarget = false;
+  const addressLocation = createTextAddressLocator(
+    text,
+    dimension === "assembly_normalized",
+  );
   const normalized = transformProviderText(
     text,
     dimension === "assembly_normalized",
@@ -107,12 +111,7 @@ const normalizeText = (
               ? projection.maskIdentifier(address)
               : projection.maskTextAddress(
                   address,
-                  textAddressLocation(
-                    text,
-                    codeStart + index,
-                    address,
-                    dimension === "assembly_normalized",
-                  ),
+                  addressLocation(codeStart + index),
                 );
         if (mask === null) {
           if (isIdentifier) unmaskedIdentifiers += 1;
