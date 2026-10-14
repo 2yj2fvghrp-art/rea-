@@ -1,11 +1,13 @@
-import { writeFile } from "node:fs/promises";
+import { mkdir, rm, writeFile } from "node:fs/promises";
 import { join } from "node:path";
 
 import { describe, expect, it } from "vitest";
 import { z } from "zod";
+import { createPackageWithOptions } from "@electron/asar";
 import { parseEvidence } from "../../../../src/domain/evidence.js";
 import { javascriptApplicationAnalysisResultSchema } from "../../../../src/domain/javascript/javascriptApplicationAnalysis.js";
 import { writeJavaScriptSourceSelectionFixture } from "../../../fixtures/javascriptSourceSelection.js";
+import { writeJavaScriptArtifactFixture } from "../../../fixtures/javascriptArtifactApplication.js";
 
 import { ArtifactReaderFailure } from "../../../../src/artifacts/ArtifactReader.js";
 import { scanCanonicalArtifactInventory } from "../../../fixtures/artifactInventory.js";
@@ -377,5 +379,43 @@ describe("JavaScript application cleanup diagnostics", () => {
       cleanup,
       partialObservation,
     });
+  });
+});
+
+describe("JavaScript ASAR unpacked companion availability boundary", () => {
+  it("reports a missing unpacked native companion as unavailable under partial coverage", async () => {
+    const root = await createTestTempDirectory(
+      "rea-js-asar-missing-companion-",
+    );
+    const source = join(root, "source");
+    await mkdir(source);
+    await writeJavaScriptArtifactFixture(source);
+    const archive = join(root, "app.asar");
+    await createPackageWithOptions(source, archive, { unpack: "*.node" });
+    await rm(join(`${archive}.unpacked`, "native", "addon.node"));
+
+    const result = await analyzeJavaScriptApplication({
+      input_path: archive,
+    });
+    if (!result.ok) throw result.error;
+    const analysis = javascriptApplicationAnalysisResultSchema.parse(
+      result.value.normalized_result,
+    );
+    expect(
+      analysis.graph.edges.some(
+        ({ properties }) =>
+          properties.specifier === "./native/addon.node" &&
+          properties.resolution_status === "unavailable" &&
+          properties.candidate_path === "native/addon.node",
+      ),
+    ).toBe(true);
+    expect(analysis.graph.coverage.status).toBe("partial");
+    expect(
+      analysis.graph.limitations.some(
+        (limitation) =>
+          limitation.includes("native/addon.node") &&
+          limitation.includes("unavailable"),
+      ),
+    ).toBe(true);
   });
 });
