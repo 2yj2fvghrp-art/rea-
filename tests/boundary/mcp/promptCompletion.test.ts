@@ -225,6 +225,50 @@ describe("guided prompt completion from investigation records", () => {
   });
 });
 
+describe("guided prompt completion from inspection substeps", () => {
+  it("offers every inventory substep of an imported inspection (#3220)", async () => {
+    const session = createTestBinarySession(() => client([]));
+    const examples = [
+      ARTIFACT_COMPARISON_EXAMPLE.left,
+      ARTIFACT_COMPARISON_EXAMPLE.right,
+    ];
+    const inspections = examples.map((example) =>
+      createArtifactInspection(example),
+    );
+    const first = inspections[0];
+    if (first === undefined) throw new Error("Missing fixture inspection");
+    const substeps = inspections.flatMap((entry) => entry.substeps);
+    const evidenceLinks = inspections.flatMap((entry) => entry.evidence_links);
+    const inspection = { ...first, substeps, evidence_links: evidenceLinks };
+    const inspectionEvidence = createEvidence(undefined, fixtureProvider, {
+      operation: "inspect_artifact",
+      parameters: {},
+      result: jsonValueSchema.parse(inspection),
+      confidence: "observed",
+      authority: "shipped-artifact",
+    });
+    expect(session.recordEvidence(inspectionEvidence).ok).toBe(true);
+    const completion = createPromptCompletionSource(session, session);
+    const manifests = examples.map(
+      (example) =>
+        artifactInventoryResultSchema.parse(example.normalized_result).manifest
+          .manifest_id,
+    );
+    const offered = await completion.complete("manifest", "agm_");
+    for (const manifest of manifests) expect(offered).toContain(manifest);
+    expect(offered.length).toBeGreaterThanOrEqual(manifests.length);
+    const occurrences = examples.flatMap(
+      (example) =>
+        artifactInventoryResultSchema.parse(example.normalized_result)
+          .occurrences,
+    );
+    const offeredOccurrences = await completion.complete("occurrence", "occ_");
+    for (const { occurrence_id: id } of occurrences)
+      expect(offeredOccurrences).toContain(id);
+    await session.close();
+  });
+});
+
 describe("guided prompt completion from complete inventories", () => {
   it("reads every procedure in one provider call", async () => {
     let calls = 0;
