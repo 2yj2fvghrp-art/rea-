@@ -31,9 +31,7 @@ it("projects an unsupported non-regular entry as unknown kind instead of file", 
       "Entry is not a regular file Exclude this entry or replace it with a regular file.",
     ],
   });
-  expect(
-    parsed.entries.some((entry) => entry.kind === "file"),
-  ).toBe(false);
+  expect(parsed.entries.some((entry) => entry.kind === "file")).toBe(false);
 });
 
 it("keeps a failed regular file as file kind", () => {
