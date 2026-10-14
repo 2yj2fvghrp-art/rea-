@@ -34,6 +34,9 @@ describe("CdpBrowserProvider: approved accessibility and source capture", () => 
       },
       nodes: [expect.objectContaining({ name: "Submit report" })],
     });
+    expect(browser.commands.map(({ method }) => method)).not.toContain(
+      "WebMCP.disable",
+    );
   });
 
   it("includes allowed script source only after explicit approval", async () => {
@@ -316,6 +319,15 @@ describe("CdpBrowserProvider: WebMCP discovery and completeness", () => {
       expect(serialized).not.toContain("private-tool-secret");
       const methods = browser.commands.map(({ method }) => method);
       expect(methods).toContain("WebMCP.enable");
+      expect(methods.slice(-6)).toEqual([
+        "WebMCP.disable",
+        "Network.disable",
+        "Debugger.disable",
+        "Runtime.disable",
+        "Page.disable",
+        "Target.detachFromTarget",
+      ]);
+      await expect.poll(browser.activeConnectionCount).toBe(0);
       expect(methods).not.toContain("WebMCP.invokeTool");
       expect(methods).not.toContain("Runtime.evaluate");
     },
@@ -323,7 +335,7 @@ describe("CdpBrowserProvider: WebMCP discovery and completeness", () => {
 
   it("reports WebMCP unavailable when the experimental domain is absent", async () => {
     const browser = await startFakeCdpBrowser({
-      unsupportedMethods: ["WebMCP.enable"],
+      unsupportedMethods: ["WebMCP.enable", "WebMCP.disable"],
     });
     trackBrowser(browser);
     const result = await new CdpBrowserProvider().discoverWebMcpTools(
@@ -341,6 +353,38 @@ describe("CdpBrowserProvider: WebMCP discovery and completeness", () => {
     expect(result.value.completeness.unavailable_sections).toContain(
       "webmcp_tools",
     );
+    expect(browser.commands.map(({ method }) => method)).toContain(
+      "WebMCP.disable",
+    );
+    expect(browser.commands.at(-1)?.method).toBe("Target.detachFromTarget");
+    await expect.poll(browser.activeConnectionCount).toBe(0);
+  });
+
+  it("preserves WebMCP discovery and detaches when domain cleanup fails", async () => {
+    const browser = await startFakeCdpBrowser({
+      webMcpTools: true,
+      commandError: ({ method }) =>
+        method === "WebMCP.disable"
+          ? { code: -32_000, message: "Domain cleanup failed" }
+          : undefined,
+    });
+    trackBrowser(browser);
+    const result = await new CdpBrowserProvider().discoverWebMcpTools(
+      discoverWebMcpToolsInputSchema.parse({
+        cdp_endpoint: browser.endpoint,
+        target_id: "allowed-page",
+        observation_ms: 0,
+      }),
+    );
+
+    if (!result.ok) throw result.error;
+    expect(result.value.status).toBe("available");
+    expect(result.value.tools.total).toBe(1);
+    expect(browser.commands.map(({ method }) => method)).toContain(
+      "WebMCP.disable",
+    );
+    expect(browser.commands.at(-1)?.method).toBe("Target.detachFromTarget");
+    await expect.poll(browser.activeConnectionCount).toBe(0);
   });
 
   it("rejects WebMCP evidence when the page leaves its approved origin", async () => {

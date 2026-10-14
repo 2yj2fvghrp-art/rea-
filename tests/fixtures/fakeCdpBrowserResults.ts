@@ -48,6 +48,7 @@ export const resultFor = (
       return cachedResponseResult(options);
     case "Page.enable":
     case "Page.disable":
+    case "WebMCP.disable":
     case "Page.setLifecycleEventsEnabled":
     case "Network.enable":
     case "Network.disable":
