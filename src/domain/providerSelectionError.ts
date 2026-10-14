@@ -22,6 +22,8 @@ export interface ProviderSelectionRejection {
 
 /** Complete typed context for one failed deep-provider selection. */
 export interface ProviderSelectionErrorOptions {
+  /** Caller-safe recovery guidance owned by the rejecting provider. */
+  readonly userMessage?: string;
   readonly capturedOutput?: AnalysisCapturedOutput;
   readonly operation?: string;
   readonly reason: ProviderSelectionFailureReason;
@@ -56,7 +58,8 @@ export class ProviderSelectionError extends AnalysisError {
       ...rejection,
       diagnostics: structuredClone(rejection.diagnostics),
     }));
-    this.userMessage = providerSelectionUserMessage(options);
+    this.userMessage =
+      options.userMessage ?? providerSelectionUserMessage(options);
   }
 }
 

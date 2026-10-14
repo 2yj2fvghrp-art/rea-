@@ -152,8 +152,10 @@ overrides it. In MCP, pass `provider_id` to `open_binary`:
 The selected provider remains bound to the session until an explicit switch
 or close. Provider failures are returned with their original reason. For an
 `ambiguous` selection error, choose from `details.candidate_ids`; for
-`provider_unavailable`, run `rea doctor --provider ID --json` to diagnose the
-selected engine. See [task readiness](installation.md#check-readiness-for-your-task)
+`provider_unavailable`, follow the error's recovery guidance. For Hopper, Ghidra,
+and IDA, run `rea doctor --provider ID --json` to diagnose the selected engine.
+Pwntools errors report their configuration requirements directly, such as
+`REA_PWNTOOLS_PYTHON`. See [task readiness](installation.md#check-readiness-for-your-task)
 and [provider selection](mcp-contracts.md#identity-and-discovery).
 
 The session reports work still in progress through `analysis_activity`.

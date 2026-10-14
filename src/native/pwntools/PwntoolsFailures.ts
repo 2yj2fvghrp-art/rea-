@@ -264,6 +264,7 @@ export const pwntoolsUnavailable = (
   context: PwntoolsFailureContext = DEFAULT_CONTEXT,
 ): ProviderSelectionError =>
   new ProviderSelectionError({
+    userMessage: `${context.configurationKey ?? "REA_PWNTOOLS_PYTHON"}: ${reason}`,
     ...(capturedOutput === undefined ? {} : { capturedOutput }),
     operation: context.operation,
     reason: "provider_unavailable",
