@@ -383,7 +383,9 @@ describe("managed operand extent diagnostics", () => {
       issue: "Instruction switch at IL offset 1 leaves method body",
     });
   });
+});
 
+describe("managed operand extent follow-up cases", () => {
   it("reports a switch whose target count is itself truncated", () => {
     expect(fatBody(Buffer.from([0x45, 0x02]))).toMatchObject({
       status: "malformed",

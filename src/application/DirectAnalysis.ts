@@ -491,7 +491,13 @@ const prepareSnapshot = async (options: {
   const { snapshotPath } = options;
   if (snapshotPath === undefined || !(await fileExists(snapshotPath)))
     return ok({});
-  return readAnalysisSnapshot(snapshotPath, options.signal);
+  const loaded = await readAnalysisSnapshot(snapshotPath, options.signal);
+  return loaded.ok
+    ? ok({ snapshot: loaded.value })
+    : (loaded as Result<
+        { readonly snapshot?: AnalysisSnapshot },
+        AnalysisError
+      >);
 };
 
 const allowsSnapshotReplay = (
