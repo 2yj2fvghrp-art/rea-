@@ -32,7 +32,6 @@ export const createProcessTextNormalizer = (
       }
       normalized = normalizePids(normalized);
     }
-    // Caller-declared rules retain their original order and literal replacements.
     for (const pattern of scenario.normalization.patterns)
       normalized = normalized.replaceAll(
         pattern.pattern,

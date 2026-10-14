@@ -38,7 +38,6 @@ import { assertNotCancelled } from "./ProcessScenarioRuntimeValidation.js";
 import {
   normalizeProcessElapsedTime,
   normalizeProcessSamples,
-  createProcessTextNormalizer,
 } from "./ProcessNormalization.js";
 import { PROCESS_PROVIDER } from "../../domain/process/processEvidenceProvider.js";
 import { TerminalRenderer } from "./TerminalRenderer.js";
@@ -1302,16 +1301,11 @@ export const captureTerminalFrames = (options: {
   readonly scenario: ProcessScenario;
   readonly frames: TerminalFrame[];
   readonly started: number;
-  readonly temporaryRoot: string;
   readonly onOutput: () => void;
   readonly renderer: TerminalRenderer;
+  readonly normalizeText: (value: string) => string;
   readonly recordEvent: RecordProcessCaptureEvent;
 }): (() => TerminalRetention) => {
-  const normalizeText = createProcessTextNormalizer(
-    options.scenario,
-    options.temporaryRoot,
-    options.terminal.pid,
-  );
   let outputBytes = 0;
   let observedBytes = 0;
   let observedFrames = 0;
@@ -1328,7 +1322,7 @@ export const captureTerminalFrames = (options: {
       monotonicProcessCaptureClock() - options.started,
       options.scenario.normalization.time_bucket_ms,
     );
-    const normalized = normalizeText(data);
+    const normalized = options.normalizeText(data);
     const sequence = options.frames.length;
     options.frames.push({
       sequence,
