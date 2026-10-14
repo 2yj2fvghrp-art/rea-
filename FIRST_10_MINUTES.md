@@ -18,7 +18,7 @@ If Node is missing, the launcher gives instructions without installing anything.
 - Click **search.mjs** to find the ranking rules in actual JavaScript.
 - Open **Recorded REA evidence**. The original engine confirmed two source-linked imports; the UI animation is an explanation, not a recorded runtime trace.
 
-If you can explain *"one file brings in data and a search function, and the search function ranks notes by rules we can verify"*, you've finished lesson one.
+If you can explain _"one file brings in data and a search function, and the search function ranks notes by rules we can verify"_, you've finished lesson one.
 
 ## Go deeper whenever you're ready
 
