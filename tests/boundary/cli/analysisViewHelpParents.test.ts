@@ -25,17 +25,11 @@ const serve = async (
 describe("inspect-analysis-view advertised description", () => {
   it("names the retained parent families the shared service supports", async () => {
     const cli = createCli({});
-    const schema = await serve(cli, [
-      "inspect-analysis-view",
-      "--schema",
-      "--json",
-    ]);
-    expect(schema.exitCode).toBe(0);
-    const description = (
-      JSON.parse(schema.stdout) as {
-        readonly description?: string;
-      }
-    ).description;
+    // --schema reports only the argument schema; the command description is
+    // advertised in its help.
+    const help = await serve(cli, ["inspect-analysis-view", "--help"]);
+    expect(help.exitCode).toBe(0);
+    const description = help.stdout.split("\n")[0];
     // The shared view service projects web network capture and pcap parents
     // alongside the original three; the help must not hide them.
     expect(description).toContain("web network capture");
