@@ -17,17 +17,34 @@ const DEFAULT_HOPPER_LAUNCHER_PATH =
   "/Applications/Hopper Disassembler.app/Contents/MacOS/hopper";
 
 /**
+ * Hard deadline for the synchronous linker probe. `parseConfig` runs at the
+ * synchronous composition root — MCP startup and every direct-analysis
+ * command — so the `ldd` child selected from the caller's PATH must never
+ * block it indefinitely: when the deadline expires Node kills the child and
+ * `execFileSync` throws, which fails the candidate closed like any other
+ * probe error. The repository's async process supervision
+ * (`src/process/ExecFileOutput`) cannot serve a synchronous composition
+ * root, so the bound lives on the child itself: `timeout` kills on expiry
+ * and `SIGKILL` (rather than the default `SIGTERM`) guarantees termination
+ * even if the PATH-selected wrapper traps signals. Exported for tests.
+ */
+export const LDD_PROBE_TIMEOUT_MS = 10_000;
+
+/**
  * Mirror doctor discovery's launcher readiness decision so runtime
  * configuration and `rea doctor` select the same launcher: execute access
  * alone is not readiness. The path must be a regular file, and on Linux its
  * shared libraries must resolve under `ldd`. Fail closed: any probe error
  * means the candidate is not selected. The linker probe runs under the
  * caller-selected environment — the same environment execution launches
- * Hopper with — so discovery and execution agree. Exported for tests.
+ * Hopper with — so discovery and execution agree. The probe is
+ * deadline-bounded so a stalled `ldd` cannot hang the composition root.
+ * Exported for tests.
  */
 export const executableAvailable = (
   path: string,
   environment: Readonly<NodeJS.ProcessEnv> = process.env,
+  probeTimeoutMs: number = LDD_PROBE_TIMEOUT_MS,
 ): boolean => {
   try {
     accessSync(path, constants.X_OK);
@@ -38,6 +55,8 @@ export const executableAvailable = (
       encoding: "utf8",
       stdio: ["ignore", "pipe", "ignore"],
       env: environment,
+      timeout: probeTimeoutMs,
+      killSignal: "SIGKILL",
     });
     return linuxSharedLibrariesAvailable(linked);
   } catch {

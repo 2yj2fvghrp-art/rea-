@@ -493,5 +493,34 @@ describe.runIf(process.platform === "linux")(
         rmSync(probeRoot, { recursive: true, force: true });
       }
     });
+
+    it(
+      "fails a stalled linker probe closed within its deadline",
+      { timeout: 30_000 },
+      () => {
+        const probeRoot = mkdtempSync(join(tmpdir(), "rea-hopper-stall-"));
+        try {
+          // A PATH-selected ldd that never answers: without a probe deadline
+          // this would block parseConfig — and MCP startup — indefinitely.
+          const fakeLdd = join(probeRoot, "ldd");
+          writeFileSync(fakeLdd, "#!/bin/sh\nexec sleep 30\n", {
+            mode: 0o755,
+          });
+          const callerEnvironment = {
+            PATH: `${probeRoot}:${process.env.PATH ?? ""}`,
+          };
+          const deadlineMs = 1_000;
+          const started = Date.now();
+          expect(
+            executableAvailable(healthyBinary, callerEnvironment, deadlineMs),
+          ).toBe(false);
+          // Bounded by the deadline, not by the 30s sleep: without the fix
+          // this test hangs until its own timeout instead of returning.
+          expect(Date.now() - started).toBeLessThan(15_000);
+        } finally {
+          rmSync(probeRoot, { recursive: true, force: true });
+        }
+      },
+    );
   },
 );
