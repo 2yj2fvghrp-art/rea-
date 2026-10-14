@@ -241,3 +241,76 @@ describe("checkAndroidSplitSet (unresolved attributes)", () => {
     expect(report.coverage).toBe("partial");
   });
 });
+
+describe("checkAndroidSplitSet (review follow-ups)", () => {
+  it("does not read an unresolved versionCodeMajor as zero", () => {
+    const report = checkAndroidSplitSet([
+      read("base", {
+        version_code: 7,
+        unresolved_attributes: ["manifest@versionCodeMajor"],
+      }),
+      read("arm64", { split: "config.arm64_v8a", version_code: 7 }),
+    ]);
+    expect(report.version_code_agreement.status).toBe("unknown");
+    expect(report.version_code_agreement.values).toContainEqual({
+      value: null,
+      members: ["base"],
+    });
+  });
+
+  it("keeps a known major distinct from an unresolved one", () => {
+    const report = checkAndroidSplitSet([
+      read("base", {
+        version_code: 7,
+        version_code_major: 1,
+      }),
+      read("arm64", {
+        split: "config.arm64_v8a",
+        version_code: 7,
+        unresolved_attributes: ["manifest@versionCodeMajor"],
+      }),
+    ]);
+    expect(report.version_code_agreement.status).not.toBe("consistent");
+  });
+
+  it("does not report a parent as missing when a selected manifest is unreadable", () => {
+    const report = checkAndroidSplitSet([
+      read("base", {}),
+      { id: "feature", manifest: { state: "unreadable", reason: "truncated" } },
+      read("feature-fr", { split: "config.fr", config_for_split: "feature_x" }),
+    ]);
+    expect(report.missing_parents).toEqual([]);
+    expect(report.unresolved_parent_lookups).toEqual([
+      { member: "feature-fr", configures: "feature_x" },
+    ]);
+    expect(report.coverage).toBe("partial");
+  });
+
+  it("does not report a parent as missing when a selected split name is unresolved", () => {
+    const report = checkAndroidSplitSet([
+      read("base", {}),
+      read("feature", {
+        split: null,
+        is_feature_split: true,
+        unresolved_attributes: ["manifest@split"],
+      }),
+      read("feature-fr", { split: "config.fr", config_for_split: "feature_x" }),
+    ]);
+    expect(report.missing_parents).toEqual([]);
+    expect(report.unresolved_parent_lookups).toEqual([
+      { member: "feature-fr", configures: "feature_x" },
+    ]);
+  });
+
+  it("orders coverage reasons independently of input order", () => {
+    const members: SplitSetMemberInput[] = [
+      read("base", {}),
+      { id: "b", manifest: { state: "unreadable", reason: "truncated" } },
+      { id: "a", manifest: { state: "unreadable", reason: "not a manifest" } },
+    ];
+    const forward = checkAndroidSplitSet(members);
+    const reversed = checkAndroidSplitSet([...members].reverse());
+    expect(forward.coverage_reasons.length).toBeGreaterThan(1);
+    expect(reversed.coverage_reasons).toEqual(forward.coverage_reasons);
+  });
+});
