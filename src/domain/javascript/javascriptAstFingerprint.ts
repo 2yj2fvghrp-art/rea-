@@ -7,6 +7,7 @@ import { traverseJavaScriptAst } from "./javascriptSemanticTraversal.js";
 import { compareUnicodeCodePoints } from "../unicodeCodePointOrder.js";
 import {
   propertyName,
+  runtimeFunctionParameters,
   semanticStaticPropertyKey,
 } from "./javascriptAstValues.js";
 import { stringValue } from "./javascriptStaticAnalysisHelpers.js";
@@ -38,15 +39,13 @@ export const collectJavaScriptExports = (
   bindings?: JavaScriptSemanticAnalysisState,
 ): StaticExports => {
   const exports = new Set<string>();
+  const parameter = t.isFunction(node)
+    ? runtimeFunctionParameters(node)[1]
+    : undefined;
   const factoryExports =
-    bindings !== undefined &&
-    t.isFunction(node) &&
-    t.isIdentifier(node.params[1])
-      ? resolveSemanticBindingState(
-          bindings,
-          node.params[1],
-          node.params[1].name,
-        )?.bindingId
+    bindings !== undefined && t.isFunction(node) && t.isIdentifier(parameter)
+      ? resolveSemanticBindingState(bindings, parameter, parameter.name)
+          ?.bindingId
       : undefined;
   const isExportsAlias = (reference: t.Node | null): boolean => {
     if (!t.isIdentifier(reference)) return false;
@@ -92,10 +91,8 @@ const semanticTokens = (node: t.Node): string[] => {
   else if (t.isUnaryExpression(node) || t.isUpdateExpression(node))
     tokens.push(`operator:${node.operator}`);
   if (t.isMemberExpression(node) || t.isOptionalMemberExpression(node)) {
-    // Computed identifiers name a local binding, not a fixed member. Retain
-    // that syntax distinction without making its spelling an identity token.
+    // A computed identifier names a local binding, not a fixed member.
     tokens.push(`computed:${String(node.computed)}`);
-    // Computed literal contents are retained by their own child tokens.
     if (!node.computed) {
       const property = propertyName(node.property);
       if (property !== "") tokens.push(`property:${property}`);

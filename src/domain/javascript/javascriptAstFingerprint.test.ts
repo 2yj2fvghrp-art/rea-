@@ -17,11 +17,14 @@ describe("JavaScript AST fingerprints", () => {
 });
 
 it.each(["obj[key]", "obj?.[key]"])(
-  "ignores the local computed key binding in %s",
+  "ignores a local computed key binding in %s",
   (expression) => {
     const left = parse(`function read(obj, key) { return ${expression}; }`);
+    const renamed = expression
+      .replace("obj", "value")
+      .replace("key", "selector");
     const right = parse(
-      `function read(value, selector) { return ${expression.replaceAll("obj", "value").replaceAll("key", "selector")}; }`,
+      `function read(value, selector) { return ${renamed}; }`,
     );
     expect(fingerprintJavaScriptAst(left)).toBe(
       fingerprintJavaScriptAst(right),

@@ -44,6 +44,16 @@ const dossier = jsonValueSchema.parse(
     referenced_names: [],
     native_api: null,
     native_value_flow: null,
+    facet_availability: {
+      pseudocode: { available: true },
+      assembly: { available: true },
+      comments: { available: true },
+      callers: { available: true },
+      callees: { available: true },
+      references: { available: true },
+      strings_names: { available: true },
+      cfg: { available: true },
+    },
     basic_blocks: [{ start: "0x1000", end: "0x1001", successors: [] }],
     limitations: [],
   }),
@@ -652,7 +662,7 @@ describe("function reconstruction admission controls", () => {
     ]);
   });
 
-  it("rejects selected-dimension citations outside comparison closure", () => {
+  it("rejects any comparison finding link outside the top-level closure", () => {
     const evidence = comparison(singular, {
       result: jsonValueSchema.parse({
         ...baselineResult,
@@ -667,7 +677,7 @@ describe("function reconstruction admission controls", () => {
       }),
     });
     expect(admittedVerification(evidence, [left, right, extra])).toThrow(
-      /dimension cites Evidence outside comparison closure/u,
+      /finding cites Evidence outside its top-level closure/u,
     );
   });
 });
