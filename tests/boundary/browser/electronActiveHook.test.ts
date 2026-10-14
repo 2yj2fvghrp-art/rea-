@@ -1,4 +1,4 @@
-import { rm, writeFile } from "node:fs/promises";
+import { mkdir, rm, writeFile } from "node:fs/promises";
 import { join } from "node:path";
 import { spawn } from "node:child_process";
 
@@ -83,6 +83,17 @@ module.exports = {
 };
 `;
 
+const writeMockElectronModule = async (root: string) => {
+  await writeFile(join(root, "electron.js"), electronModuleSource);
+  const packageDir = join(root, "node_modules", "electron");
+  await mkdir(packageDir, { recursive: true });
+  await writeFile(join(packageDir, "index.js"), electronModuleSource);
+  await writeFile(
+    join(packageDir, "package.json"),
+    JSON.stringify({ name: "electron", main: "index.js" }),
+  );
+};
+
 const activeCaptureSource = `(async () => {
 const electron = require("electron");
 const window = new electron.BrowserWindow({ webPreferences: { preload: "/approved/preload.js" } });
@@ -131,7 +142,7 @@ afterEach(async () => {
 it("retains active hook evidence within its event-retention budget", async () => {
   const root = await createTestTempDirectory("rea-electron-hook-");
   temporary.push(root);
-  await writeFile(join(root, "electron.js"), electronModuleSource);
+  await writeMockElectronModule(root);
   const script = join(root, "exercise.cjs");
   await writeFile(script, activeCaptureSource);
   const hook = join(process.cwd(), "scripts/electron-active-hook.cjs");
@@ -223,7 +234,7 @@ it("classifies a dropped browser preload as preload configuration at capture", a
     "rea-electron-hook-browser-preload-",
   );
   temporary.push(root);
-  await writeFile(join(root, "electron.js"), electronModuleSource);
+  await writeMockElectronModule(root);
   const script = join(root, "browser-preload.cjs");
   await writeFile(
     script,
@@ -269,6 +280,29 @@ it("preserves fatal process termination after recording uncaught exceptions", as
 
   expect(result.code).not.toBe(0);
   expect(result.stderr).toContain("fatal-hook-secret");
+});
+
+it("isolates electron module resolution from ancestor electron packages", async () => {
+  const ancestor = await createTestTempDirectory("rea-electron-hook-ancestor-");
+  temporary.push(ancestor);
+  const ancestorPackage = join(ancestor, "node_modules", "electron");
+  await mkdir(ancestorPackage, { recursive: true });
+  await writeFile(
+    join(ancestorPackage, "index.js"),
+    'module.exports = "/Applications/Electron.app/Contents/MacOS/Electron";\n',
+  );
+  await writeFile(
+    join(ancestorPackage, "package.json"),
+    JSON.stringify({ name: "electron", version: "42.5.2", main: "index.js" }),
+  );
+  const root = join(ancestor, "test-root");
+  await mkdir(root, { recursive: true });
+  await writeMockElectronModule(root);
+  const script = join(root, "exercise.cjs");
+  await writeFile(script, activeCaptureSource);
+  const hook = join(process.cwd(), "scripts/electron-active-hook.cjs");
+  const execution = await runNode(hook, script, root, root);
+  expect(execution.code, execution.stderr).toBe(0);
 });
 
 const runNode = (
