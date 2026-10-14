@@ -79,6 +79,13 @@ const customAttributeSchema = z.object({
 const managedSignatureSchema = z.object({
   raw_length: z.number().int().min(0),
   raw_sha256: digestSchema,
+  // Evidence recorded before this field existed reads back as null.
+  resolved_sha256: digestSchema
+    .nullable()
+    .default(null)
+    .describe(
+      "SHA-256 of the raw signature with each TypeDef or TypeRef operand replaced by that type's namespace-qualified name; equals raw_sha256 when the signature names no types. Unlike raw_sha256 it does not depend on build-local metadata rows. Null when the signature could not be decoded or names a type REA could not resolve, such as a TypeSpec.",
+    ),
   kind: z.enum(["method", "field", "unknown"]),
   parse_status: z.enum(["decoded", "partial", "unsupported", "malformed"]),
   calling_convention: z.string().nullable(),
@@ -217,6 +224,16 @@ const managedMemberReferenceSchema = z.object({
   ),
   name: z.string(),
   signature: managedSignatureSchema,
+});
+
+const managedUserStringSchema = z.object({
+  token: tokenSchema,
+  offset: offsetSchema.describe("File offset of the #US item"),
+  value: z
+    .string()
+    .describe(
+      "Decoded UTF-16 code units, excluding the terminal flag byte; unpaired surrogates are kept",
+    ),
 });
 
 const managedModuleReferenceSchema = z.object({
@@ -428,6 +445,13 @@ export const managedArtifactInspectionSchema = z.object({
 
 /** Provider-neutral, execution-free metadata/signature/IL member inspection. */
 export const managedMemberInspectionSchema = z.object({
+  signature_resolution: z
+    .literal("type-names-v1")
+    .nullable()
+    .default(null)
+    .describe(
+      "Signature type-name resolution was examined, including unresolved operands; null means historical Evidence without this attestation.",
+    ),
   artifact: z.object({
     path: z.string().min(1),
     sha256: digestSchema,
@@ -457,6 +481,17 @@ export const managedMemberInspectionSchema = z.object({
   member_refs: z.array(managedMemberReferenceSchema),
   call_edges: z.array(managedCallEdgeSchema),
   field_accesses: z.array(managedFieldAccessSchema),
+  // Distinct #US literals loaded by ldstr in the inspected method bodies, in
+  // token order, with their own coverage: #US issues never enter the member
+  // coverage. null means they were not examined, not that there were none.
+  user_strings: z
+    .object({
+      state: z.enum(["complete", "partial"]),
+      literals: z.array(managedUserStringSchema),
+      issues: z.array(managedParseIssueSchema),
+    })
+    .nullable()
+    .default(null),
   /** Caller-selected declaring types; null when every type was inspected. */
   selection: z
     .object({
