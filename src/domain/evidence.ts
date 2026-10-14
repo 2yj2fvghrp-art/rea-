@@ -168,18 +168,6 @@ export const evidenceSchema = evidenceBaseSchema.superRefine(
   validateAnalysisProfileProvider,
 );
 
-const authenticatedEvidenceSchema = evidenceSchema.superRefine(
-  (evidence, context) => {
-    const { evidence_id: evidenceId, ...withoutId } = evidence;
-    if (computeEvidenceId(withoutId) !== evidenceId)
-      context.addIssue({
-        code: "custom",
-        path: ["evidence_id"],
-        message: "Evidence semantic identifier does not match its record",
-      });
-  },
-);
-
 /** Complete observation whose normalized payload retains its operation-specific type. */
 type EvidenceSchemaValue = z.infer<typeof evidenceSchema>;
 export type Evidence<Result extends JsonValue = JsonValue> =
@@ -275,6 +263,18 @@ const semanticProjection = (evidence: EvidenceWithoutId): JsonValue => ({
 const computeEvidenceId = (evidence: EvidenceWithoutId): string =>
   `ev_${digestCanonicalValue(semanticProjection(evidence), "Evidence")}`;
 
+const authenticatedEvidenceSchema = evidenceSchema.pipe(
+  z.custom<EvidenceSchemaValue>().superRefine((evidence, context) => {
+    const { evidence_id: evidenceId, ...withoutId } = evidence;
+    if (computeEvidenceId(withoutId) !== evidenceId)
+      context.addIssue({
+        code: "custom",
+        path: ["evidence_id"],
+        message: "Evidence semantic identifier does not match its record",
+      });
+  }),
+);
+
 /** Parse evidence and reject a syntactically valid but tampered semantic ID. */
 export const parseEvidence = (input: unknown): Evidence => {
   const immutable =
@@ -282,7 +282,7 @@ export const parseEvidence = (input: unknown): Evidence => {
       ? immutableEvidenceSnapshots.get(input)
       : undefined;
   if (immutable !== undefined) return immutable;
-  return authenticatedEvidenceSchema.parse(input);
+  return authenticatedEvidenceSchema.parse(input) as Evidence;
 };
 
 /** Authenticate and seal a ledger-owned snapshot; external mutable values are copied first. */
