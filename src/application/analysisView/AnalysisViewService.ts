@@ -53,10 +53,7 @@ export const inspectAnalysisViewValidated = (
 ): Result<Evidence, AnalysisError> => {
   const accumulator =
     input.view.kind === "api-surface"
-      ? new WebNetworkApiSurfaceAccumulator(
-          undefined,
-          input.view.include_query_parameter_names === true,
-        )
+      ? WebNetworkApiSurfaceAccumulator.forView(input.view)
       : undefined;
   if (input.source.kind === "inline" && accumulator !== undefined) {
     const admitted = accumulator.admitInlineEvidence(input.source.evidence);
