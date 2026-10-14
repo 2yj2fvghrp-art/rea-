@@ -40,6 +40,7 @@ const authority = (
     readonly jobMemoryLimit?: true;
     readonly polls?: readonly unknown[];
     readonly appliedLimit?: (requested: unknown) => unknown;
+    readonly closeFailure?: () => boolean;
   } = {},
 ) => {
   const calls: { operation: string; arguments_: readonly unknown[] }[] = [];
@@ -81,9 +82,17 @@ const authority = (
               }
             : {}),
         };
-      if (operation === "process_poll") return polls.shift();
+      if (operation === "process_poll")
+        return (
+          polls.shift() ??
+          (options.closeFailure !== undefined ? { ...settledPoll } : undefined)
+        );
       if (operation === "process_terminate") return true;
-      if (operation === "process_close") return null;
+      if (operation === "process_close") {
+        if (options.closeFailure?.())
+          throw new Error("process_close access denied");
+        return null;
+      }
       throw new Error(`Unmodeled native operation ${operation}`);
     },
   };
@@ -421,6 +430,41 @@ describe("Windows output backpressure and cleanup", () => {
         calls.filter((call) => call.operation === "process_poll"),
       ).toHaveLength(2);
       expect(child.outputIncomplete).toBe(true);
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+});
+
+describe("Windows native release failure and retry", () => {
+  it("retains the process owner for retry when native process_close throws", async () => {
+    vi.useFakeTimers();
+    try {
+      let closeShouldFail = true;
+      const { native, calls } = authority({
+        closeFailure: () => closeShouldFail,
+      });
+      const child = launch(native);
+      await vi.advanceTimersByTimeAsync(25);
+      expect(child.stdout.writableEnded).toBe(true);
+      expect(child.stderr.writableEnded).toBe(true);
+      const cleanupPromise = child.cleanup();
+      await vi.advanceTimersByTimeAsync(5_000);
+      const result = await cleanupPromise;
+      expect(result).toEqual({
+        cleaned: false,
+        reason: "process_close access denied",
+      });
+      closeShouldFail = false;
+      const retryPromise = child.cleanup();
+      await vi.advanceTimersByTimeAsync(25);
+      expect(await retryPromise).toEqual({
+        cleaned: true,
+        signaled: true,
+      });
+      expect(
+        calls.filter((call) => call.operation === "process_close").length,
+      ).toBe(3);
     } finally {
       vi.useRealTimers();
     }

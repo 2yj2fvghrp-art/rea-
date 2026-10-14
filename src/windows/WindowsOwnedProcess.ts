@@ -387,15 +387,12 @@ export class WindowsOwnedProcess extends EventEmitter {
     if (this.#closed) return;
     if (this.#timer !== undefined) clearTimeout(this.#timer);
     this.#clearBlockedWake();
-    try {
-      this.#authority.call("process_close", [this.#handle]);
-    } finally {
-      this.#closed = true;
-      this.stdin?.destroy();
-      if (!this.stdout.destroyed) this.stdout.end();
-      if (!this.stderr.destroyed) this.stderr.end();
-      this.#settle?.();
-      this.emit("close", this.exitCode, null);
-    }
+    this.stdin?.destroy();
+    if (!this.stdout.destroyed) this.stdout.end();
+    if (!this.stderr.destroyed) this.stderr.end();
+    this.#authority.call("process_close", [this.#handle]);
+    this.#closed = true;
+    this.#settle?.();
+    this.emit("close", this.exitCode, null);
   }
 }

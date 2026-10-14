@@ -249,6 +249,10 @@ it.each([
     if (result.ok) throw new Error("Expected capture analysis failure");
     expect(result.error._tag).toBe(tag);
     expect(result.error.cleanupIncomplete).toBe(false);
+    if (mode === "invalid-json") {
+      expect(result.error.capturedOutput?.stdout).toBe("not json\n");
+      expect(result.error.cause).toBeDefined();
+    }
     expect(
       (await readdir(f.directory)).filter((name) =>
         name.startsWith("decoder-"),

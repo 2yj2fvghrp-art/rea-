@@ -39,3 +39,9 @@ it.each(
     ),
   ).toThrow();
 });
+
+it("rejects invalid JSON with cause attached", () => {
+  expect(() => parsePacketOutput("not valid json", ["ip.addr"])).toThrowError(
+    /TShark returned invalid JSON/,
+  );
+});

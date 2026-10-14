@@ -11,9 +11,9 @@ export const parsePacketOutput = (text: string, fields: readonly string[]) => {
   try {
     decoded = JSON.parse(text);
   } catch (cause: unknown) {
-    throw new AnalysisOutputError(
-      "inspect_packet_capture",
+    throw new Error(
       `TShark returned invalid JSON: ${cause instanceof Error ? cause.message : String(cause)}`,
+      { cause },
     );
   }
   const packets = producerSchema
