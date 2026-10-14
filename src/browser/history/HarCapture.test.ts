@@ -673,8 +673,14 @@ it.each([
   },
 );
 
-it.each(["9007199254740993.5", "1e-400", "1.0000000000000000001"])(
-  "judges an integer field by the lexeme when rounding would hide a fraction: %s",
+it.each([
+  "9007199254740993.5",
+  "1e-400",
+  "1.0000000000000000001",
+  `1${"0".repeat(309)}.5`,
+  `-1${"0".repeat(309)}.5`,
+])(
+  "judges an integer field by the lexeme when rounding or overflow would hide a fraction: %s",
   (literal) => {
     const text = JSON.stringify(historicalHar()).replace(
       '"bodySize":99',

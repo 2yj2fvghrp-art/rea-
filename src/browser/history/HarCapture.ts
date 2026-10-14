@@ -233,12 +233,13 @@ const projectHar = (
 };
 
 /**
- * A JSON number lexeme as the validation copy carries it: its nearest double, unless rounding
- * erased a fractional part, so the schema's `integer` checks the lexeme and not the rounding.
+ * A JSON number lexeme as the validation copy carries it: its nearest double, unless rounding or
+ * overflow erased a fractional part, so the schema's `integer` checks the lexeme, not the double.
  */
 const validationNumber = (literal: string): number => {
   const nearest = Number(literal);
-  if (!Number.isInteger(nearest) || integerLexeme(literal)) return nearest;
+  if (integerLexeme(literal)) return nearest;
+  if (Number.isFinite(nearest) && !Number.isInteger(nearest)) return nearest;
   return literal.startsWith("-") ? -0.5 : 0.5;
 };
 
