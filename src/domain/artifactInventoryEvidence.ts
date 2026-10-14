@@ -305,7 +305,9 @@ const legacyInventoryCoverage = (
 ): ArtifactInventoryCoverage => ({
   scope:
     isZipPackageFormat(format) ||
-    ["directory", "asar", "dmg", "pkg", "mach-o-universal"].includes(format)
+    ["directory", "asar", "dmg", "pkg", "cfb", "mach-o-universal"].includes(
+      format,
+    )
       ? "container-entries"
       : "root",
   status: limitations.some(
