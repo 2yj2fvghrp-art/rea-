@@ -60,7 +60,14 @@ Unchanged, evaluated in this order:
 3. Automatic selection.
 
 An explicit `provider_id: "auto"` asks REA to apply automatic selection; it is
-not an instruction to pick arbitrarily.
+not an instruction to pick arbitrarily. Automatic selection is deterministic for
+a given target and provider configuration, so repeating it for unchanged target
+bytes reuse the already-resolved route: an omitted selector always keeps the
+active route, and an explicit `auto` keeps it when that route was itself produced
+by `auto`. Re-resolving would otherwise tear down a working binding (and its
+retained snapshot) to report a tie for a target the caller already opened. A
+concrete `provider_id`, or an `auto` request against a concrete binding, always
+re-resolves because it expresses a new decision.
 
 An explicit concrete request that is unknown, unavailable, target-unsupported,
 or has an unresolvable profile is rejected with a typed error. No case falls
@@ -85,7 +92,8 @@ deep provider supports the target. Those workflows keep working.
 
 ### Public contract
 
-`binary_session` gains one field and one per-candidate fact:
+`binary_session` gains one field, one per-candidate fact, and one availability
+reason:
 
 - `analysis_provider_selection_state`: `"bound" | "unbound" |
   "selection_required" | null`. `null` means no target has been resolved on the
@@ -94,6 +102,8 @@ deep provider supports the target. Those workflows keep working.
   "unevaluated"`. `unevaluated` is an omission, not a rejection: REA resolves
   only the profiles a selection needs, so an unrequested candidate stays
   explicitly unknown instead of being reported as unusable.
+- `tool_availability.groups[].reason` accepts the new
+  `"provider_selection_required"` value.
 
 `open_binary` remains the only way to select or switch a deep provider. No
 `switch_analysis_provider` tool is introduced: the existing lifecycle already
@@ -111,13 +121,18 @@ waiting for a decision".
 
 Because the unbound route advertises no deep capabilities, an unbound target
 cannot present deep operations as executable: `binary_session.capabilities` and
-`tool_availability` list only what the current route can actually run.
+`tool_availability` list only what the current route can actually run. Discovery
+must also report _why_ without misdirecting the caller: a deep operation that is
+unavailable solely because the choice is pending is reported as
+`provider_selection_required` with the eligible provider IDs, never as
+`provider_missing`. Telling a caller to install a provider that is already
+installed and eligible is a wrong, non-actionable diagnostic.
 
 ## Evidence requirements
 
-Every admitted target transition records one deterministic, REA-owned Evidence
-record (`predicate_type: "rea.provider-selection"`, `operation: "open_binary"`)
-that separates three different kinds of statement:
+A target admission that resolves a new selection records one deterministic,
+REA-owned Evidence record (`predicate_type: "rea.provider-selection"`,
+`operation: "open_binary"`) that separates three different kinds of statement:
 
 - `candidates[]` — objective per-provider observations: provider identity and
   version, availability status and rejection code, target support status and
@@ -131,7 +146,10 @@ that separates three different kinds of statement:
 Target identity, format, architecture, and SHA-256 come from the evidence
 subject rather than being duplicated in the payload. Candidate capabilities are
 deliberately excluded: they are large, already available through
-`binary_session`, and add no selection decision.
+`binary_session`, and add no selection decision. `parameters.provider_id` records
+the selector REA applied — the caller's `provider_id` when supplied, otherwise
+the configured default — so a caller choice is distinguishable from a configured
+or automatic one through `selection_source`.
 
 The record carries `analysis_profile: null` and is never registered with the
 snapshot cache, so it can neither replay provider results nor be mistaken for
@@ -152,6 +170,12 @@ reopen fast path (same target and same profile) records nothing new.
   target-free discovery are unchanged.
 - `analysis_provider_candidates[]` keeps its existing fields; `eligibility` is
   additive. `analysis_provider_selection_state` is additive.
+- `tool_availability.groups[].reason` gains the additive
+  `provider_selection_required` member; previously reported reasons keep their
+  meaning and are unchanged for every case that already produced them.
+- Repeating `auto` for unchanged target bytes no longer discards an already
+  resolved automatic binding. A concrete selector still re-resolves and switches,
+  and a provider failure still never switches engines implicitly.
 - Target ownership, resource cleanup, cancellation, and the single-active-target
   invariant are unchanged.
 - No new execution, injection, network, or target-mutation capability is added.
@@ -169,26 +193,31 @@ reopen fast path (same target and same profile) records nothing new.
    `analysis_provider_selection_state` is `selection_required`, no provider is
    bound or started, and candidate metadata is complete.
 4. A deep operation before the decision returns a typed `ambiguous` error naming
-   the candidate IDs.
+   the candidate IDs, and the same operations are advertised as
+   `provider_selection_required` with the eligible provider IDs.
 5. Reopening the same target with a concrete `provider_id` validates and binds
    exactly that provider, which then appears in `analysis_provider_binding` with
    its resolved version and profile.
-6. Candidate ordering is canonical (provider ID) and independent of provider
+6. Repeating `auto` for unchanged target bytes keeps the resolved automatic route
+   and its live provider client; a concrete binding is still replaced on request.
+7. Candidate ordering is canonical (provider ID) and independent of provider
    registration order.
-7. A selection Evidence record exists for the decision, is attributed to REA
+8. A selection Evidence record exists for the decision, is attributed to REA
    rather than to an engine, and is not duplicated by an equivalent reopen.
-8. A runtime provider failure never triggers automatic fallback.
-9. `npm run check:fast`, `npm run docs:check`, and the affected test projects
-   pass.
+9. A runtime provider failure never triggers automatic fallback.
+10. `npm run check:fast`, `npm run docs:check`, and the affected test projects
+    pass.
 
 ## Open decisions for maintainers
 
-- **Public field naming.** `analysis_provider_selection_state` and
-  `eligibility` are new wire fields. An equivalent representation was not
-  sufficient: the eligibility rule is REA's decision, and re-deriving it from
-  `availability` and `target_support` in every consumer would duplicate the
-  policy. If a smaller public surface is preferred, the state could be derived
-  from the binding plus the eligible candidate count.
+- **Public field naming.** `analysis_provider_selection_state`, `eligibility`,
+  and the `provider_selection_required` availability reason are new wire values.
+  An equivalent representation was not sufficient: the eligibility rule and the
+  pending-choice reason are REA's decisions, and re-deriving them in every
+  consumer would duplicate the policy or, as before, misreport a configured
+  provider as missing. If a smaller public surface is preferred, the state could
+  be derived from the binding plus the eligible candidate count, at the cost of
+  losing the actionable remediation.
 - **Caller-supplied rationale.** The record reserves `caller_rationale` but
   never populates it. Accepting an agent-authored rationale would require a new
   public input on `open_binary` and has not been added.

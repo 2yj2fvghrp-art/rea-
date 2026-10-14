@@ -86,43 +86,78 @@ in this branch, including what was verified and what was not.
 - [x] Update `docs/installation.md`: its readiness guidance still described the
       removed pre-admission `ambiguous` failure.
 
+## Phase J — Pre-PR audit follow-up
+
+A read-only review against the repository PR template found one defect, one
+undisclosed lifecycle side effect, and several documentation imprecisions. All
+were resolved in this commit.
+
+- [x] **Fix: pending choice misreported as a missing provider.** On a
+      `selection_required` target, `tool_availability` reported every deep
+      operation as `provider_missing` with "Install or configure a provider…"
+      while the providers were installed and eligible. `CapabilityInventory` now
+      reports `provider_selection_required` with the eligible provider IDs, and
+      `toolAvailabilityReason` gained that member. Covered by the MCP test.
+- [x] **Fix: repeated `auto` tore down a live binding.** Calling `open_binary`
+      with `provider_id: "auto"` on an already-bound target re-resolved the
+      policy, unbound the session, closed the running provider client, and
+      cleared the retained snapshot. `resolveSessionTarget` now keeps the
+      resolved route for unchanged target bytes when that route was itself
+      produced by `auto`; a concrete selector, or `auto` against a concrete
+      binding, still re-resolves. Covered by three composition tests.
+- [x] **Docs: Evidence record frequency.** "Every admitted target transition"
+      contradicted the retained fast path, which records nothing. Reworded in
+      `spec.md` and `mcp-contracts.md`.
+- [x] **Docs: CLI operation attribution.** `docs/cli.md` now states that
+      `details.operation` names the internal provider primitive the workflow
+      reached first, not the CLI command.
+- [x] **Docs: `parameters.provider_id` semantics.** Documented as the selector
+      REA applied (caller value or configured default), distinguishable through
+      `selection_source`.
+- [x] **Rebase.** Branch rebased onto `upstream/main` (`fb28ec153`); the four
+      files edited by both sides merged without conflict.
+
 ## Phase H — Verification
 
-Recorded on Windows 11 with Node.js `26.3.0`, npm `12.0.2`. Every comparison
-below was produced by running the same command on the stashed baseline and on
-this branch, then diffing the failing test files.
+Recorded on Windows 11 with Node.js `26.3.0`, npm `12.0.2`. Baseline comparisons
+use `upstream/main` (`fb28ec153`), which is now the branch point: the same
+command ran on a detached checkout of that revision and on this branch, and the
+failing test files were diffed.
 
-- [x] `npm ci` — exit 0.
-- [x] `npm run test:focused -- <affected files>` — 7 files, 49 tests, passing.
-- [x] `npm run test:fast` — 400 passed / 27 failed files after, against 398 / 27
-      before. The 127 failing tests are identical on both trees and pre-existing
-      on this host (symlinks, executable bits, `listen EACCES`, and uninstalled
-      Ghidra/IDA/Hopper/WABT toolchains). The branch contributes the two new
-      test files only.
-- [x] `npm run test:mcp` — 86 passed / 20 failed files and 56 failing tests
-      before and after. No new failures.
-- [x] `npx vitest run --project boundary --project cli-boundary --project
-      process-boundary --project process-global` — 219 passed / 154 failed files
-      before and after. No new failures.
-- [x] `npm run verify:test-discovery` — "Discovered all 1026 test files exactly
+- [x] `npm ci` — exit 0 (the rebase added only `package.json` scripts upstream;
+      dependencies and the lockfile are unchanged).
+- [x] `npm run test:focused -- <9 affected files>` — 9 files, 71 tests, exit 0.
+      The set includes `toolSchemaValidity` and `serverIdentity`, so advertised
+      JSON Schemas and catalog digests are validated after SDK conversion.
+- [x] `npm run test:fast` — 26 failed files / 126 failing tests on both the
+      baseline and this branch; 5462 baseline passes become 5491 (+29 from the
+      new and extended tests, including two new source test files). The failing
+      file sets are identical.
+- [x] `npm run test:mcp` — 12 failed files / 43 failing tests on both sides; 432
+      baseline passes become 435. The failing file sets are identical.
+- [x] `npm run verify:test-discovery` — "Discovered all 1058 test files exactly
       once."
-- [x] `npm run check:fast` — exit 0 (typecheck and lint, including
-      `verify:module-boundaries`).
-- [x] `npm run knip`, `npm run metadata:check`, `npm run
-      verify:architecture-guards` — exit 0.
-- [ ] `npm run check` — fails only at `format:check` for
-      `src/ghidra/GhidraDoctor.test.ts` and
-      `src/ghidra/GhidraSnapshotCache.test.ts`. Both files are unmodified in this
-      branch, so the failure predates the implementation and was left untouched.
+- [x] `npm run check:fast` — exit 0.
+- [x] `npm run check` — **exit 0**: typecheck, lint (0 errors), `format:check`,
+      knip, `metadata:check`, and the architecture guards.
 - [x] `npm run docs:generate` then `npm run docs:check` — exit 0.
-- [x] `npm run test:focused -- tests/boundary/mcp/toolSchemaValidity.test.ts
-      tests/boundary/mcp/serverIdentity.test.ts
-      tests/acceptance/tools/localToolContracts.test.ts
-      src/contracts/sessionPathInputs.test.ts` — 36 passed, 4 skipped.
+- [x] The remaining `test:fast` / `test:mcp` failures are pre-existing on this
+      host and identical to the baseline: symlinks (`EPERM`), executable bits,
+      `listen EACCES`, and uninstalled Ghidra/IDA/Hopper/WABT toolchains. The two
+      `format:check` failures recorded before the rebase are gone because
+      upstream reformatted `src/ghidra/GhidraDoctor.test.ts` and
+      `GhidraSnapshotCache.test.ts`.
 - [x] Re-record two tests that asserted exact Evidence totals:
       `tests/boundary/mcp/sessionMcpHarness.ts` and
       `tests/boundary/mcp/sessionMcp.test.ts` now derive the totals and assert
       the selection record explicitly instead of a magic number.
+- [x] Runtime probes against the built `dist/` (throwaway scripts in the system
+      temp directory, not repository tests) confirmed: two eligible providers
+      start no client; `selection_required` reports `provider_selection_required`
+      with the eligible IDs for official, enhanced, and navigation-context
+      operations; `unbound` still reports `provider_missing`; and repeating
+      `auto` keeps the bound provider and its live client while a concrete
+      selector still switches and retires it.
 
 Unverified on this host: real Ghidra, Hopper, and IDA providers; POSIX-only
 lanes; `npm run check:pr` (skipped for time; its component checks were run

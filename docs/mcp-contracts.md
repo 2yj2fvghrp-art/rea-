@@ -303,8 +303,12 @@ The `effects` and `annotations` arrays list the true members of their fixed
 vocabularies. A known member omitted from either array is false. This applies
 only to these closed flag sets; it does not make an omitted tool, provider, mode,
 or limitation false. Keep availability reasons, remediation, client-feature
-requirements, and mode facts inline with the grouped tool names. The optional
-inputs `expected_package_version`, `expected_catalog_digest`, and
+requirements, and mode facts inline with the grouped tool names. `reason`
+distinguishes `provider_missing` (no configured provider declares the operation)
+from `provider_selection_required` (configured and eligible providers exist, but
+the admitted target has no deep binding yet); the latter names the eligible
+provider IDs and tells the caller to select one through `open_binary`. The
+optional inputs `expected_package_version`, `expected_catalog_digest`, and
 `expected_server_path` compare the live session with the caller's expectations.
 
 `server_identity.catalog` contains catalog counts and schema digests. Grouped
@@ -352,16 +356,30 @@ several providers are eligible: the caller selects one by reopening the same
 target with a concrete `provider_id`, which is validated and bound through the
 existing serialized transition. A deep operation attempted before that choice
 returns a typed `ProviderSelectionError` with `selection_reason: "ambiguous"` and
-the candidate IDs. Unknown, unavailable, unsupported, or unverifiable choices
+the candidate IDs, and `tool_availability` reports those operations as
+`provider_selection_required` with the eligible IDs instead of claiming that no
+provider is installed. Unknown, unavailable, unsupported, or unverifiable choices
 return typed selection details, and a selected provider is never replaced
 automatically after a runtime failure.
 
-Every admitted target transition also retains one deterministic
+An omitted `provider_id` keeps the already-resolved route for unchanged target
+bytes. An explicit `provider_id: "auto"` does the same when that route was
+itself produced by `auto`, because re-running the same deterministic policy
+cannot choose differently and would otherwise tear down a working binding for a
+target the caller already opened. A concrete `provider_id`, or an `auto` request
+against a concrete binding, always re-resolves.
+
+Each target admission that resolves a new selection retains one deterministic
 `rea.provider-selection` Evidence record: the objective per-candidate
 availability, target-support, eligibility, and rejection facts; the deterministic
 REA decision (state, rule, selection source, and selected provider); and an
 explicit `caller_rationale: null`, because REA does not record or reconstruct the
-caller's reasoning. The record carries no analysis profile, is attributed to the
+caller's reasoning. `parameters.provider_id` records the selector REA applied for
+this operation — the caller's `provider_id` when supplied, otherwise the
+configured default — so `selection_source` distinguishes a caller choice from a
+configured or automatic one. An equivalent reopen resolves the identical
+decision, whose Evidence digest already exists, and adds no record. The record
+carries no analysis profile, is attributed to the
 REA selection policy rather than to an engine, is never registered as a snapshot
 replay binding, and is not duplicated by an equivalent reopen.
 

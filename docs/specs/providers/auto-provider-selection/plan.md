@@ -30,6 +30,10 @@ types, and the application layer keeps owning the decision.
 ## Data flow
 
 1. `open_binary` parses the target and calls `SessionProviderRouter.resolve`.
+   `resolveSessionTarget` first decides whether the already-resolved route still
+   answers this request: an omitted selector always reuses it, and so does an
+   explicit `auto` when that route was itself produced by `auto` for the same
+   target bytes. Only a genuinely new decision re-resolves.
 2. `AnalysisProviderRegistry.select` discovers candidates without starting a
    client, then either resolves one concrete provider or evaluates the
    automatic set.
@@ -55,7 +59,11 @@ types, and the application layer keeps owning the decision.
 6. `BinarySessionStatus` projects `analysis_provider_selection_state` and each
    candidate's `eligibility`.
 
-7. `prepareSessionExecution` refuses a deep operation whose capability is not on
+7. `CapabilityInventory` projects the same status into `tool_availability`,
+   reporting a deep operation that is unavailable only because the choice is
+   pending as `provider_selection_required` with the eligible provider IDs.
+
+8. `prepareSessionExecution` refuses a deep operation whose capability is not on
    the route and asks the router for the typed reason: `ambiguous` for
    `selection_required`, otherwise `target_unsupported` or
    `provider_unavailable`.
@@ -67,15 +75,16 @@ types, and the application layer keeps owning the decision.
 | `src/application/binary/AutoProviderSelectionPolicy.ts` | New pure decision function and state vocabularies                                                  |
 | `src/application/binary/AnalysisProviderRegistry.ts`    | Report state and eligibility; classify automatic outcomes; reason selection for unbound operations |
 | `src/application/binary/AnalysisProviderEvaluation.ts`  | Record eligible/ineligible on the evaluated candidate status                                       |
+| `src/application/binary/BinarySessionOpen.ts`           | Keep an already-resolved automatic route for unchanged target bytes                                |
 | `src/application/binary/BinarySessionStatus.ts`         | Project the state and per-candidate eligibility                                                    |
 | `src/application/binary/ProviderSelectionEvidence.ts`   | New deterministic, REA-attributed selection record                                                 |
 | `src/application/binary/BinarySession.ts`               | Record selection Evidence on the admitting transition                                              |
+| `src/application/CapabilityInventory.ts`                | Report a pending choice as `provider_selection_required` with the eligible IDs                     |
 | `src/application/InvestigationProviders.ts`             | Add the REA selection-policy provider identity                                                     |
-| `src/contracts/toolOutputSchemaPrimitives.ts`           | Advertise the two additive wire fields                                                             |
+| `src/contracts/toolOutputSchemaPrimitives.ts`           | Advertise the additive wire fields and availability reason                                         |
 
-`SessionProviderRouter`, `BinarySessionOpen`, `BinarySessionRecords`,
-`BinarySessionExecution`, `providerSelectionError.ts`, and `evidence.ts` are
-reused unchanged.
+`SessionProviderRouter`, `BinarySessionRecords`, `BinarySessionExecution`,
+`providerSelectionError.ts`, and `evidence.ts` are reused unchanged.
 
 ## Design alternatives
 
@@ -110,6 +119,20 @@ distinguish "no provider can serve this target" from "several can and the caller
 must choose", and consumers would have to re-derive eligibility from
 `availability` and `target_support`, duplicating the policy at every consumer.
 
+**Reuse the existing `provider_missing` availability reason.** Rejected after
+review. On an admitted-but-unbound target the deep descriptors are absent for the
+same reason as a genuinely unconfigured host, so reusing `provider_missing` told
+the caller to "install or configure a provider" while two eligible providers were
+already installed. A distinct `provider_selection_required` reason carries the
+eligible IDs and the action that actually resolves the state.
+
+**Let an explicit `auto` always re-resolve.** Rejected after review. Repeating
+`auto` for unchanged target bytes cannot choose differently; with several
+eligible providers it instead tore down a live provider client and the retained
+snapshot to report a tie for a target the caller had already opened. The route is
+kept only when it was itself produced by `auto`, so a concrete binding is still
+replaced when the caller asks for automatic selection.
+
 ## Validation strategy
 
 - **Pure policy tests** (`AutoProviderSelectionPolicy.test.ts`): zero, one, two,
@@ -120,13 +143,15 @@ must choose", and consumers would have to re-derive eligibility from
   precedence, explicit rejection, cancellation during automatic evaluation, and
   the operation-boundary reasons.
 - **Composition tests**: no speculative start, no fallback, retained fast path,
-  provider switching, cancellation during a switch, Evidence retention and
+  provider switching, cancellation during a switch, repeated `auto` on an
+  unchanged target for both a bound and an unbound route, Evidence retention and
   identity, and cleanup.
 - **Evidence tests** (`ProviderSelectionEvidence.test.ts`): attribution,
   subject binding, the three separated statement kinds, rejection retention,
   rule vocabulary, limitation text, and digest stability.
 - **MCP boundary tests**: the complete external-agent workflow over
-  `InMemoryTransport` — admit, inspect `binary_session`, observe the typed
+  `InMemoryTransport` — admit, inspect `binary_session` (including the advertised
+  `provider_selection_required` remediation), observe the typed
   premature-operation error, reopen with a concrete provider, analyze, and
   confirm the binding.
 - **Static and documentation checks**: `verify:test-discovery`,
@@ -138,11 +163,15 @@ must choose", and consumers would have to re-derive eligibility from
 - Token cost: the new state is one short enum per session and one enum per
   candidate; no extra MCP call is required for the single-provider case, and the
   selection-required case replaces a failed call plus a retry with one
-  successful admission.
+  successful admission. The availability remediation repeats only the eligible
+  provider IDs, which the same payload already lists.
 - Analysis time: `selection_required` performs exactly the profile probes that
   the prior `ambiguous` path already performed, so it adds no provider work. The
   retained reopen fast path is unchanged, and the selection Evidence record is
   skipped there.
+- Repeating `auto` on an unchanged target no longer re-evaluates profiles or
+  restarts a provider, so it removes both provider startup work and the loss of
+  an in-progress analysis database.
 - Memory: the Evidence record stores no candidate capability snapshot, and an
   equivalent decision produces an identical digest, which the ledger records as
   a duplicate rather than a second record.
@@ -152,6 +181,6 @@ must choose", and consumers would have to re-derive eligibility from
 
 ## Remaining work
 
-The public field names, the default-on behavior, and the exclusion of a
-caller-supplied rationale need a maintainer decision. Real-engine verification
+The public field and reason names, the default-on behavior, and the exclusion of
+a caller-supplied rationale need a maintainer decision. Real-engine verification
 on a host with two configured deep providers is not part of this branch.

@@ -18,6 +18,10 @@ import {
 import { AnalysisProviderRegistry } from "../../../src/application/binary/AnalysisProviderRegistry.js";
 import { composeBinarySession } from "../../../src/application/binary/BinarySessionComposition.js";
 import { createAnalysisProfile } from "../../../src/domain/analysisProfile.js";
+import {
+  expandToolAvailability,
+  toolAvailabilityInventory,
+} from "../../../src/contracts/toolOutputSchemaPrimitives.js";
 import { ok } from "../../../src/domain/result.js";
 import { silentLogger } from "../../../src/logger.js";
 import { createServer } from "../../../src/server/createServer.js";
@@ -149,6 +153,56 @@ describe("provider selection over MCP", () => {
     expect(starts).toEqual([]);
   });
 
+  it("advertises a pending provider choice instead of a missing provider", async () => {
+    const { mcp, target, starts } = await selectionHarness();
+    expect(
+      (await mcp.callTool({ name: "open_binary", arguments: { path: target } }))
+        .isError,
+    ).not.toBe(true);
+
+    const pending = structured(
+      await mcp.callTool({ name: "binary_session", arguments: {} }),
+    );
+    // Discovery must not send the caller to install a provider that is already
+    // installed: an unavailable deep operation names the pending choice and the
+    // eligible candidates instead of a missing provider.
+    const inventory = toolAvailabilityInventory.parse(
+      z
+        .object({
+          result: z.object({ tool_availability: z.unknown() }),
+        })
+        .passthrough()
+        .parse(pending).result.tool_availability,
+    );
+    const availability = new Map(
+      expandToolAvailability(inventory).map((entry) => [entry.name, entry]),
+    );
+    const expectedRemediation =
+      "Reopen the target with open_binary and provider_id set to one of: alpha, beta.";
+    for (const name of [
+      "address_name",
+      "analyze_function",
+      "binary_overview",
+      "get_navigation_context",
+    ]) {
+      expect(availability.get(name)).toMatchObject({
+        available: false,
+        reason: "provider_selection_required",
+        remediation: expectedRemediation,
+      });
+    }
+    // Admission itself stays available, and auxiliary capabilities are untouched.
+    expect(availability.get("open_binary")).toMatchObject({
+      available: true,
+    });
+    expect(availability.get("inspect_artifact")).toMatchObject({
+      available: true,
+    });
+    expect(starts).toEqual([]);
+  });
+});
+
+describe("explicit provider selection over MCP", () => {
   it("binds an explicitly selected provider and keeps it stable", async () => {
     const { mcp, target, starts } = await selectionHarness();
 

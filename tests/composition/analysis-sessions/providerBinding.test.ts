@@ -337,6 +337,81 @@ describe("selection-required session lifecycle", () => {
   });
 });
 
+describe("automatic re-selection on an unchanged target", () => {
+  it("keeps the resolved automatic binding when auto is requested again", async () => {
+    const target = await databaseTarget();
+    const alpha = deepProvider("alpha");
+    const beta = deepProvider("beta");
+    beta.available = false;
+    const session = selectableSession([alpha.provider, beta.provider]);
+
+    expect((await session.open(target)).ok).toBe(true);
+    expect(bindingStatus(session)).toMatchObject({
+      analysis_provider_selection_state: "bound",
+      analysis_provider_binding: {
+        provider: { id: "alpha" },
+        selection_source: "auto-single-candidate",
+      },
+    });
+    expect((await session.execute("address_name", { address: "0x1" })).ok).toBe(
+      true,
+    );
+    expect(alpha.clients).toHaveLength(1);
+    const resolutions = alpha.profileResolutions;
+
+    // A second provider becomes eligible and the caller repeats `auto`. The
+    // same deterministic policy already answered for these bytes, so the live
+    // binding, its client, and its snapshot are not torn down for a tie.
+    beta.available = true;
+    expect((await session.open(target, { providerId: "auto" })).ok).toBe(true);
+    expect(bindingStatus(session)).toMatchObject({
+      analysis_provider_selection_state: "bound",
+      analysis_provider_binding: { provider: { id: "alpha" } },
+    });
+    expect(alpha.clients).toHaveLength(1);
+    expect(alpha.clients[0]?.closed).toBe(false);
+    expect(alpha.profileResolutions).toBe(resolutions);
+    expect(beta.clients).toHaveLength(0);
+    await session.close();
+  });
+
+  it("keeps an unbound automatic route stable when auto is requested again", async () => {
+    const { session, target, alpha, beta } = await overlappingSession();
+    expect((await session.open(target)).ok).toBe(true);
+
+    expect((await session.open(target, { providerId: "auto" })).ok).toBe(true);
+    expect(bindingStatus(session)).toMatchObject({
+      analysis_provider_selection_state: "selection_required",
+      analysis_provider_binding: null,
+    });
+    expect(alpha.profileResolutions).toBe(1);
+    expect(beta.profileResolutions).toBe(1);
+    expect(alpha.clients).toHaveLength(0);
+    expect(beta.clients).toHaveLength(0);
+    await session.close();
+  });
+
+  it("re-resolves auto against a concrete binding because that is a new decision", async () => {
+    const { session, target, alpha, beta } = await overlappingSession();
+    expect((await session.open(target, { providerId: "beta" })).ok).toBe(true);
+    expect((await session.execute("address_name", { address: "0x1" })).ok).toBe(
+      true,
+    );
+    expect(beta.clients).toHaveLength(1);
+
+    // The caller explicitly leaves a concrete binding for automatic selection,
+    // so REA re-resolves and reports the tie instead of keeping that binding.
+    expect((await session.open(target, { providerId: "auto" })).ok).toBe(true);
+    expect(bindingStatus(session)).toMatchObject({
+      analysis_provider_selection_state: "selection_required",
+      analysis_provider_binding: null,
+    });
+    expect(beta.clients[0]?.closed).toBe(true);
+    expect(alpha.clients).toHaveLength(0);
+    await session.close();
+  });
+});
+
 describe("selected provider capability provenance", () => {
   it("labels selected-provider capabilities with the resolved identity", async () => {
     const target = await databaseTarget();

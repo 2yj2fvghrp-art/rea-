@@ -370,6 +370,7 @@ export const toolUnavailabilityReason = z.enum([
   "target_required",
   "provider_missing",
   "provider_unavailable",
+  "provider_selection_required",
   "target_unsupported",
   "unsupported_host",
 ]);

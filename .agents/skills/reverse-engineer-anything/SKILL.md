@@ -195,7 +195,10 @@ an omission rather than a rejection. REA does not rank providers and does not
 know which engine is better for the user's question.
 
 When the state is `selection_required`, no provider is bound and no engine was
-started. Decide the provider yourself:
+started. Each deep operation then appears in `binary_session`'s
+`tool_availability` as `provider_selection_required` with the eligible provider
+IDs; do not read that as a missing installation, because the providers are
+installed, available, and target-compatible. Decide the provider yourself:
 
 1. Read the user's requested operations, format, architecture, and any existing
    provider-specific workflow the request implies.
@@ -217,7 +220,10 @@ started. Decide the provider yourself:
 
 A deep analysis call made before a provider is selected fails with a typed
 selection error whose `details.selection_reason` is `ambiguous`. That is not a
-transient failure: select a provider instead of retrying the same call. If a
+transient failure: select a provider instead of retrying the same call. Reopening
+the same target without `provider_id`, or with `auto` when the current route was
+already resolved by `auto`, keeps the existing route rather than re-deciding; use
+a concrete `provider_id` to change engine. If a
 bound provider fails at runtime, REA returns the original reason and never
 switches engines. Report the failure; if a different engine is warranted, decide
 that explicitly as above rather than retrying blindly. Close the session with
