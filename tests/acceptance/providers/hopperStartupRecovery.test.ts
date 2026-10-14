@@ -282,6 +282,8 @@ test.for(["handoff", "not-found"] as const)(
     const status = z.object({
       result: z.object({
         provider_operation_health: z.object({
+          // A timeout observes incomplete startup; a failed launcher without
+          // confirmed ownership leaves the provider's state unknown.
           state: z.literal(
             launchMode === "handoff" ? "not_started" : "unknown",
           ),
@@ -306,7 +308,7 @@ test.for(["handoff", "not-found"] as const)(
     const token = setting("REA_TOKEN");
     const runId = setting("REA_RUN_ID");
     runtime = dirname(socket);
-    const lateBridge = async (identity: string, credential = token) => {
+    const lateBridge = (identity: string, credential = token) => {
       const child = spawn(
         process.execPath,
         [
@@ -318,14 +320,14 @@ test.for(["handoff", "not-found"] as const)(
         { stdio: "ignore" },
       );
       children.push(child);
-      await vi.waitFor(() => access(socket));
       return child;
     };
     for (const [identity, credential] of [
       ["different-run", token],
       [runId, "different-token"],
     ] as const) {
-      const wrong = await lateBridge(identity, credential);
+      const wrong = lateBridge(identity, credential);
+      await vi.waitFor(() => access(socket));
       expect(parseMcpToolError(await call("close_binary")).error.code).toBe(
         "cleanup_incomplete",
       );
@@ -336,7 +338,9 @@ test.for(["handoff", "not-found"] as const)(
     }
     const closing = call("close_binary");
     await delay(150);
-    const owned = await lateBridge(runId);
+    // A verified close may remove the socket before the fixture can poll it.
+    // The successful close and child exit establish the owned bridge outcome.
+    const owned = lateBridge(runId);
     expect((await closing).isError).not.toBe(true);
     await vi.waitFor(() => expect(owned.exitCode).toBe(0));
     await expect(access(runtime)).rejects.toMatchObject({ code: "ENOENT" });
