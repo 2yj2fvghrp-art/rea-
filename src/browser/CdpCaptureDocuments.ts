@@ -7,10 +7,13 @@ import {
   recordsValue,
   requiredRecord,
   cdpStringValue,
-  cdpIndexedString as indexedString,
-  cdpIndexedStringValue,
   type UnknownRecord,
 } from "./CdpCaptureValues.js";
+import {
+  cdpSnapshotAttributesResolve,
+  cdpSnapshotString,
+  cdpSnapshotValueString,
+} from "./CdpSnapshotStrings.js";
 import { exclusionReasonForUrl } from "./CdpCaptureEventHelpers.js";
 import type { CdpCaptureCompleteness } from "./CdpCaptureCompleteness.js";
 import {
@@ -185,7 +188,7 @@ export function* captureDom(
   let total = 0;
   let unresolvedSvgNodes = 0;
   for (const document of recordsValue(root.documents)) {
-    const documentUrl = indexedString(strings, document.documentURL);
+    const documentUrl = cdpSnapshotString(strings, document.documentURL);
     if (documentUrl === undefined) {
       completeness?.exclude("dom", "invalid_protocol_value");
       continue;
@@ -197,7 +200,7 @@ export function* captureDom(
     const baseUrlValue =
       document.baseURL === undefined
         ? documentUrl
-        : cdpIndexedStringValue(strings, document.baseURL);
+        : cdpSnapshotValueString(strings, document.baseURL);
     if (baseUrlValue === undefined) {
       completeness?.exclude("dom", "invalid_protocol_value");
       continue;
@@ -250,8 +253,8 @@ export function* captureDom(
       const nodeValueIndex = rawNodeValues[index];
       const parent = rawParents[index];
       const attributeIndexes = numberArray(rawAttributes[index]);
-      const nodeName = indexedString(strings, nodeNameIndex);
-      const nodeValue = cdpIndexedStringValue(strings, nodeValueIndex);
+      const nodeName = cdpSnapshotString(strings, nodeNameIndex);
+      const nodeValue = cdpSnapshotValueString(strings, nodeValueIndex);
       if (
         nodeType === undefined ||
         nodeName === undefined ||
@@ -261,14 +264,7 @@ export function* captureDom(
         parent === index ||
         parent >= rawNodeTypes.length ||
         attributeIndexes === undefined ||
-        attributeIndexes.length % 2 !== 0 ||
-        attributeIndexes.some(
-          (value, offset) =>
-            value === undefined ||
-            (offset % 2 === 0
-              ? indexedString(strings, value)
-              : cdpIndexedStringValue(strings, value)) === undefined,
-        )
+        !cdpSnapshotAttributesResolve(strings, attributeIndexes)
       ) {
         completeness?.exclude("dom", "invalid_protocol_value");
         continue;
@@ -526,7 +522,7 @@ const uniqueAttributeNames = (
   const names: string[] = [];
   const seen = new Set<string>();
   for (let index = 0; index < attributeIndexes.length; index += 2) {
-    const name = indexedString(strings, attributeIndexes[index]);
+    const name = cdpSnapshotString(strings, attributeIndexes[index]);
     if (name === undefined) continue;
     if (seen.has(name)) continue;
     seen.add(name);
@@ -592,8 +588,8 @@ const domMetadata = (
   const pairs = new Map<string, string>();
   for (let index = 0; index + 1 < attributes.length; index += 2) {
     // Chrome already folds HTML names; SVG/XML names remain case-sensitive.
-    const name = indexedString(strings, attributes[index]);
-    const value = cdpIndexedStringValue(strings, attributes[index + 1]);
+    const name = cdpSnapshotString(strings, attributes[index]);
+    const value = cdpSnapshotValueString(strings, attributes[index + 1]);
     if (name === undefined || value === undefined) continue;
     // HTML keeps the first declaration. A later repeat must not move dom_urls.
     if (!pairs.has(name)) pairs.set(name, value);
