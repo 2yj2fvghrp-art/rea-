@@ -20,6 +20,7 @@ import {
   GdbSessionManager,
   gdbOneShotCommandMayInvalidateDetachProof,
 } from "../gdb/GdbSessionManager.js";
+import { RizinDebugSessionManager } from "../rizin/RizinDebugSessionManager.js";
 
 const executeWithCleanup = async (
   service: ReverseEngineeringService,
@@ -32,8 +33,7 @@ const executeWithCleanup = async (
     await service.close().catch(() => undefined);
     throw cause;
   }
-  const cleanupOnlyCandidate =
-    !result.ok && result.error.cleanupIncomplete;
+  const hadIncompleteCleanup = !result.ok && result.error.cleanupIncomplete;
   try {
     await service.close();
   } catch (cause) {
@@ -55,8 +55,7 @@ const executeWithCleanup = async (
     );
     return err(error);
   }
-  if (cleanupOnlyCandidate && !result.ok) {
-    result.error.resolveCleanup();
+  if (!result.ok && hadIncompleteCleanup && !result.error.cleanupIncomplete) {
     const evidence = cleanupOnlyCompleteEvidence(result.error);
     if (evidence !== undefined) return { ok: true, value: evidence };
   }
@@ -103,6 +102,7 @@ export const registerReverseEngineeringCommands = (
     new GdbSessionManager({ environment: providerEnvironment }),
   createService: typeof createReverseEngineeringService = createReverseEngineeringService,
 ): void => {
+  const service = createService(environment);
   cli.command(CLI_COMMANDS.inspectWithObjdump, {
     description:
       "Inspect a local artifact with GNU objdump and retain its raw output as Evidence",
@@ -120,7 +120,6 @@ export const registerReverseEngineeringCommands = (
           "dwarf",
           "disassemble",
           "disassemble_all",
-          "architectures",
         ])
         .describe("GNU objdump inspection operation to run."),
     }),
@@ -135,7 +134,6 @@ export const registerReverseEngineeringCommands = (
     run: ({ args, options }) =>
       withCommandCancellation((signal) =>
         logCliCommand(logger, CLI_COMMANDS.inspectWithObjdump, async () => {
-          const service = createService(environment);
           const result = await executeWithCleanup(service, () =>
             service.inspectWithObjdump(
               {
@@ -147,6 +145,28 @@ export const registerReverseEngineeringCommands = (
           );
           return result.ok ? result.value : projectAnalysisError(result.error);
         }),
+      ),
+  });
+  cli.command(CLI_COMMANDS.listObjdumpArchitectures, {
+    description: "List BFD targets advertised by the installed GNU objdump",
+    args: z.object({}),
+    run: () =>
+      withCommandCancellation((signal) =>
+        logCliCommand(
+          logger,
+          CLI_COMMANDS.listObjdumpArchitectures,
+          async () => {
+            const result = await executeWithCleanup(service, () =>
+              service.inspectWithObjdump(
+                { operation: "architectures" },
+                { signal },
+              ),
+            );
+            return result.ok
+              ? result.value
+              : projectAnalysisError(result.error);
+          },
+        ),
       ),
   });
   cli.command(CLI_COMMANDS.executeRizinCommand, {
@@ -161,7 +181,6 @@ export const registerReverseEngineeringCommands = (
     run: ({ args }) =>
       withCommandCancellation((signal) =>
         logCliCommand(logger, CLI_COMMANDS.executeRizinCommand, async () => {
-          const service = createService(environment);
           const result = await executeWithCleanup(service, () =>
             service.executeRizinCommand(args, { signal }),
           );
@@ -196,7 +215,7 @@ export const registerReverseEngineeringCommands = (
                   path: ["command"],
                   reason: "invalid_value",
                   message:
-                    "This command can alter target state or outlive one-shot cleanup; use the persistent GDB session workflow.",
+                    "This command can invalidate the verified inferior output route; use the persistent GDB session workflow.",
                 },
               ]),
             );
@@ -261,6 +280,86 @@ export const registerReverseEngineeringCommands = (
               );
             }
             if (cleanupFailed) process.exitCode = 1;
+          }
+        }),
+      ),
+  });
+  cli.command(CLI_COMMANDS.debugWithRizin, {
+    description:
+      "Run one unrestricted Rizin debugger command in an ephemeral session",
+    args: z.object({
+      path: z.string().min(1).describe("Path to the local artifact to debug."),
+      command: z
+        .string()
+        .min(1)
+        .describe("One unrestricted Rizin debugger command.")
+        .refine((value) => !/[\r\n]/u.test(value)),
+    }),
+    options: z.object({
+      inferiorTty: z
+        .string()
+        .min(1)
+        .describe("Caller-selected Linux TTY for inferior stdout and stderr."),
+      backend: z
+        .string()
+        .min(1)
+        .optional()
+        .describe("Optional Rizin IO debugger backend name."),
+    }),
+    run: ({ args, options }) =>
+      withCommandCancellation((signal) =>
+        logCliCommand(logger, CLI_COMMANDS.debugWithRizin, async () => {
+          const manager = new RizinDebugSessionManager(environment);
+          let sessionId: string | undefined;
+          try {
+            const started = await manager.start(
+              {
+                ...args,
+                inferior_tty: options.inferiorTty,
+                ...(options.backend === undefined
+                  ? {}
+                  : { backend: options.backend }),
+              },
+              signal,
+            );
+            if (!started.ok) return projectAnalysisError(started.error);
+            sessionId = started.value.session_id;
+            const executed = await manager.execute(
+              started.value.session_id,
+              args.command,
+              signal,
+            );
+            return executed.ok
+              ? executed.value.evidence
+              : projectAnalysisError(executed.error);
+          } finally {
+            const closed =
+              sessionId === undefined
+                ? undefined
+                : await manager.close(sessionId);
+            if (closed !== undefined && !closed.ok) {
+              logger.error(
+                {
+                  command: CLI_COMMANDS.debugWithRizin,
+                  cleanup: projectAnalysisError(closed.error),
+                },
+                "Rizin cleanup failed after collecting command output",
+              );
+              process.exitCode = 1;
+            }
+            await manager.closeAll().catch((cause: unknown) => {
+              process.exitCode = 1;
+              logger.error(
+                {
+                  command: CLI_COMMANDS.debugWithRizin,
+                  cleanup:
+                    cause instanceof Error
+                      ? cause.message
+                      : "Unknown cleanup failure",
+                },
+                "Rizin fallback cleanup failed",
+              );
+            });
           }
         }),
       ),

@@ -76,8 +76,7 @@ export class BinarySession
   implements BinarySessionPort
 {
   #active: SessionBinding | undefined;
-  /** Unresolved external-mutation cleanup owners; each is retained until it resolves itself. */
-  readonly #externalMutationCleanupFailures = new Set<AnalysisError>();
+  #externalMutationCleanupFailure: AnalysisError | undefined;
   #pendingCleanup:
     | {
         readonly client: AnalysisClient;
@@ -264,8 +263,8 @@ export class BinarySession
     resolve: () => Promise<Result<ResolvedSessionOpen, AnalysisError>>,
     options: Pick<BinarySessionOpenOptions, "signal" | "snapshot">,
   ): Promise<Result<BinaryTarget, AnalysisError>> {
-    const retainedFailure = this.#retainedExternalMutationFailure();
-    if (retainedFailure !== undefined) return err(retainedFailure);
+    if (this.#externalMutationCleanupFailure?.cleanupIncomplete === true)
+      return err(this.#externalMutationCleanupFailure);
     if (isAborted(options.signal))
       return err(new AnalysisCancelledError("open_binary"));
     const resolved = await resolve();
@@ -303,6 +302,8 @@ export class BinarySession
         previous.route.identity.id,
       );
       if (!closed.ok) {
+        // A failed open retires the provider cache, not the investigation.
+        // Preserve Evidence and Unknown history for export and recovery.
         this.clearSnapshot();
         this.#clearRuntimeAvailability();
         return closed;
@@ -369,85 +370,63 @@ export class BinarySession
     return ok(target);
   }
 
-  /** Serialize an external local-file mutation and rebind a matching session. */
+  /** Serialize an external mutation and retire the potentially stale analysis. */
   withAdmittedExternalMutation<Value>(
     _path: string | undefined,
     signal: AbortSignal | undefined,
     operation: () => Promise<Result<Value, AnalysisError>>,
-    rebindFailure: (
+    retirementFailure: (
       value: Result<Value, AnalysisError>,
       error: AnalysisError,
     ) => AnalysisError,
     operationName = "execute_rizin_command",
+    cleanupRecovery?: (
+      failure: AnalysisError | undefined,
+    ) => Promise<Result<null, AnalysisError>>,
   ): Promise<Result<Result<Value, AnalysisError>, AnalysisError>> {
     return this.#serialize(async (admittedThrough) => {
-      const retained = this.#retainedExternalMutationFailure();
-      if (retained !== undefined && operationName !== "close_gdb_session")
-        return err(retained);
       if (isAborted(signal))
         return err(new AnalysisCancelledError(operationName));
       await this.#drainCalls(admittedThrough);
       if (isAborted(signal))
         return err(new AnalysisCancelledError(operationName));
 
+      if (this.#externalMutationCleanupFailure?.cleanupIncomplete === true) {
+        if (cleanupRecovery === undefined)
+          return err(this.#externalMutationCleanupFailure);
+        const recovered = await cleanupRecovery(
+          this.#externalMutationCleanupFailure,
+        );
+        if (!recovered.ok) return recovered;
+        if (this.#externalMutationCleanupFailure.cleanupIncomplete)
+          return err(this.#externalMutationCleanupFailure);
+        this.#externalMutationCleanupFailure = undefined;
+      }
+
+      const pendingCleanup = await this.#retryPendingCleanup();
+      if (!pendingCleanup.ok) return pendingCleanup;
+
       const activeAtDispatch = this.#active;
-      if (activeAtDispatch?.route.identity.id === "ghidra")
+      if (activeAtDispatch?.route.binding?.identity.id === "ghidra")
         return err(
           new AnalysisOutputError(
             operationName,
             "Close the active Ghidra session explicitly before an external mutation; rebinding would discard its ephemeral analysis edits.",
           ),
         );
-      // External commands are unrestricted: a hard link, symlink alias, plugin,
-      // or command script can mutate the active file through another path.
-      // Rebind every active session after the admitted call rather than infer
-      // file identity with an uncancellable path lookup.
+      // A protocol reply does not prove that background writers have stopped.
+      // Retire the old analysis and require an explicit fresh open rather than
+      // silently binding a snapshot while an unrestricted command can still write.
+      const retireTarget = activeAtDispatch !== undefined;
       this.invalidateSnapshot();
       const value = await operation();
-      // An unrelated close must not release another owner's unresolved cleanup:
-      // only that owner's own resolution clears its failure.
-      if (!value.ok && value.error.cleanupIncomplete)
-        this.#externalMutationCleanupFailures.add(value.error);
-      if (activeAtDispatch === undefined) return ok(value);
+      this.#externalMutationCleanupFailure =
+        !value.ok && value.error.cleanupIncomplete ? value.error : undefined;
+      if (!retireTarget) return ok(value);
 
       const retired = await this.#closeActive({}, false);
-      if (!retired.ok) return err(rebindFailure(value, retired.error));
-      if (this.#retainedExternalMutationFailure() !== undefined)
-        return ok(value);
-
-      const target = activeAtDispatch.target;
-      const reopenOptions: BinarySessionOpenOptions = {
-        targetKind: target?.kind,
-        ...(activeAtDispatch?.profile === null ||
-        activeAtDispatch?.profile === undefined
-          ? {}
-          : { providerId: activeAtDispatch.profile.provider.id }),
-        ...(target?.format === "dos-com" || target?.format === "raw-binary"
-          ? { formatHint: target.format }
-          : {}),
-        ...(target?.format === "raw-binary"
-          ? {
-              architecture: target.architecture,
-              entryPoint: target.entryPoint,
-            }
-          : {}),
-      };
-      const reopened = await this.#openWithinTransition(
-        admittedThrough,
-        () =>
-          resolveSessionOpen({
-            router: this.#providerRouter,
-            current: this.#active,
-            path: target.sourcePath ?? target.path,
-            options: reopenOptions,
-            stagedSnapshotMatches: (target, profile) =>
-              this.matchesSnapshot(target, profile),
-          }),
-        reopenOptions,
-      );
-      return reopened.ok
-        ? ok(value)
-        : err(rebindFailure(value, reopened.error));
+      if (!retired.ok) return err(retirementFailure(value, retired.error));
+      return ok(value);
     });
   }
 
@@ -870,13 +849,6 @@ export class BinarySession
 
   #currentRoute(): SessionProviderRoute {
     return this.#active?.route ?? this.#providerRouter.initialRoute();
-  }
-
-  #retainedExternalMutationFailure(): AnalysisError | undefined {
-    for (const failure of this.#externalMutationCleanupFailures)
-      if (failure.cleanupIncomplete) return failure;
-      else this.#externalMutationCleanupFailures.delete(failure);
-    return undefined;
   }
 
   #serialize<T>(

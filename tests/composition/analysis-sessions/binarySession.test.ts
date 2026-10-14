@@ -173,7 +173,7 @@ describe("detached provider and target metadata", () => {
   });
 });
 
-it("drains session calls and rebinds a target after an admitted external mutation", async () => {
+it("drains session calls and retires analysis after an admitted external mutation", async () => {
   const [target] = await createBinarySessionTargets();
   const alias = join(dirname(target), "first-alias.hop");
   await symlink(target, alias);
@@ -222,14 +222,47 @@ it("drains session calls and rebinds a target after an admitted external mutatio
     ok: true,
     value: { ok: true, value: "provider finished" },
   });
-  expect((await queuedAnalysis).ok).toBe(true);
+  expect((await queuedAnalysis).ok).toBe(false);
+  expect(session.activeTarget()).toBeUndefined();
+  expect(calls).toEqual([]);
+  expect(clients).toHaveLength(0);
+  expect((await session.open(target)).ok).toBe(true);
+  expect((await session.execute("address_name", {})).ok).toBe(true);
   expect(session.activeTarget()?.sha256).not.toBe(originalDigest);
   expect(clients.at(-1)?.targetSha256).toBe(session.activeTarget()?.sha256);
   expect(calls).toEqual(["address_name"]);
   await session.close();
 });
 
-it("rebinds when an external mutation uses a hard link to the active target", async () => {
+it("leaves analysis unbound when a command returns before its writer finishes", async () => {
+  const [target] = await createBinarySessionTargets();
+  const session = createTestBinarySession(createCacheProvider([]));
+  expect((await session.open(target)).ok).toBe(true);
+  const originalDigest = session.activeTarget()?.sha256;
+  const releaseWriter = createDeferred<void>();
+  let writer: Promise<void> | undefined;
+  const result = await session.withAdmittedExternalMutation(
+    target,
+    undefined,
+    async () => {
+      writer = releaseWriter.promise.then(() =>
+        writeFile(target, "delayed write"),
+      );
+      return resultOk("command replied");
+    },
+    (_value, error) => error,
+  );
+  expect(result).toEqual(resultOk(resultOk("command replied")));
+  expect(session.activeTarget()).toBeUndefined();
+  releaseWriter.resolve();
+  await writer;
+  expect((await session.execute("address_name", {})).ok).toBe(false);
+  expect((await session.open(target)).ok).toBe(true);
+  expect(session.activeTarget()?.sha256).not.toBe(originalDigest);
+  await session.close();
+});
+
+it("retires analysis when an external mutation uses a hard link", async () => {
   const [target] = await createBinarySessionTargets();
   const alias = join(dirname(target), "hard-link-alias.hop");
   await link(target, alias);
@@ -251,12 +284,13 @@ it("rebinds when an external mutation uses a hard link to the active target", as
     ok: true,
     value: { ok: true, value: "changed" },
   });
-  expect(session.activeTarget()).toMatchObject({ path: target });
+  expect(session.activeTarget()).toBeUndefined();
+  expect((await session.open(target)).ok).toBe(true);
   expect(session.activeTarget()?.sha256).not.toBe(before);
   await session.close();
 });
 
-it("preserves Evidence records while replacing the client after an external mutation", async () => {
+it("preserves Evidence records while retiring the client after an external mutation", async () => {
   const [target] = await createBinarySessionTargets();
   const session = createTestBinarySession(createCacheProvider([]));
   expect((await session.open(target)).ok).toBe(true);
@@ -279,7 +313,7 @@ it("preserves Evidence records while replacing the client after an external muta
   await session.close();
 });
 
-it("reopens an app bundle from its source path after a session mutation", async () => {
+it("requires explicitly reopening an app bundle after a session mutation", async () => {
   const directory = await createTestTempDirectory("rea-session-app-rebind-");
   const app = join(directory, "Fixture.app");
   const executable = join(app, "Fixture");
@@ -306,6 +340,8 @@ it("reopens an app bundle from its source path after a session mutation", async 
     ok: true,
     value: { ok: true, value: "observed" },
   });
+  expect(session.activeTarget()).toBeUndefined();
+  expect((await session.open(app)).ok).toBe(true);
   expect(session.activeTarget()).toMatchObject({
     path: await realpath(executable),
     sourcePath: await realpath(app),
@@ -314,7 +350,7 @@ it("reopens an app bundle from its source path after a session mutation", async 
   await session.close();
 });
 
-it("omits provider identity when rebinding an unbound auxiliary-only session", async () => {
+it("retires an auxiliary-only session after an external mutation", async () => {
   const [target] = await createBinarySessionTargets();
   const session = createTestBinarySession(() => ({
     execute: () => Promise.resolve(ok(null)),
@@ -333,7 +369,7 @@ it("omits provider identity when rebinding an unbound auxiliary-only session", a
     ok: true,
     value: { ok: true, value: "observed" },
   });
-  expect(session.activeTarget()?.path).toBe(target);
+  expect(session.activeTarget()).toBeUndefined();
   await session.close();
 });
 
@@ -1518,6 +1554,7 @@ it("blocks analysis rebinding until the external writer cleanup settles", async 
     ),
   ).toEqual(err(failure));
   expect(anotherMutation).not.toHaveBeenCalled();
+  // Only the resource owner may acknowledge completed cleanup.
   failure.resolveCleanup();
   expect((await session.open(target)).ok).toBe(true);
   await session.close();
@@ -1541,6 +1578,7 @@ it("requires explicit close before an external mutation of an active Ghidra sess
       })),
   });
   expect((await session.open(target)).ok).toBe(true);
+  expect(session.providerIdentity().id).toBe("ghidra");
   const mutate = vi.fn(async () => resultOk("mutated"));
   const result = await session.withAdmittedExternalMutation(
     target,

@@ -1,3 +1,4 @@
+import { readFileSync } from "node:fs";
 import { chmod, mkdtemp, readFile, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { delimiter, join } from "node:path";
@@ -5,8 +6,17 @@ import { delimiter, join } from "node:path";
 import { afterEach, expect, it } from "vitest";
 
 import { GdbSessionManager } from "../../../src/gdb/GdbSessionManager.js";
+import { evidenceSchema } from "../../../src/domain/evidence.js";
+import { cleanupOwnedProcessGroup } from "../../../src/process/ProcessOwnership.js";
 import { spawnOwnedProviderProcess } from "../../../src/process/ProviderProcess.js";
-import { expectGdbSessionStarted } from "./gdbTestHelpers.js";
+import { stopOwnedDebuggerProcess } from "../../../src/process/ownedDebuggerSession.js";
+
+// These tests launch controlled fake providers; Linux admission is injected so
+// lifecycle semantics remain testable on hosts that correctly reject GDB.
+const createGdbManagerForInjectedPlatform = (
+  options: ConstructorParameters<typeof GdbSessionManager>[0] = {},
+): GdbSessionManager =>
+  new GdbSessionManager({ platform: "linux", ...options });
 
 let directory: string | undefined;
 const managers: Array<{ closeAll(): Promise<void> }> = [];
@@ -17,6 +27,14 @@ const expectOwnedProcessExited = async (pidText: string): Promise<void> => {
   await expect
     .poll(() => {
       try {
+        if (process.platform === "linux") {
+          const stat = readFileSync(`/proc/${pid}/stat`, "utf8");
+          const state = stat.slice(
+            stat.lastIndexOf(")") + 2,
+            stat.lastIndexOf(")") + 3,
+          );
+          if (state === "Z") return false;
+        }
         process.kill(pid, 0);
         return true;
       } catch {
@@ -27,7 +45,7 @@ const expectOwnedProcessExited = async (pidText: string): Promise<void> => {
 };
 
 it("keeps persistent GDB sessions unavailable on Windows", async () => {
-  const gdb = await new GdbSessionManager({
+  const gdb = await createGdbManagerForInjectedPlatform({
     environment: { REA_GDB_COMMAND: "/missing/gdb" },
     platform: "win32",
   }).start();
@@ -68,7 +86,9 @@ process.stdin.on("data", (chunk) => {
     );
     await chmod(provider, 0o700);
     const suppliedEnvironment: NodeJS.ProcessEnv = { PATH: selectedPath };
-    const manager = new GdbSessionManager({ environment: suppliedEnvironment });
+    const manager = createGdbManagerForInjectedPlatform({
+      environment: suppliedEnvironment,
+    });
     managers.push(manager);
     suppliedEnvironment.PATH = join(directory, "mutated-bin");
 
@@ -107,7 +127,7 @@ process.stdin.on("data", (chunk) => {
 `,
     );
     await chmod(provider, 0o700);
-    const manager = new GdbSessionManager({
+    const manager = createGdbManagerForInjectedPlatform({
       environment: { REA_GDB_COMMAND: provider },
       startupTimeoutMs: 1_000,
     });
@@ -123,6 +143,7 @@ process.stdin.on("data", (chunk) => {
       });
       expect(started.error).not.toMatchObject({ _tag: "AnalysisTimeoutError" });
       expect(JSON.stringify(started.error)).toContain("GDB startup diagnostic");
+      expect(started.error.message).toContain("exit code 7, signal null");
       expect(JSON.stringify(started.error)).toContain("process_exit_observed");
       expect(started.error.partialObservation).toMatchObject({
         parameters: {
@@ -163,7 +184,7 @@ process.stdin.on("data", (chunk) => {
 `,
     );
     await chmod(provider, 0o700);
-    const manager = new GdbSessionManager({
+    const manager = createGdbManagerForInjectedPlatform({
       environment: { REA_GDB_COMMAND: provider },
       stopProcess: async (session) => {
         detachChecked = true;
@@ -199,6 +220,62 @@ process.stdin.on("data", (chunk) => {
 );
 
 it.skipIf(process.platform === "win32")(
+  "preserves invalid UTF-8 in startup Evidence when cleanup remains incomplete",
+  async () => {
+    directory = await mkdtemp(join(tmpdir(), "rea-gdb-startup-invalid-utf8-"));
+    const provider = join(directory, "fake-gdb-startup-invalid-utf8.mjs");
+    await writeFile(
+      provider,
+      `#!${process.execPath}
+process.stdout.write("(gdb)\\n");
+process.stdin.setEncoding("utf8");
+process.stdin.on("data", (chunk) => {
+  for (const line of chunk.split("\\n")) {
+    const match = /^(\\d+)/.exec(line);
+    if (match && line.includes("auto-load off")) {
+      const output = Buffer.concat([
+        Buffer.from("~startup invalid byte "),
+        Buffer.from([0xff]),
+        Buffer.from("\\n"),
+      ]);
+      process.stdout.write(output, () => process.exit(7));
+    }
+  }
+});
+`,
+    );
+    await chmod(provider, 0o700);
+    let retainedSessionId: string | undefined;
+    const manager = createGdbManagerForInjectedPlatform({
+      environment: { REA_GDB_COMMAND: provider },
+      stopProcess: async (session) => {
+        retainedSessionId = session.id;
+        return { status: "incomplete", reason: "startup cleanup is retained" };
+      },
+    });
+    managers.push(manager);
+
+    const started = await manager.start();
+
+    expect(started.ok).toBe(false);
+    if (!started.ok) {
+      expect(started.error.cleanupIncomplete).toBe(true);
+      expect(started.error.partialObservation).toMatchObject({
+        normalized_result: { output_invalid_utf8: true },
+        raw_result: {
+          output_invalid_utf8: true,
+          process_exit_observed: true,
+        },
+        limitations: expect.arrayContaining([
+          expect.stringContaining("invalid UTF-8 bytes"),
+        ]),
+      });
+    }
+    expect(manager.status(retainedSessionId ?? "")?.mi_invalid_utf8).toBe(true);
+  },
+);
+
+it.skipIf(process.platform === "win32")(
   "bounds persistent GDB sessions before spawning another process",
   async () => {
     directory = await mkdtemp(join(tmpdir(), "rea-gdb-session-limit-"));
@@ -225,7 +302,7 @@ process.stdin.on("data", (chunk) => {
 `,
     );
     await chmod(provider, 0o700);
-    const manager = new GdbSessionManager({
+    const manager = createGdbManagerForInjectedPlatform({
       environment: { REA_GDB_COMMAND: provider },
       maxSessions: 1,
     });
@@ -286,7 +363,7 @@ process.stdin.on("data", (chunk) => {
     const secondSpawnGate = new Promise<void>((resolve) => {
       releaseSecondSpawn = resolve;
     });
-    const manager = new GdbSessionManager({
+    const manager = createGdbManagerForInjectedPlatform({
       environment: { REA_GDB_COMMAND: provider },
       maxSessions: 2,
       spawnProcess: async (options) => {
@@ -328,19 +405,45 @@ it.skipIf(process.platform === "win32")(
     directory = await mkdtemp(join(tmpdir(), "rea-gdb-start-shutdown-"));
     const provider = join(directory, "fake-gdb-blocked.mjs");
     const pidPath = join(directory, "pid");
+    const signalPath = join(directory, "signal");
+    const releasePath = join(directory, "release");
     await writeFile(
       provider,
       `#!${process.execPath}
-import { writeFile } from "node:fs/promises";
+import { readFile, writeFile } from "node:fs/promises";
+process.on("SIGTERM", async () => {
+  await writeFile(${JSON.stringify(signalPath)}, "SIGTERM");
+  while (true) {
+    try {
+      await readFile(${JSON.stringify(releasePath)}, "utf8");
+      break;
+    } catch {
+      await new Promise((resolve) => setTimeout(resolve, 10));
+    }
+  }
+  process.exit(0);
+});
 await writeFile(${JSON.stringify(pidPath)}, String(process.pid));
 process.stdin.resume();
-setTimeout(() => process.exit(0), 250);
 `,
     );
     await chmod(provider, 0o700);
-    const manager = new GdbSessionManager({
+    let enterStop!: () => void;
+    const stopEntered = new Promise<void>((resolve) => {
+      enterStop = resolve;
+    });
+    let releaseStop!: () => void;
+    const stopGate = new Promise<void>((resolve) => {
+      releaseStop = resolve;
+    });
+    const manager = createGdbManagerForInjectedPlatform({
       environment: { REA_GDB_COMMAND: provider },
       startupTimeoutMs: 30_000,
+      stopProcess: async (session, name, options) => {
+        enterStop();
+        await stopGate;
+        return stopOwnedDebuggerProcess(session, name, options);
+      },
     });
     managers.push(manager);
 
@@ -359,9 +462,25 @@ setTimeout(() => process.exit(0), 250);
     }
     if (pidText === undefined) throw new Error("fake GDB did not start");
 
-    await manager.closeAll();
+    let closeSettled = false;
+    const closing = manager.closeAll().then(() => {
+      closeSettled = true;
+    });
+    try {
+      await stopEntered;
+      expect(closeSettled).toBe(false);
+      await writeFile(releasePath, "release");
+      releaseStop();
+    } finally {
+      await writeFile(releasePath, "release");
+      releaseStop();
+    }
     const started = await starting;
+    await closing;
     expect(started.ok).toBe(false);
+    if (started.ok) throw new Error("GDB unexpectedly started");
+    expect(started.error._tag).toBe("AnalysisCancelledError");
+    expect(await readFile(signalPath, "utf8")).toBe("SIGTERM");
     await expectOwnedProcessExited(pidText);
     expect(manager.status("unknown-session")).toBeUndefined();
     await expect(manager.start()).resolves.toMatchObject({
@@ -402,11 +521,13 @@ process.stdin.on("data", (chunk) => {
 `,
     );
     await chmod(provider, 0o700);
-    const manager = new GdbSessionManager({
+    const manager = createGdbManagerForInjectedPlatform({
       environment: { REA_GDB_COMMAND: provider },
     });
     managers.push(manager);
-    const started = await expectGdbSessionStarted(manager);
+    const started = await manager.start();
+    expect(started.ok).toBe(true);
+    if (!started.ok) return;
 
     expect(
       manager.status(started.value.session_id)?.recent_mi_records_truncated,
@@ -441,12 +562,14 @@ setTimeout(() => process.exit(0), 250).unref();
 `,
     );
     await chmod(provider, 0o700);
-    const manager = new GdbSessionManager({
+    const manager = createGdbManagerForInjectedPlatform({
       environment: { REA_GDB_COMMAND: provider },
       commandTimeoutMs: 40,
     });
     managers.push(manager);
-    const started = await expectGdbSessionStarted(manager);
+    const started = await manager.start();
+    expect(started.ok).toBe(true);
+    if (!started.ok) return;
 
     const result = await manager.execute(
       started.value.session_id,
@@ -496,7 +619,7 @@ setTimeout(() => process.exit(0), 250);
 `,
     );
     await chmod(provider, 0o700);
-    const manager = new GdbSessionManager({
+    const manager = createGdbManagerForInjectedPlatform({
       environment: { REA_GDB_COMMAND: provider },
       commandTimeoutMs: 40,
       stopProcess: async () => ({
@@ -505,7 +628,9 @@ setTimeout(() => process.exit(0), 250);
       }),
     });
     managers.push(manager);
-    const started = await expectGdbSessionStarted(manager);
+    const started = await manager.start();
+    expect(started.ok).toBe(true);
+    if (!started.ok) return;
 
     const result = await manager.execute(
       started.value.session_id,
@@ -568,11 +693,13 @@ process.stdin.on("data", (chunk) => {
 `,
     );
     await chmod(provider, 0o700);
-    const manager = new GdbSessionManager({
+    const manager = createGdbManagerForInjectedPlatform({
       environment: { REA_GDB_COMMAND: provider },
     });
     managers.push(manager);
-    const started = await expectGdbSessionStarted(manager);
+    const started = await manager.start();
+    expect(started.ok).toBe(true);
+    if (!started.ok) return;
     const first = manager.execute(started.value.session_id, "first");
     const controller = new AbortController();
     const second = manager.execute(
@@ -617,25 +744,48 @@ process.stdin.on("data", (chunk) => {
 `,
     );
     await chmod(provider, 0o700);
-    const manager = new GdbSessionManager({
+    const manager = createGdbManagerForInjectedPlatform({
       environment: { REA_GDB_COMMAND: provider },
     });
     managers.push(manager);
-    const started = await expectGdbSessionStarted(manager);
+    const started = await manager.start();
+    expect(started.ok).toBe(true);
+    if (!started.ok) return;
 
     const result = await manager.execute(
       started.value.session_id,
       "info threads",
     );
 
-    expect(result.ok).toBe(true);
-    if (result.ok)
-      expect(result.value.result).toMatchObject({
-        process_exit_observed: true,
-        output_truncated: false,
-        completion_status: "unknown",
+    expect(result.ok).toBe(false);
+    if (!result.ok) {
+      expect(result.error.cleanupIncomplete).toBe(true);
+      expect(result.error.partialObservation).toMatchObject({
+        normalized_result: {
+          process_exit_observed: true,
+          output_truncated: false,
+          completion_status: "unknown",
+          records: expect.arrayContaining([
+            expect.stringContaining("thread-created"),
+          ]),
+        },
       });
-    if (result.ok) expect(result.value.result.records).toHaveLength(300);
+      const parsedEvidence = evidenceSchema.safeParse(
+        result.error.partialObservation,
+      );
+      expect(parsedEvidence.success).toBe(true);
+      if (parsedEvidence.success) {
+        const rawResult = parsedEvidence.data.raw_result;
+        expect(rawResult).toMatchObject({ records: expect.any(Array) });
+        if (
+          typeof rawResult === "object" &&
+          rawResult !== null &&
+          !Array.isArray(rawResult) &&
+          "records" in rawResult
+        )
+          expect(rawResult.records).toHaveLength(300);
+      }
+    }
   },
 );
 
@@ -664,11 +814,13 @@ process.stdin.on("data", (chunk) => {
 `,
     );
     await chmod(provider, 0o700);
-    const manager = new GdbSessionManager({
+    const manager = createGdbManagerForInjectedPlatform({
       environment: { REA_GDB_COMMAND: provider },
     });
     managers.push(manager);
-    const started = await expectGdbSessionStarted(manager);
+    const started = await manager.start();
+    expect(started.ok).toBe(true);
+    if (!started.ok) return;
     const controller = new AbortController();
     setTimeout(() => controller.abort(), 50);
 
@@ -716,8 +868,8 @@ process.stdin.on("data", (chunk) => {
     const match = /^(\\d+)/.exec(line); if (!match) continue;
     if (line.includes("auto-load off")) process.stdout.write(match[1] + "^done\\n");
     else if (line.includes("inferior-tty-set")) process.stdout.write(match[1] + "^done\\n");
-    else if (line.includes("inferior-tty-show")) process.stdout.write(match[1] + "^done,inferior_tty_terminal=\\\"" + tty + "\\\"\\n");
-    else if (line.includes("list-thread-groups")) process.stdout.write(match[1] + "^done,groups=[{id=\\\"i1\\\",pid=\\\"123\\\"}]\\n");
+    else if (line.includes("inferior-tty-show")) process.stdout.write(match[1] + "^done,inferior_tty_terminal=\\"" + tty + "\\"\\n");
+    else if (line.includes("list-thread-groups")) process.stdout.write(match[1] + "^done,groups=[{id=\\"i1\\"}]\\n");
     else if (line.includes("interpreter-exec")) { tty = "/tmp/changed-by-abbreviated-alias"; process.stdout.write(match[1] + "^done\\n"); }
     else if (line.includes("target-detach")) { import("node:fs/promises").then((fs) => fs.writeFile(${JSON.stringify(detachPath)}, "detached")); process.stdout.write(match[1] + "^done\\n"); }
   }
@@ -726,7 +878,7 @@ setTimeout(() => process.exit(0), 500);
 `,
     );
     await chmod(provider, 0o700);
-    const manager = new GdbSessionManager({
+    const manager = createGdbManagerForInjectedPlatform({
       environment: { REA_GDB_COMMAND: provider },
       stopProcess: async () => ({
         status: "incomplete",
@@ -777,11 +929,13 @@ process.stdin.on("data", (chunk) => {
 `,
     );
     await chmod(provider, 0o700);
-    const manager = new GdbSessionManager({
+    const manager = createGdbManagerForInjectedPlatform({
       environment: { REA_GDB_COMMAND: provider },
     });
     managers.push(manager);
-    const started = await expectGdbSessionStarted(manager);
+    const started = await manager.start();
+    expect(started.ok).toBe(true);
+    if (!started.ok) return;
 
     expect(
       manager.status(started.value.session_id)?.diagnostics_truncated,
@@ -794,9 +948,11 @@ it.skipIf(process.platform === "win32")(
   async () => {
     directory = await mkdtemp(join(tmpdir(), "rea-gdb-stdin-error-"));
     const provider = join(directory, "fake-gdb-stdin-error.mjs");
+    const stdinClosed = join(directory, "stdin-closed");
     await writeFile(
       provider,
       `#!${process.execPath}
+import { closeSync, writeFileSync } from "node:fs";
 process.stdout.write("(gdb)\\n");
 let input = "";
 process.stdin.setEncoding("utf8");
@@ -808,7 +964,8 @@ process.stdin.on("data", (chunk) => {
     const match = /^(\\d+)/.exec(line);
     if (match && line.includes("auto-load off")) {
       process.stdout.write(match[1] + "^done\\n");
-      setTimeout(() => import("node:fs").then((fs) => fs.closeSync(0)), 50);
+      closeSync(0);
+      writeFileSync(${JSON.stringify(stdinClosed)}, "closed");
     }
   }
 });
@@ -816,20 +973,72 @@ setInterval(() => {}, 1000);
 `,
     );
     await chmod(provider, 0o700);
-    const manager = new GdbSessionManager({
+    let ownedLaunch:
+      | Awaited<ReturnType<typeof spawnOwnedProviderProcess>>
+      | undefined;
+    let ownedProcessExit: Promise<void> | undefined;
+    const manager = createGdbManagerForInjectedPlatform({
       environment: { REA_GDB_COMMAND: provider },
+      spawnProcess: async (options) => {
+        ownedLaunch = await spawnOwnedProviderProcess(options);
+        ownedProcessExit = new Promise<void>((resolve) => {
+          const child = ownedLaunch!.process;
+          if (child.exitCode !== null || child.signalCode !== null) resolve();
+          else child.once("exit", () => resolve());
+        });
+        return ownedLaunch;
+      },
+      stopProcess: async (session, name, options) =>
+        session.exited
+          ? stopOwnedDebuggerProcess(session, name, options)
+          : {
+              status: "incomplete",
+              reason: "fixture-owned process awaits test teardown",
+            },
     });
     managers.push(manager);
-    const started = await expectGdbSessionStarted(manager);
-    await new Promise((resolveDelay) => setTimeout(resolveDelay, 100));
+    let sessionId: string | undefined;
+    let originalError: { cleanupIncomplete: boolean } | undefined;
+    try {
+      const started = await manager.start();
+      expect(started.ok).toBe(true);
+      if (!started.ok) return;
+      sessionId = started.value.session_id;
 
-    const result = await manager.execute(
-      started.value.session_id,
-      "info files",
-    );
+      await expect
+        .poll(() => readFile(stdinClosed, "utf8").catch(() => undefined))
+        .toBe("closed");
+      const result = await manager.execute(sessionId, "info files");
 
-    expect(result.ok).toBe(false);
-    expect(manager.status(started.value.session_id)?.state).toBe("closed");
+      expect(result.ok).toBe(false);
+      expect(manager.status(sessionId)?.state).toBe("closed");
+      const closed = await manager.close(sessionId);
+      expect(closed.ok).toBe(false);
+      if (!closed.ok) {
+        originalError = closed.error;
+        expect(closed.error.cleanupIncomplete).toBe(true);
+      }
+      expect(manager.status(sessionId)?.state).toBe("closed");
+      await expect(manager.closeAll()).rejects.toThrow();
+      expect(manager.status(sessionId)?.state).toBe("closed");
+    } finally {
+      if (ownedLaunch !== undefined) {
+        const cleanup = await cleanupOwnedProcessGroup(ownedLaunch.ownership);
+        if (!cleanup.cleaned) {
+          const child = ownedLaunch.process;
+          if (child.exitCode === null && child.signalCode === null)
+            child.kill("SIGKILL");
+        }
+        await ownedProcessExit;
+        await expectOwnedProcessExited(String(ownedLaunch.process.pid));
+      }
+      const retried = await manager.retryCleanupFailures();
+      expect(retried.ok).toBe(false);
+      if (originalError !== undefined)
+        expect(originalError.cleanupIncomplete).toBe(true);
+      if (sessionId !== undefined)
+        expect(manager.status(sessionId)?.state).toBe("closed");
+    }
   },
 );
 
@@ -859,11 +1068,13 @@ process.stdin.on("data", (chunk) => {
 `,
     );
     await chmod(provider, 0o700);
-    const manager = new GdbSessionManager({
+    const manager = createGdbManagerForInjectedPlatform({
       environment: { REA_GDB_COMMAND: provider },
     });
     managers.push(manager);
-    const started = await expectGdbSessionStarted(manager);
+    const started = await manager.start();
+    expect(started.ok).toBe(true);
+    if (!started.ok) return;
 
     expect(
       (await manager.execute(started.value.session_id, "first command")).ok,
@@ -873,66 +1084,62 @@ process.stdin.on("data", (chunk) => {
       "second command",
     );
 
-    expect(exited.ok).toBe(true);
-    if (exited.ok) {
-      expect(exited.value.result).toMatchObject({
-        command: "second command",
-        mi: "",
-        process_exit_observed: true,
-        records: [
-          "~second-command-partial",
-          "@target-partial",
-          "@target-tail",
-          "&log-partial",
-          "&log-tail",
-          "~second-command-tail",
-        ],
-        console: ["~second-command-partial", "~second-command-tail"].join("\n"),
-        target: ["@target-partial", "@target-tail"].join("\n"),
-        log: ["&log-partial", "&log-tail"].join("\n"),
-        output_truncated: false,
-        completion_status: "unknown",
+    expect(exited.ok).toBe(false);
+    if (!exited.ok) {
+      expect(exited.error.cleanupIncomplete).toBe(true);
+      expect(exited.error.partialObservation).toMatchObject({
+        normalized_result: {
+          command: "second command",
+          mi: "",
+          process_exit_observed: true,
+          records: [
+            "~second-command-partial",
+            "@target-partial",
+            "@target-tail",
+            "&log-partial",
+            "&log-tail",
+            "~second-command-tail",
+          ],
+          console: ["~second-command-partial", "~second-command-tail"].join(
+            "\n",
+          ),
+          target: ["@target-partial", "@target-tail"].join("\n"),
+          log: ["&log-partial", "&log-tail"].join("\n"),
+          output_truncated: false,
+          completion_status: "unknown",
+        },
       });
-      expect(exited.value.result.records.join(" ")).not.toContain(
-        "first-command-only",
-      );
-      expect(exited.value.evidence.normalized_result).toMatchObject({
-        command: "second command",
-        records: [
-          "~second-command-partial",
-          "@target-partial",
-          "@target-tail",
-          "&log-partial",
-          "&log-tail",
-          "~second-command-tail",
-        ],
-        console: ["~second-command-partial", "~second-command-tail"].join("\n"),
-        target: ["@target-partial", "@target-tail"].join("\n"),
-        log: ["&log-partial", "&log-tail"].join("\n"),
-        completion_status: "unknown",
+      expect(exited.error.partialObservation).toMatchObject({
+        parameters: {
+          command: "second command",
+          session_id: started.value.session_id,
+        },
+        normalized_result: {
+          command: "second command",
+          records: [
+            "~second-command-partial",
+            "@target-partial",
+            "@target-tail",
+            "&log-partial",
+            "&log-tail",
+            "~second-command-tail",
+          ],
+          completion_status: "unknown",
+        },
+        raw_result: {
+          command: "second command",
+          records: expect.not.arrayContaining(["~first-command-only"]),
+          completion_status: "unknown",
+        },
+        limitations: expect.arrayContaining([
+          expect.stringContaining(
+            "only records retained for the active command",
+          ),
+          expect.stringContaining(
+            "The active GDB inferior identity is not established by the debugger session identifier.",
+          ),
+        ]),
       });
-      expect(exited.value.evidence.parameters).toMatchObject({
-        command: "second command",
-        session_id: started.value.session_id,
-      });
-      expect(exited.value.evidence.raw_result).toMatchObject({
-        command: "second command",
-        records: [
-          "~second-command-partial",
-          "@target-partial",
-          "@target-tail",
-          "&log-partial",
-          "&log-tail",
-          "~second-command-tail",
-        ],
-        completion_status: "unknown",
-      });
-      expect(exited.value.evidence.limitations.join(" ")).toContain(
-        "only records retained for the active command",
-      );
-      expect(exited.value.evidence.limitations.join(" ")).toContain(
-        "The active GDB inferior identity is not established by the debugger session identifier.",
-      );
     }
   },
 );
@@ -964,7 +1171,7 @@ setTimeout(() => process.exit(0), 250);
 `,
     );
     await chmod(provider, 0o700);
-    const manager = new GdbSessionManager({
+    const manager = createGdbManagerForInjectedPlatform({
       environment: { REA_GDB_COMMAND: provider },
       stopProcess: async () => ({
         status: "incomplete",
@@ -972,7 +1179,9 @@ setTimeout(() => process.exit(0), 250);
       }),
     });
     managers.push(manager);
-    const started = await expectGdbSessionStarted(manager);
+    const started = await manager.start();
+    expect(started.ok).toBe(true);
+    if (!started.ok) return;
     const controller = new AbortController();
     const execution = manager.execute(
       started.value.session_id,
@@ -987,56 +1196,9 @@ setTimeout(() => process.exit(0), 250);
     expect(cancelled.ok).toBe(false);
     if (!cancelled.ok) {
       expect(cancelled.error._tag).toBe("AnalysisCancelledError");
-      expect(cancelled.error.partialObservation).toMatchObject({
-        limitations: expect.arrayContaining([
-          expect.stringContaining(
-            "Shutdown of the owned GDB process was requested",
-          ),
-        ]),
-      });
       expect(cancelled.error.cleanup?.reason).toContain(
         "simulated debugger cleanup failure",
       );
     }
-  },
-);
-
-it.skipIf(process.platform === "win32")(
-  "closes inactive GDB inferiors without requesting detach or a TTY",
-  async () => {
-    directory = await mkdtemp(join(tmpdir(), "rea-gdb-inactive-inferior-"));
-    const provider = join(directory, "fake-gdb-inactive.mjs");
-    await writeFile(
-      provider,
-      `#!${process.execPath}
-process.stdout.write("(gdb)\\n");
-process.stdin.setEncoding("utf8");
-let input = "";
-process.stdin.on("data", chunk => {
-  input += chunk;
-  for (;;) {
-    const end = input.indexOf("\\n");
-    if (end < 0) break;
-    const line = input.slice(0, end); input = input.slice(end + 1);
-    const token = /^(\\d+)/.exec(line)?.[1]; if (!token) continue;
-    if (line.includes("list-thread-groups")) process.stdout.write(token + '^done,groups=[{id="i1",type="process",executable="/inactive"}]\\n');
-    else if (line.includes("gdb-exit")) { process.stdout.write(token + "^exit\\n"); process.exit(0); }
-    else process.stdout.write(token + "^done\\n");
-  }
-});
-`,
-    );
-    await chmod(provider, 0o700);
-    const manager = new GdbSessionManager({
-      environment: { REA_GDB_COMMAND: provider },
-    });
-    managers.push(manager);
-    const started = await expectGdbSessionStarted(manager);
-    await expect(
-      manager.close(started.value.session_id),
-    ).resolves.toMatchObject({
-      ok: true,
-      value: { target_state: "none_observed" },
-    });
   },
 );

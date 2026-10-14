@@ -61,7 +61,7 @@ export const runOwnedCommand = async (
     readonly acceptNonZeroExit?: boolean;
   },
   options: {
-    readonly signal?: AbortSignal;
+    readonly signal?: AbortSignal | undefined;
     /** Synchronously accept unresolved cleanup ownership; execution still returns its original outcome. Must not throw. */
     readonly retainCleanup?: (owner: ProviderProcessSupervisor) => void;
     readonly launcher?: (

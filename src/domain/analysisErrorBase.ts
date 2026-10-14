@@ -94,16 +94,10 @@ export abstract class AnalysisError extends Error {
     failure: AnalysisError,
     diagnostics: Readonly<Record<string, JsonValue>>,
   ): this {
-    const cleanup = failure.cleanup ?? this.cleanup;
+    // Secondary resources remain owned by their cleanup lifecycle; preserve
+    // the primary error's live cleanup status and original output.
     Object.assign(this, {
       diagnostics: structuredClone({ ...this.diagnostics, ...diagnostics }),
-      ...(cleanup === undefined
-        ? {}
-        : {
-            cleanup: { ...cleanup, resources: [...cleanup.resources] },
-            cleanupResources: [...cleanup.resources],
-            cleanupIncomplete: true,
-          }),
       cause: new AggregateError(
         this.cause === undefined ? [failure] : [this.cause, failure],
         "Analysis failed and a later lifecycle operation also failed.",
@@ -113,15 +107,15 @@ export abstract class AnalysisError extends Error {
     return this;
   }
 
-  /** Retain a completed observation when a later step fails. */
-  retainPartialObservation(observation: AnalysisPartialObservation): this {
-    this.partialObservation ??= observation;
+  /** Clear live cleanup status only after its owning resource confirms retry success. */
+  resolveCleanup(): this {
+    this.cleanupIncomplete = false;
     return this;
   }
 
-  /** Clear stale cleanup-incomplete status after an owner confirms retry success. */
-  resolveCleanup(): this {
-    this.cleanupIncomplete = false;
+  /** Retain a completed observation when a later step fails. */
+  retainPartialObservation(observation: AnalysisPartialObservation): this {
+    this.partialObservation ??= observation;
     return this;
   }
 }

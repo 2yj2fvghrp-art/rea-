@@ -1,20 +1,59 @@
 import { existsSync, statSync } from "node:fs";
-import { resolve, win32 } from "node:path";
+import { win32 } from "node:path";
 
-/** Resolve Windows provider paths and bare names before native launch. */
+export interface WindowsExecutableLookup {
+  /** Windows-formatted working directory; defaults to the process CWD. */
+  readonly cwd?: string;
+  /** Test seam for Windows paths when running on a non-Windows host. */
+  readonly isFile?: (path: string) => boolean;
+}
+
+const splitWindowsPath = (value: string): readonly string[] => {
+  const entries: string[] = [];
+  let start = 0;
+  let quoted = false;
+  for (let index = 0; index < value.length; index += 1) {
+    if (value[index] === '"') quoted = !quoted;
+    else if (value[index] === ";" && !quoted) {
+      entries.push(value.slice(start, index));
+      start = index + 1;
+    }
+  }
+  entries.push(value.slice(start));
+  return entries.flatMap((entry) => {
+    if (entry.startsWith('"') && entry.endsWith('"') && entry.length >= 2)
+      return [entry.slice(1, -1)];
+    return entry.includes('"') ? [] : [entry];
+  });
+};
+
+const isRegularFile = (path: string): boolean => {
+  try {
+    return existsSync(path) && statSync(path).isFile();
+  } catch {
+    return false;
+  }
+};
+
+/** Resolve Windows bare command names against the captured child environment. */
 export const resolveWindowsProviderExecutable = (
   executable: string,
   environment: Readonly<NodeJS.ProcessEnv>,
+  lookup: WindowsExecutableLookup = {},
 ): string => {
-  const root = win32.parse(executable).root;
-  if (/^[A-Za-z]:[\\/]/u.test(root) || root.startsWith("\\\\"))
-    return executable;
-  if (root !== "" || executable.includes("/") || executable.includes("\\"))
-    return resolve(executable);
+  const cwd = lookup.cwd ?? process.cwd();
+  const absolute = (...paths: string[]): string => win32.resolve(cwd, ...paths);
+  if (
+    win32.isAbsolute(executable) ||
+    executable.includes("/") ||
+    executable.includes("\\") ||
+    win32.parse(executable).root !== ""
+  )
+    return absolute(executable);
 
   const pathValue = environment.PATH ?? environment.Path ?? environment.path;
   if (pathValue === undefined) return executable;
-  const pathEntries = pathValue.split(";");
+  const pathEntries = splitWindowsPath(pathValue);
   const explicitExtension = win32.extname(executable).toLowerCase();
   if (explicitExtension !== "" && ![".com", ".exe"].includes(explicitExtension))
     return executable;
@@ -30,14 +69,8 @@ export const resolveWindowsProviderExecutable = (
   for (const entry of pathEntries) {
     if (entry.length === 0) continue;
     for (const extension of extensions) {
-      const candidate = resolve(entry, `${executable}${extension}`);
-      // The captured PATH is Windows-formatted even when this resolver is unit-tested elsewhere.
-      try {
-        if (existsSync(candidate) && statSync(candidate).isFile())
-          return candidate;
-      } catch {
-        // An inaccessible PATH entry is equivalent to a missing candidate.
-      }
+      const candidate = absolute(entry, `${executable}${extension}`);
+      if ((lookup.isFile ?? isRegularFile)(candidate)) return candidate;
     }
   }
   return executable;

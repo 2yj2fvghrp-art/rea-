@@ -1,32 +1,34 @@
-import { projectAnalysisError } from "../domain/analysisErrorProjection.js";
 import type { McpServer, ServerContext } from "@modelcontextprotocol/server";
 import type { Logger } from "pino";
 
-import type { BinarySessionPort } from "../application/binary/BinarySessionPort.js";
 import type { GdbSessionManager } from "../gdb/GdbSessionManager.js";
 import type { EvidenceWriter } from "../application/investigation/InvestigationRecordPort.js";
 import { toolContract } from "../contracts/toolContracts.js";
 import { evidenceSchema } from "../domain/evidence.js";
 import { err } from "../domain/result.js";
+import { AnalysisInputError } from "../domain/analysisErrorCore.js";
 import {
-  AnalysisInputError,
-  AnalysisOutputError,
-} from "../domain/analysisErrorCore.js";
+  runOwnedCleanupWithExternalMutationAdmission,
+  runWithExternalMutationAdmission,
+  type ExternalMutationAdmission,
+} from "./externalMutationAdmission.js";
 import { logToolExecution } from "./toolLogging.js";
 import { toolRegistrationOptions } from "./toolRegistrationOptions.js";
 import type { ToolResultDelivery } from "./toolResult.js";
 
+export type GdbToolManager = Pick<
+  GdbSessionManager,
+  "start" | "execute" | "status" | "close" | "retryCleanupFailures"
+>;
+
 /** Register persistent GDB session operations on the existing REA MCP server. */
 export const registerGdbTools = (
   server: McpServer,
-  manager: GdbSessionManager,
+  manager: GdbToolManager,
   logger: Logger,
   delivery: ToolResultDelivery,
   recordEvidence?: EvidenceWriter["recordEvidence"],
-  session?: Pick<
-    BinarySessionPort,
-    "withAdmittedExternalMutation" | "activeTarget"
-  >,
+  session?: ExternalMutationAdmission,
 ): void => {
   const start = toolContract("start_gdb_session");
   const consoleContract = toolContract("gdb_console");
@@ -76,32 +78,14 @@ export const registerGdbTools = (
             context.mcpReq.signal,
           ),
         );
-      const admitted =
-        session === undefined
-          ? undefined
-          : await session.withAdmittedExternalMutation(
-              session.activeTarget()?.path,
-              context.mcpReq.signal,
-              execute,
-              (value, cause) => {
-                if (!value.ok)
-                  return value.error.retainSecondaryFailure(cause, {
-                    rebind_error: projectAnalysisError(cause),
-                  });
-                return new AnalysisOutputError(
-                  consoleContract.name,
-                  "GDB may have changed the bound artifact, but the active analysis session could not be rebound.",
-                  { cause, partialObservation: value.value.evidence },
-                );
-              },
-              consoleContract.name,
-            );
-      const result =
-        admitted === undefined
-          ? await execute()
-          : admitted.ok
-            ? admitted.value
-            : err(admitted.error);
+      const result = await runWithExternalMutationAdmission(
+        session,
+        consoleContract.name,
+        context.mcpReq.signal,
+        execute,
+        (value) => value.evidence,
+        () => manager.retryCleanupFailures(),
+      );
       if (!result.ok) {
         const partial = result.error.partialObservation;
         const parsed = evidenceSchema.safeParse(partial);
@@ -151,36 +135,16 @@ export const registerGdbTools = (
     close.name,
     toolRegistrationOptions(close),
     async (input, context: ServerContext) => {
-      const execute = () =>
-        logToolExecution(logger, close.name, () =>
-          manager.close(input.session_id),
-        );
-      const admitted =
-        session === undefined
-          ? undefined
-          : await session.withAdmittedExternalMutation(
-              session.activeTarget()?.path,
-              context.mcpReq.signal,
-              execute,
-              (value, cause) => {
-                if (!value.ok)
-                  return value.error.retainSecondaryFailure(cause, {
-                    rebind_error: projectAnalysisError(cause),
-                  });
-                return new AnalysisOutputError(
-                  close.name,
-                  "GDB may have changed the bound artifact, but the active analysis session could not be rebound.",
-                  { cause },
-                );
-              },
-              close.name,
-            );
-      const result =
-        admitted === undefined
-          ? await execute()
-          : admitted.ok
-            ? admitted.value
-            : err(admitted.error);
+      const result = await runOwnedCleanupWithExternalMutationAdmission(
+        session,
+        close.name,
+        context.mcpReq.signal,
+        input.session_id,
+        () =>
+          logToolExecution(logger, close.name, () =>
+            manager.close(input.session_id),
+          ),
+      );
       return result.ok
         ? delivery.toCallToolResult({ ok: true, value: result.value }, close)
         : delivery.toCallToolResult(result, close);

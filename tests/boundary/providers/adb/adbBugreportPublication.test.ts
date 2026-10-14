@@ -51,7 +51,7 @@ const fixture = async (duringCollection?: (root: string) => Promise<void>) => {
     return {
       stdout,
       stderr: "",
-      stdoutBytes: Buffer.byteLength(stdout, "utf8"),
+      stdoutBytes: Buffer.byteLength(stdout),
       stderrBytes: 0,
     };
   });

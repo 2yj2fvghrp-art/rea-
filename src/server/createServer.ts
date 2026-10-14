@@ -125,8 +125,13 @@ import {
 import type { WithAdmittedAnalysis } from "./analysisAdmission.js";
 import { createReverseEngineeringService } from "../composition/reverseEngineering.js";
 import { registerReverseEngineeringTools } from "./registerReverseEngineeringTools.js";
+import { CutterBridgeClient } from "../cutter/CutterBridgeClient.js";
+import { CutterBridgeService } from "../cutter/CutterBridgeService.js";
+import { registerCutterTools } from "./registerCutterTools.js";
 import { GdbSessionManager } from "../gdb/GdbSessionManager.js";
 import { registerGdbTools } from "./registerGdbTools.js";
+import { RizinDebugSessionManager } from "../rizin/RizinDebugSessionManager.js";
+import { registerRizinDebugTools } from "./registerRizinDebugTools.js";
 
 const TARGET_FREE_INSTRUCTIONS =
   "REA provides reverse-engineering tools for local artifacts, native binaries, managed code, browser pages, and runtimes. Use the tool that directly answers the question; discover targets or inspect inventory only when needed. Tool results include inline Evidence and report their coverage and limitations.";
@@ -329,6 +334,7 @@ export const createServer = (
   const gdbSessions = new GdbSessionManager({
     environment: providerEnvironment,
   });
+  const rizinDebugSessions = new RizinDebugSessionManager(providerEnvironment);
   const android =
     options.androidAnalysis ?? createAndroidAnalysisProvider(environment);
   const pcap = options.pcapAnalysis ?? createPcapAnalysisProvider(environment);
@@ -377,6 +383,7 @@ export const createServer = (
       reverseEngineering.close(),
       firmwareAnalysis.close(),
       gdbSessions.closeAll(),
+      rizinDebugSessions.closeAll(),
     ])
       .then((results) => {
         const failures = results.flatMap((result) =>
@@ -444,6 +451,25 @@ export const createServer = (
             rebindFailure,
           ),
   );
+  registerFridaTools(
+    server,
+    fridaInstrumentation,
+    toolLogger,
+    delivery,
+    session === undefined
+      ? undefined
+      : (evidence) => session.recordEvidence(evidence),
+  );
+  registerCutterTools(
+    server,
+    new CutterBridgeService(new CutterBridgeClient(providerEnvironment)),
+    toolLogger,
+    delivery,
+    session === undefined
+      ? undefined
+      : (evidence) => session.recordEvidence(evidence),
+    session,
+  );
   registerGdbTools(
     server,
     gdbSessions,
@@ -454,14 +480,15 @@ export const createServer = (
       : (evidence) => session.recordEvidence(evidence),
     session,
   );
-  registerFridaTools(
+  registerRizinDebugTools(
     server,
-    fridaInstrumentation,
+    rizinDebugSessions,
     toolLogger,
     delivery,
     session === undefined
       ? undefined
-      : (input) => session.recordEvidence(input),
+      : (evidence) => session.recordEvidence(evidence),
+    session,
   );
   const previousOnclose = server.server.onclose;
   server.server.onclose = () => {

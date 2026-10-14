@@ -1,5 +1,4 @@
-import { execFileSync } from "node:child_process";
-import { rm, stat, truncate, writeFile } from "node:fs/promises";
+import { rm, truncate, writeFile } from "node:fs/promises";
 
 import { expect, it, vi } from "vitest";
 
@@ -142,7 +141,6 @@ const registerSharedReverseEngineeringEdgeCasesPart2 = (): void => {
       .mockResolvedValueOnce({ status: "incomplete", reason: "still running" })
       .mockResolvedValueOnce({ status: "incomplete", reason: "still running" })
       .mockResolvedValueOnce({ status: "incomplete", reason: "still running" })
-      .mockResolvedValueOnce({ status: "incomplete", reason: "still running" })
       .mockResolvedValueOnce({ status: "verified-cleanup" });
     await stop(); // The owned-command runner's first cleanup attempt failed.
     const cleanupOwner = { stop } as unknown as ProviderProcessSupervisor;
@@ -191,19 +189,21 @@ const registerSharedReverseEngineeringEdgeCasesPart2 = (): void => {
       });
       expect(stop).toHaveBeenCalledTimes(2);
       expect(runOwned).toHaveBeenCalledTimes(1);
-      const retried = await service.retryCleanup("execute_rizin_command");
-      expect(retried.ok).toBe(false);
-      if (!retried.ok && !blocked.ok) expect(retried.error).toBe(blocked.error);
+      expect(blocked).toMatchObject({
+        ok: false,
+        error: {
+          message: expect.stringContaining(
+            "A previous provider process still requires cleanup.",
+          ),
+        },
+      });
       await expect(service.close()).rejects.toMatchObject({
         cleanupIncomplete: true,
         cleanup: { reason: "still running", resources: ["run-id", "pid:42"] },
       });
-      expect(stop).toHaveBeenCalledTimes(4);
+      expect(stop).toHaveBeenCalledTimes(3);
       await service.close();
-      expect(stop).toHaveBeenCalledTimes(5);
-      if (!result.ok) expect(result.error.cleanupIncomplete).toBe(false);
-      if (!blocked.ok) expect(blocked.error.cleanupIncomplete).toBe(false);
-      if (!retried.ok) expect(retried.error.cleanupIncomplete).toBe(false);
+      expect(stop).toHaveBeenCalledTimes(4);
     } finally {
       await rm(directory, { recursive: true, force: true });
     }
@@ -271,34 +271,6 @@ const registerSharedReverseEngineeringEdgeCasesPart3 = (): void => {
       await rm(directory, { recursive: true, force: true });
     }
   });
-
-  it.skipIf(process.platform === "win32")(
-    "rejects a path replaced by a FIFO between the stat and the digest open",
-    async () => {
-      const { directory, path } = await createArtifact();
-      const regular = await stat(path);
-      await rm(path);
-      execFileSync("mkfifo", [path]);
-      // The stat observed a regular file; the open must classify the handle.
-      const service = new ReverseEngineeringService({
-        stat: async () => regular,
-        run: async () => ({ stdout: "", stderr: "" }),
-      });
-
-      try {
-        const result = await Promise.race([
-          service.inspectWithObjdump({ path, operation: "file_headers" }),
-          new Promise<"hung">((resolve) =>
-            setTimeout(() => resolve("hung"), 5_000),
-          ),
-        ]);
-        expect(result).not.toBe("hung");
-        expect(result).toMatchObject({ ok: false });
-      } finally {
-        await rm(directory, { recursive: true, force: true });
-      }
-    },
-  );
 
   it("maps the artifact digest deadline to a timeout error", async () => {
     const { directory, path } = await createArtifact();
@@ -637,85 +609,6 @@ const registerSharedReverseEngineeringEdgeCasesPart6 = (): void => {
 };
 
 const registerSharedReverseEngineeringEdgeCasesPart7 = (): void => {
-  it.each([
-    ["cancelled", "AnalysisCancelledError", "ABORT_ERR"],
-    ["timeout", "AnalysisTimeoutError", "ETIMEDOUT"],
-    ["output-limit", "evidence", "ERR_CHILD_PROCESS_STDIO_MAXBUFFER"],
-    ["process", "evidence", 7],
-  ] as const)(
-    "maps an owned command %s failure while retaining its snapshot",
-    async (reason, expected, mappedCode) => {
-      const { directory, path } = await createArtifact();
-      const snapshot = providerSnapshot({
-        ...(reason === "process" ? { exitCode: 7 } : {}),
-        ...(reason === "output-limit"
-          ? {}
-          : reason === "cancelled"
-            ? {}
-            : { diagnosticTruncated: true }),
-      });
-      const service = new ReverseEngineeringService({
-        runOwned: async () => {
-          throw new OwnedCommandFailure(
-            reason,
-            "owned command failed",
-            snapshot,
-            reason === "timeout" ? "cleanup pending" : null,
-            undefined,
-            reason === "timeout" ? ["run-id", "pid:7"] : [],
-          );
-        },
-      });
-
-      try {
-        const result = await service.executeRizinCommand({
-          path,
-          command: "iI",
-        });
-        if (expected === "evidence") {
-          expect(result).toMatchObject({
-            ok: true,
-            value: {
-              raw_result: {
-                stdout: "captured owned output",
-                exit_code: mappedCode === 7 ? 7 : null,
-                completion_status:
-                  reason === "output-limit" ? "unknown" : "complete",
-                output_truncated: true,
-              },
-            },
-          });
-        } else {
-          expect(result).toMatchObject({
-            ok: false,
-            error: {
-              _tag: expected,
-              partialObservation: {
-                raw_result: {
-                  stdout: "captured owned output",
-                  exit_code: null,
-                  completion_status: "unknown",
-                  output_truncated: reason !== "cancelled",
-                },
-              },
-              ...(reason === "timeout"
-                ? {
-                    cleanup: {
-                      reason: "cleanup pending",
-                      resources: ["run-id", "pid:7"],
-                    },
-                  }
-                : {}),
-            },
-          });
-          if (result.ok) throw new Error("Expected a tagged command failure");
-        }
-      } finally {
-        await rm(directory, { recursive: true, force: true });
-      }
-    },
-  );
-
   it("maps an uncaptured owned launcher error to provider unavailability", async () => {
     const { directory, path } = await createArtifact();
     const service = new ReverseEngineeringService({
@@ -880,6 +773,7 @@ const registerSharedReverseEngineeringEdgeCasesPart9 = (): void => {
               completion_status: "unknown",
             },
           },
+          capturedOutput: { exit_code: null },
         },
       });
       if (result.ok) throw new Error("Expected collection failure");

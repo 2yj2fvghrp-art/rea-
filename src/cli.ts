@@ -5,7 +5,6 @@ import { snapshotEnvironment } from "./process/snapshotEnvironment.js";
 import { createDirectAnalysis } from "./composition/directAnalysis.js";
 import { registerEvmCommands } from "./cli/evmCommands.js";
 import { registerGoCommands } from "./cli/goCommands.js";
-import { registerRustCommands } from "./cli/rustCommands.js";
 import { registerSqliteCommands } from "./cli/sqliteCommands.js";
 import { registerAnalysisViewCommands } from "./cli/analysisViewCommands.js";
 import { registerBinaryDiagnosticsCommands } from "./cli/binaryDiagnosticsCommands.js";
@@ -50,6 +49,7 @@ import {
   type CliResultOutput,
 } from "./cli/cliResultOutput.js";
 import { registerReverseEngineeringCommands } from "./cli/reverseEngineeringCommands.js";
+import { registerCutterCommands } from "./cli/cutterCommands.js";
 
 /** Describe CLI settings that are invalid before any command runs, as MCP does. */
 export const cliConfigurationError = (
@@ -97,6 +97,7 @@ export const createCli = (
 
   registerSetupCommands(cli, logger, environment);
   registerReverseEngineeringCommands(cli, logger, environment);
+  registerCutterCommands(cli, logger, environment);
   registerCoreAnalysisCommands(cli, logger, analysis.runDirectAnalysis);
   registerUtilityCommands(cli, logger, environment, analysis);
   registerWasmCommands(cli, logger, environment);
@@ -104,7 +105,6 @@ export const createCli = (
   registerSignalCommands(cli, logger, environment);
   registerEvmCommands(cli, logger, environment);
   registerGoCommands(cli, logger);
-  registerRustCommands(cli, logger);
   registerSqliteCommands(cli, logger, environment);
   registerArtifactCommands(cli, logger, analysis.runProviderAnalysis);
   registerManagedCommands(cli, logger, analysis.runProviderAnalysis);
