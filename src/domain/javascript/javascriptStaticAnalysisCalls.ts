@@ -21,7 +21,9 @@ import {
   staticPathResolutionContext,
   storageKind,
   stringValue,
+  type JavaScriptEndpointArgument,
 } from "./javascriptStaticAnalysisHelpers.js";
+import type { JavaScriptOpenReceiverFact } from "./javascriptSemanticAnalysis.js";
 import {
   semanticStaticPropertyName,
   unwrapJavaScriptExpression,
@@ -45,6 +47,7 @@ import {
   semanticFactoryRequireLoaderAt,
   semanticRequireLoaderAt,
 } from "./javascriptSemanticRequireOrigin.js";
+import { evaluateSemanticExpression } from "./javascriptSemanticValues.js";
 
 type JavaScriptCallLike =
   | t.CallExpression
@@ -108,7 +111,7 @@ export const inspectCall = (
     name.endsWith(".serviceWorker.register")
   )
     addReference(context, { node, kind: "service-worker", specifier: first });
-  inspectEndpointCall(node, name, first, context);
+  inspectEndpointCall(node, name, first, context, bindings);
   inspectStorageCall(node, name, first, context);
   if (first === "audio" || first === "video")
     noteMediaElementPreloads(node, accumulator);
@@ -413,6 +416,7 @@ const inspectEndpointCall = (
   name: string,
   first: string | undefined,
   context: FindingContext,
+  bindings: JavaScriptSemanticAnalysisState,
 ): void => {
   const route = STATIC_ROUTE_CALL_NAMES.some(
     (candidate) => name === candidate || name.endsWith(`.${candidate}`),
@@ -425,12 +429,15 @@ const inspectEndpointCall = (
       mechanism: `call:${name}`,
     });
   const receiverFact = context.openReceiverFacts?.get(node.start ?? -1);
-  const endpoint = endpointArgumentHelper(
-    name,
-    node.arguments,
-    node.callee,
-    receiverFact,
-  );
+  const endpoint: ResolvedNetworkEndpointArgument | undefined =
+    endpointArgumentHelper(name, node.arguments, node.callee, receiverFact) ??
+    unresolvedNetworkEndpointArgument(
+      name,
+      node.arguments,
+      receiverFact,
+      context,
+      bindings,
+    );
   if (endpoint !== undefined)
     addEndpoint(context, {
       node,
@@ -438,7 +445,102 @@ const inspectEndpointCall = (
       value: endpoint.value,
       mechanism: `call:${name}`,
       ...(endpoint.kind === "candidate" ? { interpretation: "candidate" } : {}),
+      ...(endpoint.resolution === undefined
+        ? {}
+        : { resolution: endpoint.resolution }),
     });
+};
+
+/** Network APIs whose request target is never a collection key or setting name. */
+const isUnambiguousNetworkCall = (name: string): boolean =>
+  name === "fetch" ||
+  name.endsWith(".fetch") ||
+  name === "WebSocket" ||
+  name === "EventSource" ||
+  name.endsWith(".EventSource") ||
+  name === "sendBeacon" ||
+  name.endsWith(".sendBeacon");
+
+/** A literal endpoint, candidate, or partially resolved request target. */
+type ResolvedNetworkEndpointArgument = JavaScriptEndpointArgument & {
+  readonly resolution?: "partial";
+};
+
+/**
+ * Keep a recognized network call site visible when its request target is not
+ * an exact literal: constant bindings resolve to their value, and anything
+ * else is retained as the unresolved source expression.
+ */
+const unresolvedNetworkEndpointArgument = (
+  name: string,
+  args: readonly (
+    | t.Expression
+    | t.SpreadElement
+    | t.JSXNamespacedName
+    | t.ArgumentPlaceholder
+  )[],
+  receiverFact: JavaScriptOpenReceiverFact | undefined,
+  context: FindingContext,
+  bindings: JavaScriptSemanticAnalysisState,
+): ResolvedNetworkEndpointArgument | undefined => {
+  if (receiverFact === "window" || !isUnambiguousNetworkCall(name))
+    return undefined;
+  const argument = argumentNode(args[0]);
+  if (argument === undefined) return undefined;
+  const resolved = resolvedRequestTarget(
+    unwrapJavaScriptExpression(argument).node,
+    bindings,
+  );
+  return {
+    kind: "endpoint",
+    value: resolved ?? sourceSlice(context.source, argument),
+    ...(resolved === undefined ? { resolution: "partial" as const } : {}),
+  };
+};
+
+/** Resolve a request target through constant bindings and URL-object aliases. */
+const resolvedRequestTarget = (
+  node: t.Node,
+  bindings: JavaScriptSemanticAnalysisState,
+): string | undefined => {
+  const evaluated = evaluateSemanticExpression(node, bindings);
+  if (evaluated.status === "literal" && typeof evaluated.value === "string")
+    return evaluated.value;
+  return urlObjectRequestTarget(node, bindings);
+};
+
+/**
+ * A URL object binding carries its literal base, which the constant lattice
+ * does not unwind: `new URL("wss://…")` assigned once and forwarded directly
+ * or through `.toString()`.
+ */
+const urlObjectRequestTarget = (
+  node: t.Node,
+  bindings: JavaScriptSemanticAnalysisState,
+): string | undefined => {
+  let target = unwrapJavaScriptExpression(node).node;
+  if (
+    (t.isCallExpression(target) || t.isOptionalCallExpression(target)) &&
+    target.arguments.length === 0
+  ) {
+    const callee = unwrapJavaScriptExpression(target.callee).node;
+    if (
+      t.isMemberExpression(callee) &&
+      semanticStaticPropertyName(callee.property, callee.computed) ===
+        "toString"
+    )
+      target = unwrapJavaScriptExpression(callee.object).node;
+  }
+  if (!t.isIdentifier(target)) return undefined;
+  const binding = resolveSemanticBindingState(bindings, target, target.name);
+  if (binding === undefined || binding.mutable) return undefined;
+  const [initializer, ...rest] = binding.initializers;
+  if (initializer === undefined || rest.length > 0) return undefined;
+  const initialized = unwrapJavaScriptExpression(initializer.node).node;
+  if (!t.isNewExpression(initialized)) return undefined;
+  const callee = unwrapJavaScriptExpression(initialized.callee).node;
+  if (!isUnmodifiedGlobalReference(callee, bindings, "URL")) return undefined;
+  return stringValue(initialized.arguments[0]);
 };
 
 /** Record tRPC procedures, tRPC link URLs and named GraphQL operations. */
@@ -546,7 +648,7 @@ export const addReference = (
 const addEndpoint = (context: FindingContext, input: EndpointInput): void =>
   addLocatedFinding(context, {
     collection: context.accumulator.endpoints,
-    key: `endpoint\0${input.kind}\0${input.interpretation ?? "literal"}\0${input.value}`,
+    key: `endpoint\0${input.kind}\0${input.interpretation ?? "literal"}\0${input.resolution ?? "exact"}\0${input.value}`,
     node: input.node,
     value: {
       kind: input.kind,
@@ -555,6 +657,9 @@ const addEndpoint = (context: FindingContext, input: EndpointInput): void =>
       ...(input.interpretation === undefined
         ? {}
         : { interpretation: input.interpretation }),
+      ...(input.resolution === undefined
+        ? {}
+        : { resolution: input.resolution }),
       module_key: null,
       location: range(input.node),
     },
