@@ -74,6 +74,8 @@ it
       const { stdout } = await parent;
       const { pid } = JSON.parse(stdout) as { pid: number };
       orphanPid = pid;
+      // The runtime check reads only the supplied proc root, so expose the
+      // fixture there in both modes.
       const processEntry = join(procRoot, String(pid));
       await mkdir(processEntry);
       for (const name of ["cmdline", "comm", "exe"])

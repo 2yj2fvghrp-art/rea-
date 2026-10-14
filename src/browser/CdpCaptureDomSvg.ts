@@ -1,8 +1,9 @@
+import { numberValue, recordValue } from "./CdpCaptureValues.js";
 import {
+  cdpSnapshotAttributesResolve,
   cdpSnapshotString,
-  numberValue,
-  recordValue,
-} from "./CdpCaptureValues.js";
+  cdpSnapshotValueString,
+} from "./CdpSnapshotStrings.js";
 
 const SVG_NAMESPACE = "http://www.w3.org/2000/svg";
 const XLINK_NAMESPACE = "http://www.w3.org/1999/xlink";
@@ -218,7 +219,7 @@ const applyDeclarations = (
     const valueIndex = attributes[index + 1];
     if (nameIndex === undefined || valueIndex === undefined) continue;
     const name = cdpSnapshotString(strings, nameIndex);
-    const value = cdpSnapshotString(strings, valueIndex, true);
+    const value = cdpSnapshotValueString(strings, valueIndex);
     if (name === undefined || value === undefined) continue;
     const prefix = xmlnsPrefix(name);
     if (prefix === undefined || seen.has(prefix)) continue;
@@ -280,7 +281,7 @@ const xlinkHrefValue = (
     const prefix = name.slice(0, colon);
     const local = name.slice(colon + 1);
     if (local !== "href" || bindings.get(prefix) !== XLINK_NAMESPACE) continue;
-    return cdpSnapshotString(strings, valueIndex, true);
+    return cdpSnapshotValueString(strings, valueIndex);
   }
   return undefined;
 };
@@ -295,16 +296,10 @@ const validSvgSourceNode = (
   )
     return false;
   const rawAttributes = nodes.attributes[index];
-  if (!Array.isArray(rawAttributes) || rawAttributes.length % 2 !== 0)
-    return false;
+  if (!Array.isArray(rawAttributes)) return false;
   const attributes = numberArray(rawAttributes);
   return (
     attributes.length === rawAttributes.length &&
-    attributes.every(
-      (attribute, offset) =>
-        attribute !== undefined &&
-        cdpSnapshotString(nodes.strings, attribute, offset % 2 === 1) !==
-          undefined,
-    )
+    cdpSnapshotAttributesResolve(nodes.strings, attributes)
   );
 };

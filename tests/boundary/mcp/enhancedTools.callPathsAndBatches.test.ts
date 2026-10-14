@@ -9,7 +9,6 @@ import {
   AnalysisOutputError,
 } from "../../../src/domain/analysisErrorCore.js";
 import type { RelationshipCoverage } from "../../../src/domain/relationshipCoverage.js";
-import { parseEvidence } from "../../../src/domain/evidence.js";
 import { err, ok as resultOk } from "../../../src/domain/result.js";
 
 import { closeEnhancedToolResources, connect } from "./enhancedToolsHarness.js";
@@ -92,7 +91,9 @@ describe("enhanced MCP tools", () => {
       },
     });
   });
+});
 
+describe("enhanced MCP graph caveats", () => {
   it("keeps generic provider caveats visible without truncating complete relationships", async () => {
     const caveat = "Decompiler output may omit indirect calls.";
     const client = await connect({
@@ -114,30 +115,39 @@ describe("enhanced MCP tools", () => {
       arguments: { address: "0x1", direction: "forward" },
     });
     expect(graph.structuredContent).toMatchObject({
+      limitations: [
+        "Artifact identity is unavailable for this observation.",
+        "Derived by an REA composed workflow.",
+        caveat,
+      ],
       normalized_result: {
         graph: {
           "0": [
-            { status: "ok", relationship_coverage: { status: "complete" } },
+            {
+              address: "0x1",
+              calls: ["0x2"],
+              status: "ok",
+              relationship_coverage: { status: "complete" },
+            },
           ],
           "1": [
-            { status: "ok", relationship_coverage: { status: "complete" } },
+            {
+              address: "0x2",
+              calls: [],
+              status: "ok",
+              relationship_coverage: { status: "complete" },
+            },
           ],
         },
         limitations: [caveat],
       },
     });
-    const evidence = parseEvidence(graph.structuredContent);
-    // The graph owns one global caveat; the Evidence envelope independently
-    // retains upstream provenance. Neither graph node should repeat it or
-    // treat the generic caveat as incomplete relationship coverage.
-    expect(evidence.limitations.filter((value) => value === caveat)).toEqual([
-      caveat,
-    ]);
-    expect(evidence.normalized_result).not.toHaveProperty(
-      "graph.0.0.limitations",
+
+    expect(graph.structuredContent).not.toHaveProperty(
+      "normalized_result.graph.0.0.limitations",
     );
-    expect(evidence.normalized_result).not.toHaveProperty(
-      "graph.1.0.limitations",
+    expect(graph.structuredContent).not.toHaveProperty(
+      "normalized_result.graph.1.0.limitations",
     );
 
     const trace = await client.callTool({

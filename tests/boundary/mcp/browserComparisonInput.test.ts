@@ -124,9 +124,14 @@ describe("browser comparison input boundary", () => {
           },
         },
       ];
-      // Vendor-safe group guidance leaves exclusion and required partners to
-      // the canonical runtime parser rather than advertised dependencies.
-      const runtimeOnlyInvalid = [
+      // Strict clients reject combinators and dependentRequired, so the
+      // projection states the groups in its description and leaves group
+      // completeness and exclusion to the canonical runtime parser.
+      expect(advertised.inputSchema.description).toContain(
+        "before + after; before_scenario + after_scenario + [normalization]",
+      );
+      const mixedGroups = [
+        { ...passive, ...scenario },
         { ...passive, normalization: { rules: [] } },
         {
           before_scenario: scenario.before_scenario,
@@ -136,7 +141,6 @@ describe("browser comparison input boundary", () => {
           after_scenario: scenario.after_scenario,
           normalization: { rules: [] },
         },
-        { ...passive, ...scenario },
       ];
       for (const { input, advertisedValid, runtimeValid } of [
         ...[passive, scenario, withoutNormalization].map((input) => ({
@@ -149,7 +153,7 @@ describe("browser comparison input boundary", () => {
           advertisedValid: false,
           runtimeValid: false,
         })),
-        ...runtimeOnlyInvalid.map((input) => ({
+        ...mixedGroups.map((input) => ({
           input,
           advertisedValid: true,
           runtimeValid: false,

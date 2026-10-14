@@ -191,6 +191,7 @@ describe.skipIf(process.platform === "win32")(
             cause: {
               name: "GhidraLaunchSupportError",
               command_outcome: {
+                killed: false,
                 stderr: expect.stringContaining(`-envvars: ${warning}`),
                 outputTruncated: false,
               },
@@ -212,6 +213,7 @@ describe.skipIf(process.platform === "win32")(
             cause: {
               name: "GhidraLaunchSupportError",
               command_outcome: {
+                killed: false,
                 stderr: expect.stringContaining(`-vmargs: ${warning}`),
                 outputTruncated: false,
               },

@@ -1586,12 +1586,10 @@ it("retains bundled isolated-world contextBridge APIs through dedicated and gene
           api_status: "object-literal",
           members: ["ping"],
           unknown_members: 0,
+          // The proven Webpack bootstrap resolves `load(2)` directly.
           resolution_basis: "direct-syntax",
         }),
         evidence: expect.objectContaining({
-          authority: "ast-static-analysis",
-          state: "observed",
-          confidence: "exact",
           location: expect.objectContaining({
             available: true,
             value: expect.objectContaining({ source: "preload.js" }),

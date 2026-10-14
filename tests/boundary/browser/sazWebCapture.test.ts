@@ -483,22 +483,19 @@ it.each([
       ? "unsupported_provider"
       : "invalid_input",
   );
-  if (variant === "expanded-limit")
-    expect(JSON.parse(result.stdout)).toMatchObject({
-      code: "invalid_request",
-      details: {
-        issues: expect.arrayContaining([
-          expect.objectContaining({
-            path: ["capture_path", ""],
-            reason: "out_of_range",
-            expected: {
-              maximum_expanded_capture_bytes:
-                WEB_NETWORK_CAPTURE_LIMITS.inputBytes,
-            },
-          }),
-        ]),
-      },
-    });
+  // Expanded size is a caller-correctable input bound, not a decoder failure.
+  if (variant === "expanded-limit") {
+    expect(JSON.parse(result.stdout).code).toBe("invalid_request");
+    expect(JSON.parse(result.stdout).details.issues).toEqual([
+      expect.objectContaining({
+        path: ["capture_path", ""],
+        reason: "out_of_range",
+        expected: {
+          maximum_expanded_capture_bytes: WEB_NETWORK_CAPTURE_LIMITS.inputBytes,
+        },
+      }),
+    ]);
+  }
   expect(JSON.stringify(result)).not.toContain("malformed-private-input");
 });
 

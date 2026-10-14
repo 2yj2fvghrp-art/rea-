@@ -37,20 +37,20 @@ class SilentLauncher implements BridgeLauncher {
 
 class CancelThenFixtureLauncher implements BridgeLauncher {
   #launches = 0;
-  readonly processes: ChildProcess[] = [];
   #firstLaunchReady: ((process: ChildProcess) => void) | undefined;
   readonly firstLaunch = new Promise<ChildProcess>((resolve) => {
     this.#firstLaunchReady = resolve;
   });
+  retriedProcess: ChildProcess | undefined;
 
   async launch(session: BridgeSession) {
     this.#launches += 1;
     const launched = await (this.#launches === 1
       ? new SilentLauncher().launch()
       : new FixtureLauncher().launch(session));
-    if (launched.ok) this.processes.push(launched.value.process);
     if (this.#launches === 1 && launched.ok)
       this.#firstLaunchReady?.(launched.value.process);
+    else if (launched.ok) this.retriedProcess = launched.value.process;
     return launched;
   }
 }
@@ -258,13 +258,16 @@ describe("HopperClient startup failures", () => {
     expect(
       firstProcess.exitCode !== null || firstProcess.signalCode !== null,
     ).toBe(true);
-    const retry = await client.start();
-    expect(retry).toEqual({
+    const restarted = await client.start();
+    const retriedProcess = launcher.retriedProcess;
+    expect(retriedProcess).toBeDefined();
+    expect(retriedProcess).not.toBe(firstProcess);
+    expect(restarted).toEqual({
       ok: true,
       value: {
         name: "REA Hopper bridge",
         version: "1.0.0",
-        processId: launcher.processes.at(-1)?.pid,
+        processId: retriedProcess?.pid,
       },
     });
     await expect(
@@ -289,16 +292,16 @@ describe("HopperClient startup failures", () => {
       error: { _tag: "HopperCancelledError" },
     });
     expect(launcher.processes).toHaveLength(0);
-    const retry = await client.start();
-    expect(retry).toEqual({
+    const started = await client.start();
+    expect(launcher.processes).toHaveLength(1);
+    expect(started).toEqual({
       ok: true,
       value: {
         name: "REA Hopper bridge",
         version: "1.0.0",
-        processId: launcher.processes.at(-1)?.pid,
+        processId: launcher.processes[0]?.pid,
       },
     });
-    expect(launcher.processes).toHaveLength(1);
     await expect(
       client.callTool("echo", { value: "retried" }),
     ).resolves.toEqual({

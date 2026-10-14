@@ -55,6 +55,8 @@ describe("DirectoryArtifactReader resource ownership", () => {
     const movedRoot = `${root}-original`;
     try {
       const entries = reader.entries()[Symbol.asyncIterator]();
+      // Root entries follow the filesystem's directory order; descendants are
+      // read only after the root is exhausted.
       const rootEntries = [
         (await entries.next()).value?.path,
         (await entries.next()).value?.path,

@@ -147,7 +147,9 @@ describe("wrapped contextBridge exposure methods", () => {
         `const worldId = selectWorld(); electron.contextBridge.exposeInIsolatedWorld(worldId, "isolatedApi", {ping: true});`,
       ),
     );
-    expect(result.electron.context_bridge_apis).toContainEqual(
+    // The proven Webpack bootstrap resolves `load(2)` directly, so the complete
+    // direct observation is retained instead of a wrapper substitution.
+    expect(result.electron.context_bridge_apis).toEqual([
       expect.objectContaining({
         world: "isolated",
         world_id: {
@@ -159,13 +161,13 @@ describe("wrapped contextBridge exposure methods", () => {
         api_status: "object-literal",
         members: ["ping"],
         unknown_members: 0,
+        module_key: "9",
+        module_runtime: "webpack-bootstrap@0",
       }),
+    ]);
+    expect(result.electron.context_bridge_apis[0]).not.toHaveProperty(
+      "resolution_basis",
     );
-    expect(
-      result.electron.context_bridge_apis.find(
-        ({ api_key }) => api_key === "isolatedApi",
-      )?.resolution_basis,
-    ).toBeUndefined();
     expect(result.parse_status).toBe("partial");
   });
 

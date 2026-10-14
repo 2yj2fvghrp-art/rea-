@@ -7,9 +7,13 @@ import {
   recordsValue,
   requiredRecord,
   cdpStringValue,
-  cdpSnapshotString,
   type UnknownRecord,
 } from "./CdpCaptureValues.js";
+import {
+  cdpSnapshotAttributesResolve,
+  cdpSnapshotString,
+  cdpSnapshotValueString,
+} from "./CdpSnapshotStrings.js";
 import { exclusionReasonForUrl } from "./CdpCaptureEventHelpers.js";
 import type { CdpCaptureCompleteness } from "./CdpCaptureCompleteness.js";
 import {
@@ -196,7 +200,7 @@ export function* captureDom(
     const baseUrlValue =
       document.baseURL === undefined
         ? documentUrl
-        : cdpSnapshotString(strings, document.baseURL, true);
+        : cdpSnapshotValueString(strings, document.baseURL);
     if (baseUrlValue === undefined) {
       completeness?.exclude("dom", "invalid_protocol_value");
       continue;
@@ -250,7 +254,7 @@ export function* captureDom(
       const parent = rawParents[index];
       const attributeIndexes = numberArray(rawAttributes[index]);
       const nodeName = cdpSnapshotString(strings, nodeNameIndex);
-      const nodeValue = cdpSnapshotString(strings, nodeValueIndex, true);
+      const nodeValue = cdpSnapshotValueString(strings, nodeValueIndex);
       if (
         nodeType === undefined ||
         nodeName === undefined ||
@@ -260,12 +264,7 @@ export function* captureDom(
         parent === index ||
         parent >= rawNodeTypes.length ||
         attributeIndexes === undefined ||
-        attributeIndexes.length % 2 !== 0 ||
-        attributeIndexes.some(
-          (value, offset) =>
-            value === undefined ||
-            cdpSnapshotString(strings, value, offset % 2 === 1) === undefined,
-        )
+        !cdpSnapshotAttributesResolve(strings, attributeIndexes)
       ) {
         completeness?.exclude("dom", "invalid_protocol_value");
         continue;
@@ -590,7 +589,7 @@ const domMetadata = (
   for (let index = 0; index + 1 < attributes.length; index += 2) {
     // Chrome already folds HTML names; SVG/XML names remain case-sensitive.
     const name = cdpSnapshotString(strings, attributes[index]);
-    const value = cdpSnapshotString(strings, attributes[index + 1], true);
+    const value = cdpSnapshotValueString(strings, attributes[index + 1]);
     if (name === undefined || value === undefined) continue;
     // HTML keeps the first declaration. A later repeat must not move dom_urls.
     if (!pairs.has(name)) pairs.set(name, value);
