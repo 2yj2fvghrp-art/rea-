@@ -621,3 +621,22 @@ it("reruns nm with its dyld-info pass when a stripped symbol table omits trie ex
   ).exports.items.map(({ name }) => name);
   expect(exported).toEqual(trieNames.trim().split("\n").sort());
 });
+
+it("reruns nm with its dyld-info pass when a dyld_info export row is unreadable", async () => {
+  const names = await fixture("dyld-inventory/nm.txt");
+  const exportsOutput = await fixture("dyld-inventory/exports.txt");
+  const { runner, nmArguments } = symbolTableRunner(
+    {
+      "dyld_info:-exports": `${exportsOutput.trimEnd()}\n        <unrecognized export row>\n`,
+    },
+    { symbolTable: names, withDyldInfo: names },
+  );
+  const execution = await new NativeMacOSProvider({}, runner, "darwin")
+    .createClient(machoTarget("/private/fixture"))
+    .execute("inspect_macho", {});
+  if (!execution.ok) throw execution.error;
+  expect(nmArguments.map((arguments_) => arguments_.slice(0, 2))).toEqual([
+    ["-gjU", "--no-dyldinfo"],
+    ["-gjU", "-arch"],
+  ]);
+});

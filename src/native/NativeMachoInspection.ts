@@ -314,18 +314,32 @@ const captureLookup =
     return capture;
   };
 
-/** Whether every dyld_info export row names a symbol-table export. */
+/**
+ * Whether every dyld_info export row names a symbol-table export. A row this
+ * parser cannot read counts as uncovered, so an unfamiliar format falls back.
+ */
 const namesEveryExport = (
   nmOutput: string,
   dyldExports: NativeCommandCapture,
 ): boolean => {
   const names = new Set(parseNmExports(nmOutput).map(({ name }) => name));
-  return parseDyldSymbols(
-    sliceOutput(dyldExports),
-    "exports",
-    null,
-    names,
-  ).every(({ name }) => names.has(name));
+  return sliceOutput(dyldExports)
+    .split(/\r?\n/u)
+    .every((rawLine, index) => {
+      const line = rawLine.trim();
+      if (
+        line.length === 0 ||
+        (index === 0 && line.endsWith(":")) ||
+        /^-?exports:$/u.test(line) ||
+        /^offset\s+symbol$/u.test(line)
+      )
+        return true;
+      const rows = parseDyldSymbols(line, "exports", null, names);
+      // The parser withholds a row only when nm names both of its readings.
+      if (rows.length === 0)
+        return names.has(/^0x[\da-f]+\s+(.+)$/iu.exec(line)?.[1] ?? "");
+      return rows.length === 1 && names.has(rows[0]!.name);
+    });
 };
 
 const parseNmExports = (output: string) =>
