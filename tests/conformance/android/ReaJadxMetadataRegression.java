@@ -181,13 +181,15 @@ public class ReaJadxMetadataRegression {
     JsonObject nativeBody = call(handle, bridge, "get_method_body",
         methodArguments("fixture.NativeOverload", "readBuffer"));
     String nativeText = nativeBody.get("body").getAsString();
+    // The CLI maps exactly this engine text to body_status not_available.
+    String noBody = "// method exists but has no decompiled body (native/abstract)";
     require(nativeBody.get("overload_count").getAsInt() == 2 && nativeBody.get("mode").getAsString().equals("java")
-        && !nativeText.contains("{") && !nativeText.contains("neighbour-member"),
-        "Native method body included neighbouring members: " + nativeText);
+        && nativeText.equals(noBody),
+        "Native method did not report the no-body result: " + nativeText);
     String abstractText = call(handle, bridge, "get_method_body", methodArguments("fixture.AbstractShape", "area"))
         .get("body").getAsString();
-    require(!abstractText.contains("{") && !abstractText.contains("neighbour-member"),
-        "Abstract method body included neighbouring members: " + abstractText);
+    require(abstractText.equals(noBody),
+        "Abstract method did not report the no-body result: " + abstractText);
     JsonObject wrapperArgs = methodArguments("fixture.NativeOverload", "readBuffer");
     wrapperArgs.addProperty("overload_index", 1);
     String wrapper = call(handle, bridge, "get_method_body", wrapperArgs).get("body").getAsString();
