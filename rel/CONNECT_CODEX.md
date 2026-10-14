@@ -13,8 +13,8 @@ Before installing a full REA toolchain, from this REL checkout run `node rel.mjs
 From a macOS/Linux terminal, while the work is on a draft branch:
 
 ```sh
-git clone --branch rel/first-lab-foundations --single-branch https://github.com/gryszzz/Reverse-Engineering-Life-REL-.git
-cd Reverse-Engineering-Life-REL-
+git clone --branch rel/first-lab-foundations --single-branch https://github.com/gryszzz/Reverse-Engineering-Everything.git
+cd Reverse-Engineering-Everything
 ```
 
 Use the Node version in `.nvmrc` (24.18.0 at the time of this guide) and matching npm toolchain. With nvm already installed, run `nvm install` and `nvm use`. Then:
