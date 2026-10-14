@@ -359,6 +359,9 @@ export class GhidraProvider implements AnalysisProviderCandidate {
     this.#store ??= new GhidraProjectStore({
       root: this.config.ghidraProjectCache.directory,
       maxBytes: this.config.ghidraProjectCache.maxBytes,
+      ...(this.config.ghidraProjectCache.maxAgeDays === undefined
+        ? {}
+        : { maxAgeDays: this.config.ghidraProjectCache.maxAgeDays }),
     });
     return this.#store;
   }

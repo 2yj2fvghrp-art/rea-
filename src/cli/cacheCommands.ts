@@ -77,7 +77,13 @@ export const registerCacheCommands = (
 };
 
 const storeFor = (config: GhidraProjectCacheConfig): GhidraProjectStore =>
-  new GhidraProjectStore({ root: config.directory, maxBytes: config.maxBytes });
+  new GhidraProjectStore({
+    root: config.directory,
+    maxBytes: config.maxBytes,
+    ...(config.maxAgeDays === undefined
+      ? {}
+      : { maxAgeDays: config.maxAgeDays }),
+  });
 
 const listCache = async (config: GhidraProjectCacheConfig) => {
   const entries = await storeFor(config).list();

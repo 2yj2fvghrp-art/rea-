@@ -14,11 +14,12 @@ pre-imported-project workflow uses (see
 
 ## Enabling
 
-| Variable                             | Meaning                                                  | Default                             |
-| ------------------------------------ | -------------------------------------------------------- | ----------------------------------- |
-| `REA_GHIDRA_PROJECT_CACHE`           | `off`, `read` (reuse only), or `on` (reuse and populate) | `off`                               |
-| `REA_GHIDRA_PROJECT_CACHE_DIR`       | absolute cache root                                      | `<home>/.rea/cache/ghidra-projects` |
-| `REA_GHIDRA_PROJECT_CACHE_MAX_BYTES` | size ceiling; oldest entries are pruned first            | 10 GiB                              |
+| Variable                                | Meaning                                                  | Default                             |
+| --------------------------------------- | -------------------------------------------------------- | ----------------------------------- |
+| `REA_GHIDRA_PROJECT_CACHE`              | `off`, `read` (reuse only), or `on` (reuse and populate) | `off`                               |
+| `REA_GHIDRA_PROJECT_CACHE_DIR`          | absolute cache root                                      | `<home>/.rea/cache/ghidra-projects` |
+| `REA_GHIDRA_PROJECT_CACHE_MAX_BYTES`    | size ceiling; oldest entries are pruned first            | 10 GiB                              |
+| `REA_GHIDRA_PROJECT_CACHE_MAX_AGE_DAYS` | discard entries older than this many days                | unset (no age limit)                |
 
 The cache and `REA_GHIDRA_EXISTING_PROJECT` are mutually exclusive: both select
 saved project state, and combining them is a configuration error.

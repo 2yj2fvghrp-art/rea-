@@ -70,16 +70,20 @@ export interface GhidraProjectPublishInput {
 export interface GhidraProjectStoreOptions {
   readonly root: string;
   readonly maxBytes: number;
+  /** Discard entries older than this many days; unset applies no age limit. */
+  readonly maxAgeDays?: number;
 }
 
 /** Owns the on-disk store of previously analyzed Ghidra projects. */
 export class GhidraProjectStore {
   readonly #root: string;
   readonly #maxBytes: number;
+  readonly #maxAgeDays: number | undefined;
 
   constructor(options: GhidraProjectStoreOptions) {
     this.#root = options.root;
     this.#maxBytes = options.maxBytes;
+    this.#maxAgeDays = options.maxAgeDays;
   }
 
   get root(): string {
@@ -335,14 +339,33 @@ export class GhidraProjectStore {
     return manifests;
   }
 
-  /** Remove the oldest entries until the store fits its byte ceiling. */
+  /** Remove stale entries, then the oldest until the store fits its ceiling. */
   async prune(
     signal?: AbortSignal,
   ): Promise<{ readonly removed: readonly string[]; readonly bytes: number }> {
     const manifests = [...(await this.list(signal))];
-    let total = manifests.reduce((sum, entry) => sum + entry.size_bytes, 0);
-    if (total <= this.#maxBytes) return { removed: [], bytes: 0 };
-    manifests.sort((left, right) =>
+    const removed: string[] = [];
+    let freed = 0;
+    const drop = async (manifest: GhidraProjectManifest): Promise<void> => {
+      await this.#discard(this.#entryPath(manifest.key));
+      removed.push(manifest.key);
+      freed += manifest.size_bytes;
+    };
+    const nowMs = Date.now();
+    const fresh: GhidraProjectManifest[] = [];
+    for (const manifest of manifests) {
+      const ageMs = nowMs - Date.parse(manifest.last_used_at);
+      if (
+        this.#maxAgeDays !== undefined &&
+        Number.isFinite(ageMs) &&
+        ageMs > this.#maxAgeDays * 86_400_000
+      )
+        await drop(manifest);
+      else fresh.push(manifest);
+    }
+    let total = fresh.reduce((sum, entry) => sum + entry.size_bytes, 0);
+    if (total <= this.#maxBytes) return { removed, bytes: freed };
+    fresh.sort((left, right) =>
       left.last_used_at < right.last_used_at
         ? -1
         : left.last_used_at > right.last_used_at
@@ -351,13 +374,9 @@ export class GhidraProjectStore {
             ? -1
             : 1,
     );
-    const removed: string[] = [];
-    let freed = 0;
-    for (const manifest of manifests) {
+    for (const manifest of fresh) {
       if (total <= this.#maxBytes) break;
-      await this.#discard(this.#entryPath(manifest.key));
-      removed.push(manifest.key);
-      freed += manifest.size_bytes;
+      await drop(manifest);
       total -= manifest.size_bytes;
     }
     return { removed, bytes: freed };

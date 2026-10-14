@@ -174,7 +174,9 @@ describe("GhidraProjectStore", () => {
     expect(result.ok && result.value.published).toBe(false);
     await expect(stat(stagingPath)).rejects.toThrow();
   });
+});
 
+describe("GhidraProjectStore maintenance", () => {
   it("removes a stored entry by key", async () => {
     const store = new GhidraProjectStore({ root, maxBytes: 1_000_000 });
     const miss = await store.prepare({ identity: identity(), mode: "on" });
@@ -241,6 +243,38 @@ describe("GhidraProjectStore", () => {
     expect(pruned.removed).toEqual([ghidraProjectCacheKey(older)]);
     const remaining = await smaller.list();
     expect(remaining.map((entry) => entry.key)).toEqual([
+      ghidraProjectCacheKey(newer),
+    ]);
+  });
+
+  it("prunes entries older than the configured age", async () => {
+    const store = new GhidraProjectStore({ root, maxBytes: 1_000_000 });
+    const dayMs = 86_400_000;
+    const now = Date.now();
+    const older = { ...identity(), targetSha256: "3".repeat(64) };
+    const newer = { ...identity(), targetSha256: "4".repeat(64) };
+    for (const [id, at] of [
+      [older, new Date(now - 40 * dayMs).toISOString()],
+      [newer, new Date(now - 1 * dayMs).toISOString()],
+    ] as const) {
+      const reservation = await store.prepare({ identity: id, mode: "on" });
+      if (!reservation.ok || reservation.value === null)
+        throw new Error("expected a reservation");
+      const published = await store.publish({
+        ...publishable(store, reservation),
+        identity: id,
+        now: at,
+      });
+      expect(published.ok).toBe(true);
+    }
+    const aged = new GhidraProjectStore({
+      root,
+      maxBytes: 1_000_000,
+      maxAgeDays: 30,
+    });
+    const pruned = await aged.prune();
+    expect(pruned.removed).toEqual([ghidraProjectCacheKey(older)]);
+    expect((await aged.list()).map((entry) => entry.key)).toEqual([
       ghidraProjectCacheKey(newer),
     ]);
   });

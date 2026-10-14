@@ -32,11 +32,20 @@ export const ghidraProjectCacheMaxBytesSchema = z
   .transform(Number)
   .pipe(z.number().int().safe());
 
+/** Parse the optional positive maximum entry age in days. */
+export const ghidraProjectCacheMaxAgeDaysSchema = z
+  .string()
+  .regex(/^[1-9]\d*$/u, "must be a positive decimal integer")
+  .transform(Number)
+  .pipe(z.number().int().safe());
+
 /** Resolved persistent project cache configuration. */
 export interface GhidraProjectCacheConfig {
   readonly mode: GhidraProjectCacheMode;
   readonly directory: string;
   readonly maxBytes: number;
+  /** Discard entries older than this many days; unset applies no age limit. */
+  readonly maxAgeDays?: number;
 }
 
 /**

@@ -10,9 +10,9 @@
 - Measured on Windows Ghidra P0: `engine2.dll` first open 256.8 s, cache hit
   13.1 s (recorded in `docs/ghidra-project-cache.md`). Adding a cache assertion
   to the `verify:ghidra*` lane scripts remains for CI coverage.
-- Deferred: LRU/age eviction, a bridge-reported program-state digest,
-  seed-from-project (`rea cache import`), an `open_binary`/server-default
-  toggle, and #2150 copy serialization.
+- Deferred: a bridge-reported program-state digest, seed-from-project
+  (`rea cache import`), an `open_binary`/server-default toggle, and #2150 copy
+  serialization.
 - The default `off` path is unchanged; the Ghidra source-test folder is now
   green on Windows (platform-specific tests fixed/skipped).
 

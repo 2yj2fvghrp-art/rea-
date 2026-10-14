@@ -15,6 +15,7 @@ import {
 } from "./ghidraExistingProject.js";
 import {
   ghidraProjectCacheDirectorySchema,
+  ghidraProjectCacheMaxAgeDaysSchema,
   ghidraProjectCacheMaxBytesSchema,
   ghidraProjectCacheModeSchema,
 } from "./ghidraProjectCache.js";
@@ -74,6 +75,8 @@ const environmentSchema = z.object({
   REA_GHIDRA_PROJECT_CACHE_DIR: ghidraProjectCacheDirectorySchema.optional(),
   REA_GHIDRA_PROJECT_CACHE_MAX_BYTES:
     ghidraProjectCacheMaxBytesSchema.optional(),
+  REA_GHIDRA_PROJECT_CACHE_MAX_AGE_DAYS:
+    ghidraProjectCacheMaxAgeDaysSchema.optional(),
   REA_ILSPY_CMD_PATH: z
     .string()
     .min(1)

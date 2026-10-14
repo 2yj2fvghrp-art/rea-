@@ -4,10 +4,12 @@ import { join } from "node:path";
 import { ConfigurationError } from "../domain/configurationErrors.js";
 import { err, ok, type Result } from "../domain/result.js";
 import { parseEnvironment } from "./environment.js";
+import type { Environment } from "./environment.js";
 import { homeDirectoryFromEnvironment } from "./homeDirectory.js";
 import {
   DEFAULT_GHIDRA_PROJECT_CACHE_MAX_BYTES,
   defaultGhidraProjectCacheDirectory,
+  type GhidraProjectCacheConfig,
 } from "./ghidraProjectCache.js";
 import { parseStringArray, parseLoaderArgs } from "./parsers.js";
 import type { AppConfig } from "./types.js";
@@ -35,6 +37,22 @@ const defaultHopperLauncherPath = (
   const userLocal = join(homeDirectory, ".local/share/rea/hopper/bin/Hopper");
   return executable(userLocal) ? userLocal : SYSTEM_LINUX_HOPPER;
 };
+
+const ghidraProjectCacheConfig = (
+  env: Environment,
+  homeDirectory: string,
+): GhidraProjectCacheConfig => ({
+  mode: env.REA_GHIDRA_PROJECT_CACHE,
+  directory:
+    env.REA_GHIDRA_PROJECT_CACHE_DIR ??
+    defaultGhidraProjectCacheDirectory(homeDirectory),
+  maxBytes:
+    env.REA_GHIDRA_PROJECT_CACHE_MAX_BYTES ??
+    DEFAULT_GHIDRA_PROJECT_CACHE_MAX_BYTES,
+  ...(env.REA_GHIDRA_PROJECT_CACHE_MAX_AGE_DAYS === undefined
+    ? {}
+    : { maxAgeDays: env.REA_GHIDRA_PROJECT_CACHE_MAX_AGE_DAYS }),
+});
 
 /** Parse provider configuration and runtime prerequisites at the composition root. */
 export const parseConfig = (
@@ -175,15 +193,7 @@ export const parseConfig = (
     ...(env.REA_GHIDRA_NATIVEAOT_JAR === undefined
       ? {}
       : { ghidraNativeAotJar: env.REA_GHIDRA_NATIVEAOT_JAR }),
-    ghidraProjectCache: {
-      mode: env.REA_GHIDRA_PROJECT_CACHE,
-      directory:
-        env.REA_GHIDRA_PROJECT_CACHE_DIR ??
-        defaultGhidraProjectCacheDirectory(homeDirectory),
-      maxBytes:
-        env.REA_GHIDRA_PROJECT_CACHE_MAX_BYTES ??
-        DEFAULT_GHIDRA_PROJECT_CACHE_MAX_BYTES,
-    },
+    ghidraProjectCache: ghidraProjectCacheConfig(env, homeDirectory),
     ilspyCmdPath: env.REA_ILSPY_CMD_PATH,
     hopperLauncherPath:
       env.HOPPER_LAUNCHER_PATH ??

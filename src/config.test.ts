@@ -450,6 +450,7 @@ describe("Ghidra project cache configuration", () => {
       REA_GHIDRA_PROJECT_CACHE: "on",
       REA_GHIDRA_PROJECT_CACHE_DIR: "/var/cache/rea-projects",
       REA_GHIDRA_PROJECT_CACHE_MAX_BYTES: "2048",
+      REA_GHIDRA_PROJECT_CACHE_MAX_AGE_DAYS: "30",
     });
     expect(result.ok).toBe(true);
     if (!result.ok) return;
@@ -457,6 +458,7 @@ describe("Ghidra project cache configuration", () => {
       mode: "on",
       directory: "/var/cache/rea-projects",
       maxBytes: 2048,
+      maxAgeDays: 30,
     });
   });
 
@@ -464,6 +466,7 @@ describe("Ghidra project cache configuration", () => {
     ["REA_GHIDRA_PROJECT_CACHE", "sometimes"],
     ["REA_GHIDRA_PROJECT_CACHE_DIR", "relative/cache"],
     ["REA_GHIDRA_PROJECT_CACHE_MAX_BYTES", "0"],
+    ["REA_GHIDRA_PROJECT_CACHE_MAX_AGE_DAYS", "0"],
   ])("rejects an invalid %s value", (setting, value) => {
     const result = parseConfig({ HOME: home, [setting]: value });
     expect(result.ok).toBe(false);
