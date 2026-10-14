@@ -129,6 +129,150 @@ Setup pins package-runner MCP registrations to the exact installed REA version,
 installs the matching skill and on-demand references in the same plan, and adds
 `startup_timeout_sec = 30` for Codex and Grok Build.
 
+## Limit REA to one project or agent profile
+
+Setup registers REA for the whole client. For Claude Code it writes
+`mcpServers.rea` in `~/.claude.json` and installs the bundled skill under
+`~/.claude/skills`, so every project that Claude Code opens can call REA. To
+offer REA's tools only where they're wanted, use one of the routes below.
+
+Both routes control which sessions discover REA's MCP server and skill. They
+leave shell commands, filesystem access and network access available. An agent
+under the same OS account can run `rea` from `PATH` or `npx` and read other
+profiles and REA output. For clean-room separation, use an implementation
+environment with filesystem and network restrictions that prevent reading or
+fetching REA, the target and analysis output, including through shared
+installations and package registries. A separate account or container must
+enforce those restrictions.
+
+For Claude Code, check existing default-profile state before choosing either
+route. Setup is additive: a previous user-level REA registration and personal
+skill remain active in other projects. Back up the default configuration and
+REA skill first, then, with `CLAUDE_CONFIG_DIR` unset, remove the REA user
+registration with `claude mcp remove --scope user rea` and remove the known
+REA-installed `~/.claude/skills/reverse-engineer-anything` directory. Preserve
+unrelated registrations and skills. `rea uninstall` applies to other clients
+as well, so it is broader than this Claude-only migration.
+
+**A separate Claude Code profile.** Claude Code keeps settings, skills and session
+history under `CLAUDE_CONFIG_DIR`. Setup follows the same
+variable: it writes the registration to `$CLAUDE_CONFIG_DIR/.claude.json` and
+the skill to `$CLAUDE_CONFIG_DIR/skills`.
+
+```bash
+CLAUDE_CONFIG_DIR=~/.claude-rea npx rea-agents setup --client claude_code
+CLAUDE_CONFIG_DIR=~/.claude-rea claude
+```
+
+A new profile may need authentication. Console sign-ins without an API key are
+stored outside `CLAUDE_CONFIG_DIR`; see
+[Claude Code authentication](https://code.claude.com/docs/en/authentication#log-in-with-multiple-accounts).
+Sessions started without the variable use the default profile's registration,
+skill and history.
+
+Inline assignments apply only to that command. Keep the same prefix for every
+profile check, setup rerun, update, or removal; bare commands use the current
+environment and can otherwise inspect or recreate default-profile state:
+
+```bash
+CLAUDE_CONFIG_DIR=~/.claude-rea claude mcp list
+CLAUDE_CONFIG_DIR=~/.claude-rea npx rea-agents doctor --client claude_code --skill --json
+CLAUDE_CONFIG_DIR=~/.claude-rea npx -y rea-agents@latest setup --client claude_code --dry-run
+```
+
+After reviewing an update plan, rerun that same prefixed setup command without
+`--dry-run` and approve its exact changes. Profile removal likewise needs the
+prefix on `claude mcp remove --scope user rea` and any `rea uninstall` command;
+keep the broader client scope of uninstall in mind. Restart the selected
+profile after changing its pinned registration.
+
+`claude mcp remove` removes only the registration. To remove REA from this
+profile without running the broader uninstall flow, first back up the profile's
+REA-managed skill directory, then remove
+`$CLAUDE_CONFIG_DIR/skills/reverse-engineer-anything` as well. Keep other skills
+in the profile intact.
+
+The commands above use POSIX shell assignment syntax. In native Windows
+PowerShell, select the profile for the whole setup/launch/check session and
+restore the previous selection afterward:
+
+```powershell
+$previousClaudeConfigDir = $env:CLAUDE_CONFIG_DIR
+try {
+  $env:CLAUDE_CONFIG_DIR = Join-Path $HOME ".claude-rea"
+  npx rea-agents setup --client claude_code
+  claude mcp list
+  npx rea-agents doctor --client claude_code --skill --json
+  npx -y rea-agents@latest setup --client claude_code --dry-run
+  # After reviewing the plan, repeat setup without --dry-run and approve it.
+  claude
+  # Profile removal, when intended, also belongs inside this selected scope:
+  # claude mcp remove --scope user rea
+} finally {
+  if ($null -eq $previousClaudeConfigDir) {
+    Remove-Item Env:CLAUDE_CONFIG_DIR -ErrorAction SilentlyContinue
+  } else {
+    $env:CLAUDE_CONFIG_DIR = $previousClaudeConfigDir
+  }
+}
+```
+
+Use PowerShell for these Windows examples rather than pasting POSIX assignments
+into cmd.exe. Keep profile updates, readiness checks and removal inside the
+same selected environment; the `finally` block restores the previous profile
+or unsets the variable when it was absent.
+
+**One project.** Install without configuring Claude Code: use the curl
+installer's `--no-setup`, or run setup only for other clients. Then register
+REA from the project directory at Claude Code's local scope.
+
+This route uses the default Claude profile. Keep `CLAUDE_CONFIG_DIR` unset for
+the entire local lifecycle: registration, backup, listing, version replacement
+and removal. In POSIX shells run `unset CLAUDE_CONFIG_DIR`; in PowerShell run
+`Remove-Item Env:CLAUDE_CONFIG_DIR -ErrorAction SilentlyContinue` before these
+commands. Record an existing selection first if you intend to restore it after
+finishing. The configuration path below is the default profile's
+`~/.claude.json`; a different active profile uses its own config root instead.
+
+Register with the variable unset:
+
+<!-- x-release-please-start-version -->
+
+```bash
+claude mcp add --scope local rea -- npx -y rea-agents@6.4.0 mcp
+```
+
+On native Windows, use the same project directory and wrap the package-runner
+shim so the stdio client can launch it:
+
+```powershell
+claude mcp add --scope local rea -- cmd.exe /d /c npx -y rea-agents@6.4.0 mcp
+```
+
+<!-- x-release-please-end -->
+
+Local scope stores the entry under that directory's path in `~/.claude.json`,
+so other projects don't load it. This route doesn't install the bundled skill.
+Avoid `--scope project`, which writes `.mcp.json` into the repository where it
+can be committed or copied. `rea doctor` and `rea uninstall` read only the
+user-level entry, so they don't report or remove a local-scope registration;
+remove it with `claude mcp remove --scope local rea` from the same directory.
+`rea update` doesn't refresh it either, so it stays on the version it names.
+To move it to a newer release, first back up the project entry in
+`~/.claude.json` and record its environment and other metadata. In particular,
+preserve caller-selected overrides such as `REA_MCP_INPUT_SCHEMA_PROFILE` and
+`REA_MCP_MAX_RESPONSE_BYTES`. Run `claude mcp remove --scope local rea` from the
+same directory, then recreate it with the platform-appropriate command above
+and the new version. Reapply every recorded environment value with Claude
+Code's `mcp add --env NAME=value` options and restore any other retained entry
+metadata before restarting the project session. Removal and re-addition do not
+preserve these values automatically. Running setup for Claude Code instead
+would add a user-level entry for every project.
+
+Check the separate profile with the prefixed `claude mcp list` above and compare
+with the default profile with `CLAUDE_CONFIG_DIR` unset. For local scope, run
+`claude mcp list` from the selected project and again from another project.
+
 ## Check readiness for your task
 
 Run `rea doctor` when you need diagnosis. It reads host prerequisites and agent
@@ -145,20 +289,6 @@ Select the part you want to check:
 | One agent registration              | `rea doctor --client codex --json` (see [client IDs](#supported-agents)) |
 | Installed workflow instructions     | `rea doctor --skill --json`                                              |
 
-### Linux owned-process prerequisite
-
-On Linux, workflows that launch an REA-owned child process require a
-procps-compatible `ps` command on REA's `PATH` so REA can inspect process
-ownership before launch. This applies across providers, including Ghidra,
-JADX, firmware tools, and JavaScript/Electron analysis. If `ps` is missing or
-cannot perform that ownership check, install `procps` or put another
-procps-compatible `ps` earlier on `PATH`; otherwise the workflow fails with a
-typed prerequisite or launch failure before starting the provider child. The
-public error code depends on the caller: some workflows preserve that refusal
-as `capability_unavailable`, while provider adapters can project it as
-`provider_unavailable` or `execution_failure`. Inspect the returned details for
-the prerequisite and recovery guidance.
-
 A scoped report has `scope.mode: "explicit"`. Its `scope_checks` determine
 `healthy` and the exit status. Other checks appear in `informational_checks`;
 `environment_healthy` summarizes the full audit. `--target` adds a target check,
@@ -170,6 +300,20 @@ on `open_binary`. A `capability_unavailable` failure carries
 `details.selection_reason`: `ambiguous` asks you to choose from
 `details.candidate_ids`, while `provider_unavailable` asks you to repair the
 selected engine. See [provider selection](cli.md#choose-a-provider).
+
+### Linux owned-process prerequisite
+
+On Linux, REA's shared process supervisor requires a procps-compatible `ps`
+on REA's `PATH` for ownership checks before launching a child. Ghidra, JADX,
+firmware tools and static JavaScript/Electron analysis use these checks.
+Install `procps` or put another procps-compatible `ps` on `PATH` before
+running those workflows. A missing or incompatible command causes a refusal
+before the supervised child starts.
+
+The public error code varies by caller: `capability_unavailable`,
+`provider_unavailable` or `execution_failure`. Some provider adapters report
+only a generic startup error. Check this prerequisite before following
+provider-specific recovery advice.
 
 ## Diagnose, update, and remove
 
@@ -302,11 +446,12 @@ hosted connector; see [its configuration](client-configuration.md#other-client-s
 | Qoder              | `qoder`          |
 | Factory Droid      | `droid`          |
 | Trae               | `trae`           |
+| WorkBuddy          | `workbuddy`      |
 | ZCode              | `zcode`          |
 | DeepSeek Harness   | `dsh`            |
 
-`dsh` and `kimi` require a release containing them. The registry check above does
-not cover them.
+`dsh`, `kimi`, and `workbuddy` require a release containing them. The registry
+check above does not cover them.
 
 See [client configuration and troubleshooting](client-configuration.md) for
 configuration paths, profiles, trust policies, and schema-limit workarounds.
@@ -507,7 +652,13 @@ copying license secrets into logs, or killing unrelated Hopper processes.
 REA connects to an existing Ghidra installation on Linux x64/arm64, macOS x64/arm64,
 or experimental Windows x64 P0.
 It accepts Ghidra 12.1.x and the 64-bit full JDK declared by that installation's
-`application.java.min` and `application.java.max`. Current 12.1 releases require
+`application.java.min` and `application.java.max`. The JDK's reported platform must also
+map to the same native decompiler directory as the host: a JDK running under
+emulation (for example x86_64 under Rosetta on Apple silicon) or reporting a
+non-host `os.name` fails the doctor
+even when it is an otherwise accepted 64-bit full JDK. Select a matching JDK
+through `JAVA_HOME`; adding another decompiler in the JVM-selected directory
+does not satisfy this host-validated admission rule. Current 12.1 releases require
 JDK 21 or newer and set no maximum. The bridge is verified with Ghidra 12.1.4
 and JDK 21. Each installation must include the native decompiler for the host
 architecture in `Ghidra/Features/Decompiler/os/<platform>/` or the corresponding
@@ -570,6 +721,11 @@ registrations. See [Windows Ghidra P0](windows-ghidra-p0.md) for provider diagno
 Doctor validates the platform, architecture, Ghidra 12.1.x application version,
 `support/analyzeHeadless` or `support/analyzeHeadless.bat`, the installation's
 Java major range, 64-bit JDK bitness, and the presence of `javac`/`javac.exe`.
+It also checks that the reported JVM `os.arch` and `os.name` map to the same native decompiler
+directory validated for the host; unrecognized reported architectures or a
+non-host operating system are refused. LaunchSupport overrides of either
+property, including through helper-environment JVM option variables, are
+rejected at launch.
 When Java is found through `PATH`, setup records its observed JDK home so GUI
 MCP clients do not depend on an incidental shell path. Setup shows every exact
 environment entry in its plan, writes only after approval, and never downloads,
@@ -778,6 +934,9 @@ errors expose Error names, messages, and available codes under
 truncation markers. Darwin ownership-helper compilation failures also retain
 the compiler outcome, exit code or signal, and bounded stderr; a timed-out
 compiler remains distinguishable from a compiler that exited with an error.
+The helper compile deadline defaults to 120,000 ms; set
+`REA_SWIFTC_COMPILE_TIMEOUT_MS` to an integer between 1 and 2,147,483,647 when
+a busy host needs longer.
 Other rejection values retain their primitive value or an explicit type.
 Shutdown warnings include the failure
 kind, message, and diagnostics, while process and temporary-project cleanup

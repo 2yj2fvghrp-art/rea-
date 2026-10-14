@@ -1,6 +1,7 @@
 <div align="center">
 
 [English](../../README.md) · [简体中文](README_zh.md) · [繁體中文](README_zh-TW.md) · [日本語](README_ja.md) · [한국어](README_ko.md) · [Türkçe](README_tr.md) · [Русский](README_ru.md) · [Tiếng Việt](README_vi.md) · [ไทย](README_th.md) · [Deutsch](README_de.md) · [Español](README_es.md) · [Français](README_fr.md) · [Українська](README_uk.md) · [Polski](README_pl.md) · [Português (Brasil)](README_pt-BR.md) · [العربية](README_ar.md) · [فارسی](README_fa.md) · **Bahasa Indonesia** · [Italiano](README_it.md)
+· [Ελληνικά](README_el.md)
 
 # REA: Rekayasa Balik Apa Pun
 
@@ -19,9 +20,13 @@
 
 **[Situs Web](https://rea.tools/id/) · [Panduan](https://rea.tools/id/guides/) · [Contoh Penggunaan](https://rea.tools/id/showcase/)**
 
-[Mulai Cepat](#mulai-cepat) · [Cara Kerja REA](#cara-kerja-rea) · [Hal yang Dapat Anda Analisis](#hal-yang-dapat-anda-analisis) · [Contoh Penggunaan](#contoh-penggunaan) · [FAQ](#faq) · [Dokumentasi](#dokumentasi)
+[Mulai Cepat](#mulai-cepat) · [Cara Kerja REA](#cara-kerja-rea) · [Hal yang Dapat Anda Analisis](#hal-yang-dapat-anda-analisis) · [Contoh Penggunaan](#contoh-penggunaan) · [FAQ](#faq) · [Alat GNU objdump dan Rizin](../reverse-engineering-tools.md) · [Dokumentasi](#dokumentasi)
 
 <code>npx rea-agents setup</code>
+
+> [!IMPORTANT]
+> Sumber resmi REA: [morluto/rea](https://github.com/morluto/rea), [rea.tools](https://rea.tools/), [rea-agents](https://www.npmjs.com/package/rea-agents) (npm).
+> Gunakan tautan instalasi dan rilis dari sumber resmi ini. Nama repositori yang mirip atau README yang disalin tidak membuktikan bahwa unduhan tersebut resmi.
 
 <br />
 
@@ -136,30 +141,29 @@ REA memerlukan Node.js 22.x (>=22.19), 24.x (>=24.11), atau 26+, beserta npm.
 
 Alat tambahan dan dukungan sistem host bergantung pada target yang dianalisis:
 
-Di Linux, semua alur kerja yang menjalankan proses anak milik REA memerlukan `ps` yang kompatibel dengan procps di `PATH`, termasuk Ghidra, JADX, alat firmware, dan analisis JavaScript/Electron.
-
-| Target                     | Hasil yang diberikan REA                                                                              | Persyaratan dan panduan                                                                                                            |
-| -------------------------- | ----------------------------------------------------------------------------------------------------- | ---------------------------------------------------------------------------------------------------------------------------------- |
-| Biner native               | Pseudocode, assembly, string, simbol, pemanggilan, dan referensi                                      | Hopper, Ghidra, atau IDA; [analisis native](https://rea.tools/id/guides/native/)                                                   |
-| Tata letak ELF offline     | Bagian, segmen, simbol/relokasi asli, dan kandidat mitigasi statis                                    | pwntools yang disediakan pemanggil pada Linux x64; [diagnostik biner](../binary-diagnostics.md)                                  |
-| Artefak WASM               | Validasi, bagian, bentuk WAT import/ekspor yang tepat, dan WAT yang didekode                          | WABT 1.0.42 yang disediakan pemanggil; `inspect_wasm_artifact`                                                                     |
-| Bytecode EVM               | Selector dispatch, offset byte, argumen yang disimpulkan, dan sifat mutabilitas                       | Pembawa data raw/hex lokal; [panduan EVM offline](../evm-bytecode.md)                                                            |
-| Crash Linux yang direkam   | Catatan mentah, register/sinyal setiap thread yang direkam, dan kandidat pemetaan opsional            | pwntools yang disediakan pemanggil; GDB/pwndbg opsional; [crash yang direkam](../recorded-crashes.md)                            |
-| JavaScript / Electron      | Modul, impor, source map, rute, IPC, dan hubungan add-on native                                       | Linux: `ps` yang kompatibel dengan procps; Node.js dan npm; [analisis aplikasi](https://rea.tools/id/guides/javascript/)                       |
-| Situs web                  | Struktur halaman, skrip, pengamatan jaringan, dan tangkapan layar yang diminta                        | Peramban berbasis Chrome; [analisis peramban](https://rea.tools/id/guides/browser/)                                                |
-| Rekaman jaringan tersimpan | Permintaan, respons, payload yang terekspos, dan lokasi sumber                                        | HAR; mitmdump di Linux untuk rekaman native mitmproxy; [panduan rekaman](../web-network-captures.md)                             |
-| Capturan paket             | Endpoint, DNS, TLS SNI, distribusi protokol, dan permintaan HTTP                                      | tshark dan capinfos buatan pemanggil; [panduan pcap](../pcap-analysis.md)                                                        |
-| Assembly .NET              | Metadata, instruksi CIL, dependensi native yang dideklarasikan, dan perbandingan build                | Tidak ada (hanya analisis statis); [panduan kode terkelola](../managed-code-analysis.md)                                         |
-| APK Android                | Deklarasi manifest, kelas, metode hasil dekompilasi, dan referensi                                    | JADX mode headless dan JDK lengkap di Linux/macOS/Windows x64; [panduan Android](../android-analysis.md)                         |
-| Perangkat Android          | Perangkat, paket, proses, log, dump, tangkapan layar, serta transfer APK/berkas                       | adb buatan pemanggil (emulator atau perangkat); [panduan ADB](../adb-device-analysis.md)                                         |
-| Proyek JEB                 | Unit proyek bertenaga mesin, hash artefak, dan pseudokode tipe/metode                                 | Klien JEB yang dijalankan pemanggil dan menyajikan MCP, dipilih dengan REA_JEB_MCP_URL; [panduan JEB](../jeb-analysis.md)        |
-| Resource Android           | Manifest terdekode, tabel string, lokal, dan fakta versi                                              | Peluncur Apktool buatan pemanggil; [panduan resource](../apktool-resource-analysis.md)                                           |
-| Aplikasi Flutter           | Hash snapshot Dart, hash pustaka per ABI, dan asal build engine                                       | Tidak ada (parsing APK statis); [panduan Flutter](../flutter-analysis.md)                                                        |
-| Firmware                   | Wilayah, hasil ekstraksi, dan pengalihan ke analisis native                                           | Binwalk / Unblob di Linux; [panduan firmware](../firmware-analysis.md)                                                           |
-| Paket rekaman              | Kolom terpilih, nilai berulang, filter, dan aturan decode-as                                          | Linux: TShark 4.x + prlimit; [panduan tangkapan](../packet-captures.md)                                                          |
-| Sinyal logika terekam      | Anotasi dekoder, rentang sampel, dan diagnostik                                                       | Linux: sigrok-cli 0.7.2 + prlimit; [panduan sinyal](../signal-recordings.md)                                                     |
+| Target                     | Hasil yang diberikan REA                                                                              | Persyaratan dan panduan                                                                                                        |
+| -------------------------- | ----------------------------------------------------------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------ |
+| Biner native               | Pseudocode, assembly, string, simbol, pemanggilan, dan referensi                                      | Hopper, Ghidra, atau IDA; [analisis native](https://rea.tools/id/guides/native/)                                               |
+| Tata letak ELF offline     | Bagian, segmen, simbol/relokasi asli, dan kandidat mitigasi statis                                    | pwntools yang disediakan pemanggil pada Linux x64; [diagnostik biner](../binary-diagnostics.md)                                |
+| Artefak WASM               | Validasi, bagian, bentuk WAT import/ekspor yang tepat, dan WAT yang didekode                          | WABT 1.0.42 yang disediakan pemanggil; `inspect_wasm_artifact`                                                                 |
+| Bytecode EVM               | Selector dispatch, offset byte, argumen yang disimpulkan, dan sifat mutabilitas                       | Pembawa data raw/hex lokal; [panduan EVM offline](../evm-bytecode.md)                                                          |
+| Rust binaries              | Embedded cargo-auditable dependency list                                                              | [Rust binaries](../rust-binaries.md)                                                                                           |
+| Crash Linux yang direkam   | Catatan mentah, register/sinyal setiap thread yang direkam, dan kandidat pemetaan opsional            | pwntools yang disediakan pemanggil; GDB/pwndbg opsional; [crash yang direkam](../recorded-crashes.md)                          |
+| JavaScript / Electron      | Modul, impor, source map, rute, IPC, dan hubungan add-on native                                       | Node.js dan npm; [analisis aplikasi](https://rea.tools/id/guides/javascript/)                                                  |
+| Situs web                  | Struktur halaman, skrip, pengamatan jaringan, dan tangkapan layar yang diminta                        | Peramban berbasis Chrome; [analisis peramban](https://rea.tools/id/guides/browser/)                                            |
+| Rekaman jaringan tersimpan | Permintaan, respons, payload yang terekspos, dan lokasi sumber                                        | HAR; mitmdump di Linux untuk rekaman native mitmproxy; [panduan rekaman](../web-network-captures.md)                           |
+| Capturan paket             | Endpoint, DNS, TLS SNI, distribusi protokol, dan permintaan HTTP                                      | tshark dan capinfos buatan pemanggil; [panduan pcap](../pcap-analysis.md)                                                      |
+| Assembly .NET              | Metadata, instruksi CIL, dependensi native yang dideklarasikan, dan perbandingan build                | Tidak ada (hanya analisis statis); [panduan kode terkelola](../managed-code-analysis.md)                                       |
+| APK Android                | Deklarasi manifest, kelas, metode hasil dekompilasi, dan referensi                                    | JADX mode headless dan JDK lengkap di Linux/macOS/Windows x64; [panduan Android](../android-analysis.md)                       |
+| Perangkat Android          | Perangkat, paket, proses, log, dump, tangkapan layar, serta transfer APK/berkas                       | adb buatan pemanggil (emulator atau perangkat); [panduan ADB](../adb-device-analysis.md)                                       |
+| Proyek JEB                 | Unit proyek bertenaga mesin, hash artefak, dan pseudokode tipe/metode                                 | Klien JEB yang dijalankan pemanggil dan menyajikan MCP, dipilih dengan REA_JEB_MCP_URL; [panduan JEB](../jeb-analysis.md)      |
+| Resource Android           | Manifest terdekode, tabel string, lokal, dan fakta versi                                              | Peluncur Apktool buatan pemanggil; [panduan resource](../apktool-resource-analysis.md)                                         |
+| Aplikasi Flutter           | Hash snapshot Dart, hash pustaka per ABI, dan asal build engine                                       | Tidak ada (parsing APK statis); [panduan Flutter](../flutter-analysis.md)                                                      |
+| Firmware                   | Wilayah, hasil ekstraksi, dan pengalihan ke analisis native                                           | Binwalk / Unblob di Linux; [panduan firmware](../firmware-analysis.md)                                                         |
+| Paket rekaman              | Kolom terpilih, nilai berulang, filter, dan aturan decode-as                                          | Linux: TShark 4.x + prlimit; [panduan tangkapan](../packet-captures.md)                                                        |
+| Sinyal logika terekam      | Anotasi dekoder, rentang sampel, dan diagnostik                                                       | Linux: sigrok-cli 0.7.2 + prlimit; [panduan sinyal](../signal-recordings.md)                                                   |
 | Paket dan sumber daya      | Inventaris berkas, digest, plist, struktur paket Apple, dan sumber daya yang diekstrak                | [Panduan artefak dan JavaScript](../javascript-artifact-reconstruction.md), [aplikasi Apple](../apple-application-analysis.md) |
-| Perilaku proses            | Keluaran terminal, interaksi, pengamatan proses keluar dan sistem berkas, serta perbandingan eksekusi | Linux/macOS dengan PTY native; [perekaman proses](../process-capture.md)                                                         |
+| Perilaku proses            | Keluaran terminal, interaksi, pengamatan proses keluar dan sistem berkas, serta perbandingan eksekusi | Linux/macOS dengan PTY native; [perekaman proses](../process-capture.md)                                                       |
 
 Pemeriksaan JavaScript dan .NET statis membaca berkas yang disediakan tanpa menjalankan aplikasinya. Perekaman runtime menjalankan atau berinteraksi dengan target yang dipilih menggunakan izin pengguna Anda. Setiap panduan runtime menjelaskan dampaknya.
 

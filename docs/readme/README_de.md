@@ -1,6 +1,7 @@
 <div align="center">
 
 [English](../../README.md) · [简体中文](README_zh.md) · [繁體中文](README_zh-TW.md) · [日本語](README_ja.md) · [한국어](README_ko.md) · [Türkçe](README_tr.md) · [Русский](README_ru.md) · [Tiếng Việt](README_vi.md) · [ไทย](README_th.md) · **Deutsch** · [Español](README_es.md) · [Français](README_fr.md) · [Українська](README_uk.md) · [Polski](README_pl.md) · [Português (Brasil)](README_pt-BR.md) · [العربية](README_ar.md) · [فارسی](README_fa.md) · [Bahasa Indonesia](README_id.md) · [Italiano](README_it.md)
+· [Ελληνικά](README_el.md)
 
 # REA: Alles reverse-engineeren
 
@@ -19,9 +20,13 @@
 
 **[Website](https://rea.tools/de/) · [Anleitungen](https://rea.tools/de/guides/) · [Fallstudien](https://rea.tools/de/showcase/)**
 
-[Schnellstart](#schnellstart) · [So funktioniert REA](#so-funktioniert-rea) · [Was du analysieren kannst](#was-du-analysieren-kannst) · [Fallstudien](#fallstudien) · [Häufige Fragen](#häufige-fragen) · [Dokumentation](#dokumentation)
+[Schnellstart](#schnellstart) · [So funktioniert REA](#so-funktioniert-rea) · [Was du analysieren kannst](#was-du-analysieren-kannst) · [Fallstudien](#fallstudien) · [Häufige Fragen](#häufige-fragen) · [GNU-objdump- und Rizin-Tools](../reverse-engineering-tools.md) · [Dokumentation](#dokumentation)
 
 <code>npx rea-agents setup</code>
+
+> [!IMPORTANT]
+> Offizielle Quellen für REA: [morluto/rea](https://github.com/morluto/rea), [rea.tools](https://rea.tools/), [rea-agents](https://www.npmjs.com/package/rea-agents) (npm).
+> Folge den Installations- und Release-Links aus diesen offiziellen Quellen. Ein ähnlicher Repository-Name oder eine kopierte README belegt nicht, dass ein Download offiziell ist.
 
 <br />
 
@@ -130,16 +135,15 @@ Dein Agent ruft REA über MCP auf, um das Ziel zu untersuchen und relevanten Cod
 
 REA benötigt Node.js 22.x (>=22.19), 24.x (>=24.11) oder 26+ sowie npm. Zusätzliche Werkzeuge und unterstützte Hostsysteme hängen vom Ziel ab:
 
-Unter Linux benötigen alle Workflows, die REA-eigene Unterprozesse starten, ein procps-kompatibles `ps` im `PATH`, einschließlich Ghidra, JADX, Firmware-Werkzeugen und JavaScript/Electron-Analyse.
-
-| Ziel                                | Was REA zurückgibt                                                                                              | Voraussetzungen und Anleitung                                                                                                                 |
-| ----------------------------------- | --------------------------------------------------------------------------------------------------------------- | --------------------------------------------------------------------------------------------------------------------------------------------- |
-| Native Binärdateien                 | Pseudocode, Assemblercode, Zeichenketten, Symbole, Aufrufe und Verweise                                         | Hopper, Ghidra oder IDA; [native Analyse](https://rea.tools/de/guides/native/)                                                                |
+| Ziel                                | Was REA zurückgibt                                                                                              | Voraussetzungen und Anleitung                                                                                                               |
+| ----------------------------------- | --------------------------------------------------------------------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------- |
+| Native Binärdateien                 | Pseudocode, Assemblercode, Zeichenketten, Symbole, Aufrufe und Verweise                                         | Hopper, Ghidra oder IDA; [native Analyse](https://rea.tools/de/guides/native/)                                                              |
 | Offline-ELF-Struktur                | Sektionen, Segmente, ursprüngliche Symbole/Relokationen und mögliche Schutzmaßnahmen aus statischer Analyse     | Vom Aufrufer bereitgestelltes pwntools unter Linux x64; [Binärdiagnostik](../binary-diagnostics.md)                                         |
 | EVM-Bytecode                        | Dispatch-Selektoren, Byte-Offsets, abgeleitete Argumente und Veränderbarkeit des Zustands                       | Lokale Eingabe mit Rohbytes oder Hexdarstellung unter Linux x64; [Offline-EVM-Leitfaden](../evm-bytecode.md)                                |
+| Rust binaries                       | Embedded cargo-auditable dependency list                                                                        | [Rust binaries](../rust-binaries.md)                                                                                                        |
 | Aufgezeichnete Linux-Abstürze       | Unverarbeitete Note-Einträge, Register/Signale aller aufgezeichneten Threads und optionale Zuordnungskandidaten | Vom Aufrufer bereitgestelltes pwntools unter Linux x64; optional GDB/pwndbg; [aufgezeichnete Abstürze](../recorded-crashes.md)              |
-| JavaScript / Electron               | Module, Imports, Source Maps, Routen, IPC und Beziehungen zu nativen Add-ons                                    | Linux: procps-kompatibles `ps`; Node.js und npm; [Anwendungsanalyse](https://rea.tools/de/guides/javascript/)                                  |
-| Websites                            | Seitenstruktur, Skripte, Netzwerkbeobachtungen und angeforderte Screenshots                                     | Ein Browser aus der Chrome-Familie; [Browseranalyse](https://rea.tools/de/guides/browser/)                                                    |
+| JavaScript / Electron               | Module, Imports, Source Maps, Routen, IPC und Beziehungen zu nativen Add-ons                                    | Node.js und npm; [Anwendungsanalyse](https://rea.tools/de/guides/javascript/)                                                               |
+| Websites                            | Seitenstruktur, Skripte, Netzwerkbeobachtungen und angeforderte Screenshots                                     | Ein Browser aus der Chrome-Familie; [Browseranalyse](https://rea.tools/de/guides/browser/)                                                  |
 | Gespeicherte Netzwerkaufzeichnungen | Anfragen, Antworten, zugängliche Nutzdaten und Quellpositionen                                                  | HAR; mitmdump unter Linux für Aufzeichnungen im nativen mitmproxy-Format; [Leitfaden zu Netzwerkaufzeichnungen](../web-network-captures.md) |
 | Paketerfassungen                    | Endpunkte, DNS, TLS SNI, Protokollverteilung und HTTP-Anfragen                                                  | Vom Aufrufer bereitgestellte tshark- und capinfos-Binaries; [pcap-Leitfaden](../pcap-analysis.md)                                           |
 | .NET-Assemblies                     | Metadaten, CIL-Anweisungen, deklarierte native Abhängigkeiten und Build-Vergleiche                              | Statische Untersuchung; [Leitfaden für verwalteten Code](../managed-code-analysis.md)                                                       |
@@ -151,7 +155,7 @@ Unter Linux benötigen alle Workflows, die REA-eigene Unterprozesse starten, ein
 | Firmware                            | Bereiche, Extraktionsergebnisse und Übergaben an die native Analyse                                             | Binwalk / Unblob unter Linux; [Firmware-Leitfaden](../firmware-analysis.md)                                                                 |
 | Aufgezeichnete Pakete               | Ausgewählte Felder, wiederholte Werte, Filter und Decode-as-Regeln                                              | Linux: TShark 4.x + prlimit; [Mitschnitt-Anleitung](../packet-captures.md)                                                                  |
 | Aufgezeichnete Logiksignale         | Decoder-Anmerkungen, Sample-Bereiche und Diagnosen                                                              | Linux: sigrok-cli 0.7.2 + prlimit; [Signalaufzeichnungen](../signal-recordings.md)                                                          |
-| Pakete und Ressourcen               | Dateiinventare, Hashwerte, plists, Aufbau von Apple-Bundles und extrahierte Ressourcen                          | [Artefakt- und JavaScript-Leitfaden](../javascript-artifact-reconstruction.md), [Apple-Anwendungen](../apple-application-analysis.md)     |
+| Pakete und Ressourcen               | Dateiinventare, Hashwerte, plists, Aufbau von Apple-Bundles und extrahierte Ressourcen                          | [Artefakt- und JavaScript-Leitfaden](../javascript-artifact-reconstruction.md), [Apple-Anwendungen](../apple-application-analysis.md)       |
 | Prozessverhalten                    | Terminalausgabe, Interaktionen, Beobachtungen zu Prozessende und Dateisystem sowie Laufvergleiche               | Linux/macOS mit nativer PTY; [Prozessaufzeichnung](../process-capture.md)                                                                   |
 
 Statische JavaScript- und .NET-Untersuchungen lesen die bereitgestellten Dateien, ohne die Anwendung auszuführen. Laufzeitaufzeichnungen führen das gewählte Ziel mit deinen Benutzerrechten aus oder interagieren damit; die jeweiligen Anleitungen beschreiben die Auswirkungen.
