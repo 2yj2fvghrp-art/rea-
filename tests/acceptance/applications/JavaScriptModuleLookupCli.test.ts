@@ -276,6 +276,7 @@ const expectCtsRuntime = async (root: string): Promise<void> => {
       "ES2022",
       "--skipLibCheck",
       "--allowJs",
+      "--checkJs",
       "--rootDir",
       join(root, "cts"),
       "--outDir",
@@ -288,6 +289,10 @@ const expectCtsRuntime = async (root: string): Promise<void> => {
       join(root, "cts/script.ts"),
       join(root, "cts/same.cts"),
       join(root, "cts/native.mts"),
+      join(root, "cts/native-jsdoc.mjs"),
+      join(root, "cts/native-jsdoc.cjs"),
+      join(root, "cts/native-jsdoc-star.mjs"),
+      join(root, "cts/native-jsdoc-star.d.ts"),
       join(root, "cts/native-template.mts"),
       join(root, "cts/native-parenthesized.mts"),
       join(root, "cts/native-default.cts"),
@@ -311,6 +316,18 @@ const expectCtsRuntime = async (root: string): Promise<void> => {
     { cwd: root, timeout: 10_000 },
   );
   await expectErasedNativeDeclarationRuntime(root, emitted);
+  for (const [file, expected] of [
+    ["native-jsdoc.mjs", '["require","import","import","require","import"]'],
+    ["native-jsdoc.cjs", '["import","require"]'],
+    ["native-jsdoc-star.mjs", '"require"'],
+  ] as const) {
+    const runtime = await execute(process.execPath, [join(emitted, file)], {
+      cwd: emitted,
+      timeout: 5_000,
+    });
+    expect(runtime.stdout.trim()).toBe(expected);
+  }
+
   const mixedOutput = await readFile(join(emitted, "native-mixed.mjs"), "utf8");
   expect(mixedOutput).toContain("NativeMode as runtimeNative");
   expect(mixedOutput).toContain("NativeMode as runtimeNativeExport");

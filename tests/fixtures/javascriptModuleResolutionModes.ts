@@ -128,6 +128,63 @@ export const modeSourceFiles = {
     "console.log(JSON.stringify([quoted.source, template.source]));",
   ].join("\n"),
   "cts/recovered.cts": recoveredSource,
+  "cts/native-jsdoc.mjs": [
+    '/** @import { NativeMode } from "native-mode/addon.node" with { "resolution-mode": "require" } */',
+    '/** @import { NativeMode as Imported } from "native-mode/addon.node" with { "resolution-mode": "import" } */',
+    '/** @import { NativeMode as Default } from "native-mode/addon.node" */',
+    "/**",
+    ' * @import { NativeMode as ProseFirst } from "native-mode/addon.node" with { "resolution-mode": "require" };',
+    " * It's useful documentation.",
+    ' * @import { NativeMode as ProseSecond } from "native-mode/addon.node" with { "resolution-mode": "import" };',
+    " */",
+    '/** @type {NativeMode} */ const required = { source: "require" };',
+    '/** @type {Imported} */ const imported = { source: "import" };',
+    '/** @type {Default} */ const defaultValue = { source: "import" };',
+    '/** @type {ProseFirst} */ const first = { source: "require" };',
+    '/** @type {ProseSecond} */ const second = { source: "import" };',
+    "console.log(JSON.stringify([required.source, imported.source, defaultValue.source, first.source, second.source]));",
+  ].join("\n"),
+  "cts/native-jsdoc.cjs": [
+    "/**",
+    ' * @import * as Native from "native-mode/addon.node" with { "resolution-mode": "import" }',
+    " * @type {Native.NativeMode}",
+    ' */ const imported = { source: "import" };',
+    '/** @import { NativeMode as Default } from "native-mode/addon.node" */',
+    '/** @type {Default} */ const required = { source: "require" };',
+    "console.log(JSON.stringify([imported.source, required.source]));",
+  ].join("\n"),
+  "cts/native-jsdoc-invalid.mjs":
+    '/** @import { NativeMode } from "native-mode/addon.node" with { "resolution-mode": "typo" } */',
+  "cts/native-jsdoc-unknown.js":
+    '/** @import { NativeMode } from "native-mode/addon.node" */',
+  "cts/native-jsdoc-star.mjs": [
+    '/** @import { NativeMode } from "native\\',
+    '*mode/addon.node" with { "resolution-mode": "require" } */',
+    '/** @type {NativeMode} */ const value = { source: "require" };',
+    "console.log(JSON.stringify(value.source));",
+  ].join("\n"),
+  "cts/native-jsdoc-star.d.ts":
+    'declare module "native*mode/addon.node" { export interface NativeMode { source: "require"; } }',
+  "cts/native-jsdoc-malformed.mjs":
+    '/** @import { NativeMode } from "native-mode/addon.node" with { "resolution-mode": unknown() } */\nexport const retained = 7;',
+  "cts/native-jsdoc-negative.mjs": [
+    '/* @import { NativeMode } from "native-mode/addon.node" */',
+    '// @import { NativeMode } from "native-mode/addon.node"',
+    `const text = '/** @import { NativeMode } from "native-mode/addon.node" */';`,
+    '/** `@import { NativeMode } from "native-mode/addon.node"` */',
+    "/**",
+    " * ```js",
+    ' * @import { NativeMode } from "native-mode/addon.node"',
+    " * ```",
+    " */",
+    "/**",
+    " * ````js",
+    ' * @import { NativeMode } from "native-mode/addon.node"',
+    " * ````",
+    " */",
+    '/** @type {"@import { NativeMode } from pkg"} */ const annotation = "@import { NativeMode } from pkg";',
+    "console.log(text, annotation);",
+  ].join("\n"),
   "cts/native-default.cts": nativeDefaultSource("require"),
   "cts/native-default.mts": nativeDefaultSource("import"),
   "cts/native-default.ts": nativeDefaultSource("require"),
@@ -300,6 +357,7 @@ export const expectReviewModeEvidence = (
   expectErasedNativeDeclarationEvidence(graph);
   expectInlineTypeEvidence(graph);
   expectNativeDefaultEvidence(graph);
+  expectJSDocTypeEvidence(graph);
   expectRecoveredTypeEvidence(graph);
   expectInvalidValueSelectorReferences(graph);
   expect(
@@ -952,4 +1010,128 @@ const expectNativeImportEqualsExports = (
           }),
         }),
       );
+};
+
+const expectJSDocTypeEvidence = (
+  graph: Awaited<ReturnType<typeof analyzeJavaScriptDirectory>>["graph"],
+): void => {
+  for (const [source, line, mode, members, namespace] of [
+    ["cts/native-jsdoc.mjs", 1, "require", ["NativeMode"], false],
+    ["cts/native-jsdoc.mjs", 2, "import", ["NativeMode"], false],
+    ["cts/native-jsdoc.mjs", 3, "import", ["NativeMode"], false],
+    ["cts/native-jsdoc.mjs", 5, "require", ["NativeMode"], false],
+    ["cts/native-jsdoc.mjs", 7, "import", ["NativeMode"], false],
+    ["cts/native-jsdoc.cjs", 2, "import", [], true],
+    ["cts/native-jsdoc.cjs", 5, "require", ["NativeMode"], false],
+    [
+      "cts/native-jsdoc-unknown.js",
+      1,
+      "compiler-dependent",
+      ["NativeMode"],
+      false,
+    ],
+    [
+      "cts/native-jsdoc-invalid.mjs",
+      1,
+      "compiler-dependent",
+      ["NativeMode"],
+      false,
+    ],
+  ] as const) {
+    const bindings = graph.nodes
+      .filter(({ kind }) => kind === "javascript-asset")
+      .flatMap((node) => node.observations)
+      .filter(
+        ({ properties, evidence }) =>
+          properties.specifier === "native-mode/addon.node" &&
+          "native_export_verification" in properties &&
+          evidence.location.available &&
+          evidence.location.value.kind === "source-range" &&
+          evidence.location.value.source === source &&
+          evidence.location.value.start.line === line,
+      );
+    expect.soft(bindings).toHaveLength(1);
+    expect.soft(bindings[0]?.properties).toMatchObject({
+      module_kind: mode,
+      type_only: true,
+      requested_members: members,
+      namespace_access: namespace,
+      native_export_verification: "not-performed",
+      resolved_path:
+        mode === "compiler-dependent"
+          ? null
+          : `node_modules/native-mode/${mode}.node`,
+    });
+    expect.soft(bindings[0]?.evidence.artifact).toMatchObject({
+      available: true,
+      sha256: createHash("sha256")
+        .update(modeSourceFiles[source])
+        .digest("hex"),
+    });
+    expect
+      .soft(
+        graph.edges.filter(
+          ({ relation, evidence }) =>
+            (relation === "imports" || relation === "loads") &&
+            evidence.location.available &&
+            evidence.location.value.kind === "source-range" &&
+            evidence.location.value.source === source,
+        ),
+      )
+      .toEqual([]);
+  }
+  const moduleObservation = graph.nodes
+    .flatMap(({ observations }) => observations)
+    .find(
+      ({ properties }) =>
+        properties.semantic_role === "source-module" &&
+        properties.path === "cts/native-jsdoc.mjs",
+    );
+  expect
+    .soft(moduleObservation?.properties)
+    .toMatchObject({ type_relationships: 5, import_relationships: 0 });
+  expect
+    .soft(
+      graph.nodes
+        .flatMap(({ observations }) => observations)
+        .filter(
+          ({ properties, evidence }) =>
+            properties.specifier === "native-mode/addon.node" &&
+            evidence.location.available &&
+            evidence.location.value.kind === "source-range" &&
+            evidence.location.value.source === "cts/native-jsdoc-negative.mjs",
+        ),
+    )
+    .toEqual([]);
+  expect
+    .soft(
+      graph.nodes
+        .filter(({ kind }) => kind === "javascript-asset")
+        .flatMap(({ observations }) => observations),
+    )
+    .toContainEqual(
+      expect.objectContaining({
+        properties: expect.objectContaining({
+          specifier: "native*mode/addon.node",
+          type_only: true,
+          module_kind: "require",
+          requested_members: ["NativeMode"],
+          resolved_path: null,
+        }),
+        evidence: expect.objectContaining({
+          artifact: expect.objectContaining({
+            available: true,
+            sha256: createHash("sha256")
+              .update(modeSourceFiles["cts/native-jsdoc-star.mjs"])
+              .digest("hex"),
+          }),
+          location: expect.objectContaining({
+            value: expect.objectContaining({
+              source: "cts/native-jsdoc-star.mjs",
+              start: { line: 1, column: 4 },
+            }),
+          }),
+        }),
+      }),
+    );
 };

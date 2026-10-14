@@ -19,6 +19,7 @@ import {
 } from "./javascriptSemanticProjection.js";
 import {
   semanticObjectPatternKeys,
+  runtimeFunctionParameters,
   semanticStaticPropertyKey,
   semanticWriteTargets,
 } from "./javascriptAstValues.js";
@@ -66,6 +67,7 @@ import { semanticCoverage } from "./javascriptSemanticCoverage.js";
 import { semanticResourceLimitsIn } from "./javascriptSemanticResourceLimits.js";
 import {
   parseJavaScriptSource,
+  parsedJSDocTypeImports,
   type ParsedJavaScriptSource,
 } from "./javascriptSourceParser.js";
 
@@ -165,9 +167,12 @@ export function* analyzeParsedJavaScriptSemanticsSteps(
   yield* traverseJavaScriptAstSteps(file.program, {
     enter: (node) => collectSemanticModuleLink(node, state),
   });
+  const typeImports = parsedJSDocTypeImports(file.program);
+  for (const declaration of typeImports.declarations)
+    collectSemanticModuleLink(declaration, state);
   yield;
   const references = yield* collectSemanticReferencesSteps(file.program, state);
-  const parserPartial = file.errors.length > 0;
+  const parserPartial = file.errors.length > 0 || !typeImports.complete;
   const bindings = immutableSemanticBindings(state);
   yield;
   const callables = collectSemanticReturns(state, parserPartial);
@@ -722,7 +727,7 @@ function* collectDefinitionsSteps(
           functionBodies.push({
             body: node,
             scope: nested,
-            parameters: parent.params,
+            parameters: runtimeFunctionParameters(parent),
           });
       }
       const scope = currentSemanticScope(stack);
@@ -1081,7 +1086,7 @@ const scopeKind = (
 };
 
 const functionParametersHaveExpressions = (node: t.Function): boolean => {
-  const pending: t.Node[] = [...node.params];
+  const pending: t.Node[] = [...runtimeFunctionParameters(node)];
   while (pending.length > 0) {
     const parameter = pending.pop();
     if (t.isAssignmentPattern(parameter)) return true;
@@ -1141,7 +1146,7 @@ const bindFunctionLocals = (
   scope: JavaScriptSemanticScopeState,
   state: JavaScriptSemanticAnalysisState,
 ): void => {
-  for (const parameter of node.params)
+  for (const parameter of runtimeFunctionParameters(node))
     bindPattern({
       pattern: t.isTSParameterProperty(parameter)
         ? parameter.parameter

@@ -5,6 +5,26 @@ import {
   semanticStaticPropertyKey,
 } from "./javascriptAstValues.js";
 
+const jsDocDefaultModes = new WeakMap<
+  t.Node,
+  "import" | "require" | "compiler-dependent"
+>();
+
+/** JSDoc requests use their containing file mode without becoming runtime imports. */
+export const recordJSDocImportDefaultMode = (
+  node: t.ImportDeclaration,
+  sourcePath: string | undefined,
+): void => {
+  jsDocDefaultModes.set(
+    node,
+    /\.cjs$/iu.test(sourcePath ?? "")
+      ? "require"
+      : /\.mjs$/iu.test(sourcePath ?? "")
+        ? "import"
+        : "compiler-dependent",
+  );
+};
+
 /** Literal external-module target for either value or erased import-equals syntax. */
 export const typescriptImportEqualsRequest = (
   node: t.TSImportEqualsDeclaration,
@@ -69,7 +89,8 @@ export const typescriptImportResolutionMode = (
       ? "compiler-dependent"
       : undefined;
   const attributes = node.attributes;
-  if (attributes === null || attributes === undefined) return undefined;
+  if (attributes === null || attributes === undefined)
+    return jsDocDefaultModes.get(node);
   const attribute = attributes[0];
   return attributes.length === 1 &&
     attribute !== undefined &&

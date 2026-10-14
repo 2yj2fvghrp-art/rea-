@@ -165,6 +165,9 @@ it("reuses one real owned analyzer while retaining distinct source identities an
         resolutionMode: "compiler-dependent",
       })),
     );
+
+    await expectJSDocTypeRequests(worker);
+    await expectJSDocRecoveryAfterMalformedTags(worker);
     await expectNativeTypeSelections(worker);
     expect(launches).toHaveLength(1);
   } finally {
@@ -824,4 +827,145 @@ const expectNativeTypeIndexAlternatives = async (
       dynamicMemberAccess: true,
     },
   ]);
+};
+
+const expectJSDocTypeRequests = async (
+  worker: JavaScriptAnalysisWorker,
+): Promise<void> => {
+  for (const [path, modes] of [
+    [
+      "cts/native-jsdoc.mjs",
+      ["require", "import", "import", "require", "import"],
+    ],
+    ["cts/native-jsdoc.cjs", ["import", "require"]],
+    ["cts/native-jsdoc-unknown.js", ["compiler-dependent"]],
+    ["cts/native-jsdoc-invalid.mjs", ["compiler-dependent"]],
+    ["cts/native-jsdoc-negative.mjs", []],
+  ] as const) {
+    const result = await worker.analyze(
+      source(path, modeSourceFiles[path]),
+      100,
+    );
+    if (!result.ok) throw result.error.error;
+    expect.soft(result.value.javascript.references).toEqual([]);
+    expect.soft(result.value.javascript.parse_status).toBe("complete");
+    expect
+      .soft(result.value.javascript.electron.native_addon_bindings)
+      .toMatchObject(
+        modes.map((module_kind) => ({ module_kind, type_only: true })),
+      );
+    expect.soft(result.value.module?.moduleLinks).toMatchObject(
+      modes.map((resolutionMode) => ({
+        kind: "type-import",
+        resolutionMode,
+      })),
+    );
+    expect
+      .soft(
+        result.value.module?.bindings.filter(({ name }) =>
+          [
+            "NativeMode",
+            "Imported",
+            "Native",
+            "Default",
+            "ProseFirst",
+            "ProseSecond",
+          ].includes(name),
+        ),
+      )
+      .toEqual([]);
+  }
+  const malformed = await worker.analyze(
+    source(
+      "cts/native-jsdoc-malformed.mjs",
+      modeSourceFiles["cts/native-jsdoc-malformed.mjs"],
+    ),
+    100,
+  );
+  if (!malformed.ok) throw malformed.error.error;
+  expect(malformed.value.javascript.parse_status).toBe("partial");
+  expect(malformed.value.module?.coverage.status).toBe("partial");
+  expect(malformed.value.module?.bindings).toContainEqual(
+    expect.objectContaining({
+      name: "retained",
+      value: { status: "literal", value: 7 },
+    }),
+  );
+  const starred = await worker.analyze(
+    source(
+      "cts/native-jsdoc-star.mjs",
+      modeSourceFiles["cts/native-jsdoc-star.mjs"],
+    ),
+    100,
+  );
+  if (!starred.ok) throw starred.error.error;
+  expect(starred.value.javascript.parse_status).toBe("complete");
+  expect(starred.value.javascript.electron.native_addon_bindings).toMatchObject(
+    [
+      {
+        specifier: "native*mode/addon.node",
+        module_kind: "require",
+        type_only: true,
+      },
+    ],
+  );
+  expect(starred.value.module?.moduleLinks).toMatchObject([
+    {
+      kind: "type-import",
+      specifier: "native*mode/addon.node",
+      resolutionMode: "require",
+    },
+  ]);
+};
+
+const expectJSDocRecoveryAfterMalformedTags = async (
+  worker: JavaScriptAnalysisWorker,
+): Promise<void> => {
+  for (const broken of [
+    " * @import {\n",
+    ' * @import { Broken } from "native-mode/addon.node" with {\n',
+    ' * @import { Broken } from "unterminated\n',
+    ` * @import { Broken } from ${String.fromCharCode(92, 34)}\n`,
+    ' * @import { Broken } from "native-mode/addon.node" with { "resolution-mode": "unterminated\n',
+  ]) {
+    const text = [
+      "/**",
+      broken.repeat(2048),
+      ' * @import { NativeMode as Good } from "native-mode/addon.node" with { "resolution-mode": "require" }',
+      " */ export const retained = 7;",
+    ].join("\n");
+    const result = await worker.analyze(
+      source("recovered-jsdoc.mjs", text),
+      100,
+    );
+    if (!result.ok) throw result.error.error;
+    expect(result.value.javascript.parse_status).toBe("partial");
+    expect(result.value.module?.bindings).toContainEqual(
+      expect.objectContaining({
+        name: "retained",
+        value: { status: "literal", value: 7 },
+      }),
+    );
+    expect(
+      result.value.module?.moduleLinks?.filter(
+        ({ kind }) => kind === "type-import",
+      ),
+    ).toMatchObject([
+      { kind: "type-import", localName: "Good", resolutionMode: "require" },
+    ]);
+    expect(result.value.module?.moduleLinks).toHaveLength(2);
+    expect(result.value.module?.moduleLinks).toContainEqual(
+      expect.objectContaining({ kind: "export", localName: "retained" }),
+    );
+    expect(
+      result.value.javascript.electron.native_addon_bindings,
+    ).toMatchObject([
+      {
+        specifier: "native-mode/addon.node",
+        module_kind: "require",
+        type_only: true,
+      },
+    ]);
+    expect(result.value.javascript.references).toEqual([]);
+  }
 };

@@ -50,6 +50,7 @@ import {
 } from "./javascriptSemanticAnalysis.js";
 import {
   parseJavaScriptSource,
+  parsedJSDocTypeImports,
   type ParsedJavaScriptSource,
 } from "./javascriptSourceParser.js";
 
@@ -105,19 +106,20 @@ export function* analyzeParsedJavaScriptStaticSourceSteps(
     bindings,
   );
   const clientRoots = yield* classifyParsedJavaScriptRpcClientRootsSteps(file);
-  yield* traverseStaticSourceSteps(
-    file,
-    {
-      source,
-      accumulator,
-      staticImportResolutionMode,
-      parentsByNode: bindings.parentsByNode,
-      ...(openReceiverFacts === undefined ? {} : { openReceiverFacts }),
-      electronBindings: electronIdentity.bindings,
-      rpcScan: createJavaScriptRpcScan(source, clientRoots),
-    },
-    bindings,
-  );
+  const findings: JavaScriptFindingContext = {
+    source,
+    accumulator,
+    staticImportResolutionMode,
+    parentsByNode: bindings.parentsByNode,
+    ...(openReceiverFacts === undefined ? {} : { openReceiverFacts }),
+    electronBindings: electronIdentity.bindings,
+    rpcScan: createJavaScriptRpcScan(source, clientRoots),
+  };
+  yield* traverseStaticSourceSteps(file, findings, bindings);
+  const typeImports = parsedJSDocTypeImports(file.program);
+  for (const declaration of typeImports.declarations)
+    inspectNode(declaration, findings, bindings);
+  if (!typeImports.complete) accumulator.unknownFindings += 1;
   accumulator.electronCallPaths = collectElectronWrappedCallPaths(
     file.program,
     bindings,
