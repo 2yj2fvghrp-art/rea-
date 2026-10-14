@@ -322,6 +322,18 @@ const checkSymlinks = (
   context: z.RefinementCtx,
 ): void => {
   const lookupPath = createReferenceSourcePathLookup(paths);
+  const kinds = new Map(graph.entries.map(({ path, kind }) => [path, kind]));
+  for (const [index, exclusion] of graph.exclusions.entries()) {
+    if (!("entry_kind" in exclusion) || exclusion.entry_kind !== "directory")
+      continue;
+    const inventoried = lookupPath.resolve(exclusion.path);
+    if (inventoried !== undefined && kinds.get(inventoried) !== "directory")
+      context.addIssue({
+        code: "custom",
+        message: "Directory exclusion conflicts with inventoried entry kind",
+        path: ["exclusions", index, "entry_kind"],
+      });
+  }
   const excludedPaths = createReferenceSourcePathLookup(
     graph.exclusions.map(({ path }) => path),
   );
@@ -339,6 +351,13 @@ const checkSymlinks = (
         : [],
     ),
   );
+  const coveredByExclusion = (resolved: string): boolean => {
+    const exact = excludedPaths.resolve(resolved);
+    if (exact !== undefined && !escapePaths.has(exact)) return true;
+    if (excludedDirectories.size === 0) return false;
+    const ancestor = excludedPaths.resolveAncestor(resolved);
+    return ancestor !== undefined && excludedDirectories.has(ancestor);
+  };
   for (const [index, entry] of graph.entries.entries()) {
     if (entry.kind !== "symlink") continue;
     if (entry.target === null) continue;
@@ -356,18 +375,13 @@ const checkSymlinks = (
     const resolved = posix.normalize(
       posix.join(posix.dirname(entry.path), entry.target),
     );
-    const excludedTarget = excludedPaths.resolve(resolved);
-    const excludedAncestor = excludedPaths.resolveAncestor(resolved);
     if (
       resolved.startsWith("../") ||
       resolved === ".." ||
       // The inventory root is implicit rather than an entry with path ".".
       (resolved !== "." &&
         lookupPath.resolve(resolved) === undefined &&
-        (excludedTarget === undefined || escapePaths.has(excludedTarget)) &&
-        // Only observed directory exclusions establish subtree coverage.
-        (excludedAncestor === undefined ||
-          !excludedDirectories.has(excludedAncestor)))
+        !coveredByExclusion(resolved))
     )
       context.addIssue({
         code: "custom",

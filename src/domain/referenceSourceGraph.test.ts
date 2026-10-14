@@ -435,6 +435,32 @@ describe("historical source graph validation", () => {
 });
 
 describe("historical source graph symlink path identity", () => {
+  it("rejects directory exclusion facts conflicting with an inventoried file", () => {
+    const input = { ...graphInput(), inventory_state: "partial" as const };
+    input.exclusions = [
+      {
+        path: "src/main.ts",
+        reason: "caller-excluded",
+        pattern: "src/main.ts",
+        entry_kind: "directory",
+      },
+    ];
+    input.entries[2] = symlinkEntry({ target: "main.ts/child" });
+    expect(() => createHistoricalSourceGraph(input)).toThrow(
+      /Directory exclusion conflicts/u,
+    );
+    input.exclusions = [
+      {
+        path: "src",
+        reason: "caller-excluded",
+        pattern: "src/",
+        entry_kind: "directory",
+      },
+    ];
+    input.entries[2] = symlinkEntry({ target: "unlisted.ts" });
+    expect(() => createHistoricalSourceGraph(input)).not.toThrow();
+  });
+
   it("does not use a recorded escape to establish an internal target", () => {
     const input = { ...graphInput(), inventory_state: "partial" as const };
     input.exclusions = [{ path: "omitted", reason: "symlink-escape" }];
