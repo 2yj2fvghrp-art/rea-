@@ -27,6 +27,42 @@ const serve = async (
   return { stdout, exitCode };
 };
 
+// Incur's extractBuiltinFlags consumes these tokens anywhere in argv before
+// command options are parsed, so a command option with the same spelling
+// could never receive them.
+const INCUR_BUILTIN_FLAGS = new Set([
+  "--filter-output",
+  "--format",
+  "--full-output",
+  "--help",
+  "--json",
+  "--llms",
+  "--llms-full",
+  "--mcp",
+  "--schema",
+  "--token-count",
+  "--token-limit",
+  "--token-offset",
+  "--update",
+  "--version",
+]);
+
+const registeredLongOptions = (cli: CliInstance, command: string): string[] => {
+  const entry = registeredCommands.get(cli)?.get(command);
+  const options: unknown =
+    entry === undefined ? undefined : Reflect.get(entry, "options");
+  const shape: unknown =
+    typeof options === "object" && options !== null
+      ? Reflect.get(options, "shape")
+      : undefined;
+  return typeof shape === "object" && shape !== null
+    ? Object.keys(shape).map(
+        (key) =>
+          `--${key.replace(/[A-Z]/gu, (letter) => `-${letter.toLowerCase()}`)}`,
+      )
+    : [];
+};
+
 const registeredAliases = (
   cli: CliInstance,
   command: string,
@@ -60,6 +96,22 @@ describe("CLI option aliases", () => {
     }
     expect(invalid).toEqual([]);
     expect(undescribed).toEqual([]);
+  });
+
+  it("register no long options that Incur reserves as builtin flags", () => {
+    const cli = createCli({});
+    const commands = createCliInventory(cli).primary;
+    const shadowed = commands.flatMap((command) =>
+      registeredLongOptions(cli, command)
+        .filter((option) => INCUR_BUILTIN_FLAGS.has(option))
+        .map((option) => `${command} ${option}`),
+    );
+    expect(
+      commands.some(
+        (command) => registeredLongOptions(cli, command).length > 0,
+      ),
+    ).toBe(true);
+    expect(shadowed).toEqual([]);
   });
 
   it("accepts kebab-case long options without registered aliases", async () => {
