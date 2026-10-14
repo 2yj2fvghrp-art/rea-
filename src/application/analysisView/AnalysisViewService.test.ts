@@ -506,6 +506,70 @@ it.each(["summary", "capture", "api-surface"] as const)(
   },
 );
 
+it.each([
+  ["own map", "map", false],
+  ["own iterator", Symbol.iterator, false],
+  ["own constructor", "constructor", false],
+  ["inherited map", "map", true],
+  ["inherited iterator", Symbol.iterator, true],
+] as const)(
+  "rejects array %s accessors without invoking them",
+  (_name, key, inherited) => {
+    const parent = analysisViewCaptureEvidence();
+    let accessed = false;
+    const array: unknown[] = [];
+    const owner: object = inherited ? Object.create(Array.prototype) : array;
+    Object.defineProperty(owner, key, {
+      get() {
+        accessed = true;
+        throw new Error("Array behavior must remain inert");
+      },
+    });
+    if (inherited) Object.setPrototypeOf(array, owner);
+    for (const kind of ["summary", "capture", "api-surface"] as const) {
+      const result = inspectAnalysisView({
+        source: { kind: "inline", evidence: { ...parent, raw_result: array } },
+        view: { kind },
+      });
+      expect(result).toMatchObject({
+        ok: false,
+        error: { _tag: "AnalysisInputError" },
+      });
+    }
+    expect(accessed).toBe(false);
+  },
+);
+
+it("rejects callable array overrides and subclass species before parsing", () => {
+  const parent = analysisViewCaptureEvidence();
+  let invoked = false;
+  const callback = () => {
+    invoked = true;
+    throw new Error("Array callbacks must remain inert");
+  };
+  class CustomArray extends Array<unknown> {
+    static override get [Symbol.species](): ArrayConstructor {
+      return callback();
+    }
+  }
+  for (const array of [
+    Object.defineProperty([], "map", { value: callback }),
+    Object.defineProperty([], Symbol.iterator, { value: callback }),
+    new CustomArray(),
+  ])
+    for (const kind of ["summary", "capture", "api-surface"] as const) {
+      const result = inspectAnalysisView({
+        source: { kind: "inline", evidence: { ...parent, raw_result: array } },
+        view: { kind },
+      });
+      expect(result).toMatchObject({
+        ok: false,
+        error: { _tag: "AnalysisInputError" },
+      });
+    }
+  expect(invoked).toBe(false);
+});
+
 it.each(["summary", "capture", "api-surface"] as const)(
   "preserves ordinary inline Evidence for %s",
   (kind) => {

@@ -50,6 +50,14 @@ export const admitAnalysisViewData = (
     // Walk depth-first without copying the graph. Aliases are examined each time
     // the schema copies them, so byte reservations retain the same accounting.
     if (Array.isArray(item)) {
+      // Ordinary JSON arrays have only dense own indexes and length. Extra keys
+      // or a custom prototype can override map, iteration or constructor/species
+      // behavior used by validation and cloning, even with data descriptors.
+      if (
+        Object.getPrototypeOf(item) !== Array.prototype ||
+        Reflect.ownKeys(item).length !== item.length + 1
+      )
+        return invalid();
       for (let index = 0; index < item.length; index += 1) {
         const admitted = child(index);
         if (!admitted.ok) return admitted;
