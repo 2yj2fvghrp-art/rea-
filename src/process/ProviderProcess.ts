@@ -1,9 +1,7 @@
-import { isUtf8 } from "node:buffer";
 import { spawn, type ChildProcess } from "node:child_process";
 import type { EventEmitter } from "node:events";
 import type { Readable, Writable } from "node:stream";
 
-import { AnalysisCapabilityUnavailableError } from "../domain/analysisErrorCore.js";
 import { WindowsOwnedProcess } from "../windows/WindowsOwnedProcess.js";
 
 import type {

@@ -24,7 +24,6 @@ const EXECUTION_WORDING_EXCEPTIONS: Readonly<Record<string, string>> = {
   start_frida_session:
     "spawned targets remain suspended until resume_frida_session",
   inspect_native_load_image: "states that it does not execute the target",
-  inspect_with_objdump: "runs a static inspection tool, not target code",
   resolve_native_call_targets: "states that it does not execute code",
   inspect_pe_resources: "states that it does not execute the image",
   inspect_go_binary: "reads embedded metadata without executing the target",

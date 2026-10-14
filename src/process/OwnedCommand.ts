@@ -88,7 +88,6 @@ export const runOwnedCommand = async (
       deadline,
       callerSignal,
       options.retainCleanup,
-      options.onLaunched,
     );
   } finally {
     deadline.dispose();
@@ -154,7 +153,6 @@ const collectOwnedCommand = async (
   );
   let failure: OwnedCommandFailure | undefined;
   try {
-    onLaunched?.();
     while (!(await supervisor.waitForOutputClose(10))) {
       const interruption = deadline.interruption;
       if (interruption !== undefined)
