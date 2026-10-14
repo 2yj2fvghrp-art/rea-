@@ -136,6 +136,11 @@ try {
       assert.equal(resolved.value.mips.flags, 0x50000001);
       assert.equal(resolved.value.mips.abiFlags, null);
       assert.deepEqual(
+        resolved.value.mips.gnuAttributes,
+        legacy.gnuAttributes,
+        "REA GNU attribute interpretation disagrees with GNU readelf",
+      );
+      assert.deepEqual(
         resolved.value.mips.limitations ?? [],
         legacy.limitations,
         "REA legacy ABI-record absence interpretation disagrees with GNU readelf",
@@ -496,6 +501,13 @@ try {
             flags1: abi.flags1,
             flags2: abi.flags2,
           },
+          gnu_attributes:
+            independent.mips.gnuAttributes === null
+              ? null
+              : {
+                  fp_abi: independent.mips.gnuAttributes.fpAbi,
+                  msa: independent.mips.gnuAttributes.msa,
+                },
         },
         "Snapshot profile did not retain the independently inspected ELF/ABI declaration",
       );
