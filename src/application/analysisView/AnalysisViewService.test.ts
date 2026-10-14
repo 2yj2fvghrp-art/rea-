@@ -7,6 +7,7 @@ import { describe, expect, it } from "vitest";
 
 import { JAVASCRIPT_APPLICATION_EVIDENCE_EXAMPLE } from "../../contracts/javascript/javascriptRuntimeReconciliationExample.js";
 import { createEvidence, parseEvidence } from "../../domain/evidence.js";
+import { inspectAnalysisViewInputSchema } from "../../domain/analysisView/analysisView.js";
 import { functionDossierSchema } from "../../domain/hopperValues.js";
 import { ghidraFunctionDossier } from "../../domain/ghidraValues.fixture.js";
 import {
@@ -24,7 +25,6 @@ import { EvidenceIntegrityError } from "../../domain/evidenceErrors.js";
 import { err, ok } from "../../domain/result.js";
 import { EvidenceLedger } from "../investigation/EvidenceLedger.js";
 import { WEB_NETWORK_CAPTURE_LIMITS } from "../../domain/webNetworkCapture.js";
-import { inspectAnalysisViewInputSchema } from "../../domain/analysisView/analysisView.js";
 
 it.each(["/fixtures/unknown.exe", ""])(
   "preserves recorded empty native identity fields: path=%j",
@@ -456,6 +456,12 @@ it.each(["summary", "capture", "api-surface"] as const)(
       error: { _tag: "AnalysisInputError" },
     });
     expect(accessed).toBe(false);
+    expect(
+      inspectAnalysisView({
+        source: { kind: "inline", evidence: analysisViewCaptureEvidence() },
+        view: { kind },
+      }).ok,
+    ).toBe(true);
   },
 );
 
