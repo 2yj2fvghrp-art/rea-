@@ -418,10 +418,10 @@ const inspectCanonicalSkill = async (
       if (relativePath === "SKILL.md" && manifest === undefined)
         manifest = original?.bytes.toString("utf8");
       // A mismatch settles freshness, but not coverage of later read failures.
-      if (canonical) {
+      if (original === undefined) canonical = false;
+      else if (canonical) {
         const content = await canonicalSkillContent(relativePath);
-        canonical =
-          original?.bytes.equals(Buffer.from(content, "utf8")) === true;
+        canonical = original.bytes.equals(Buffer.from(content, "utf8"));
       }
     }
   }
