@@ -1,3 +1,4 @@
+import { createHash } from "node:crypto";
 import {
   access,
   cp,
@@ -64,16 +65,25 @@ cliTest.for(["root", "references"] as const)(
         code: "skill_install_failed",
         appliedActions: [],
       });
-      expect(result.stdout).toContain(link);
+      expect(result.json).toMatchObject({
+        remediation: expect.stringContaining(link),
+      });
       expect(result.stdout).toContain("--skill=false");
     }
     const doctor = await run(["doctor", "--client", "claude_code", "--skill"]);
     expect(doctor.exitCode, doctor.stdout).toBe(1);
     expect(doctor.json).toMatchObject({
       healthy: false,
-      identity: { skill: { state: "unmanaged" } },
+      identity: {
+        skill: {
+          state: "unmanaged",
+          issues: expect.arrayContaining([
+            expect.objectContaining({ path: link, kind: "symbolic_link" }),
+          ]),
+          remediation: expect.stringContaining(link),
+        },
+      },
     });
-    expect(doctor.stdout).toContain(link);
     expect((await lstat(link)).isSymbolicLink()).toBe(true);
   },
 );
@@ -276,6 +286,30 @@ cliTest(
       appliedActions: ["installed_skill"],
     });
     await assertAligned();
+    const damagedBytes = Buffer.from([0x63, 0x61, 0x66, 0xe9, 0xff, 0x0a]);
+    const reference = join(selected, "references/native-and-artifacts.md");
+    const firstBackup = `${reference}.rea.backup`;
+    const firstBytes = await readFile(firstBackup);
+    await writeFile(reference, damagedBytes);
+    const repairedEncoding = await run(args);
+    expect(repairedEncoding.exitCode, repairedEncoding.stdout).toBe(0);
+    expect(repairedEncoding.json).toMatchObject({
+      status: "ready",
+      appliedActions: ["installed_skill"],
+    });
+    await assertAligned();
+    expect(await readFile(firstBackup)).toEqual(firstBytes);
+    expect(
+      await readFile(
+        `${firstBackup}.${createHash("sha256").update(damagedBytes).digest("hex")}.recovery`,
+      ),
+    ).toEqual(damagedBytes);
+    const repeatedRepair = await run(args);
+    expect(repeatedRepair.exitCode, repeatedRepair.stdout).toBe(0);
+    expect(repeatedRepair.json).toMatchObject({
+      status: "ready",
+      appliedActions: [],
+    });
     await expect(access(shared)).rejects.toMatchObject({ code: "ENOENT" });
     expect(await readFile(configuration, "utf8")).toBe(before);
 
