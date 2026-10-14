@@ -74,11 +74,11 @@ const classSummary = async (
     raw !== null &&
     typeof raw === "object" &&
     !Array.isArray(raw) &&
-    typeof raw.error === "string"
+    typeof (raw as { error?: unknown }).error === "string"
   )
     throw new AnalysisOutputError(
       request.operation,
-      `JADX class summary failed: ${raw.error}`,
+      `JADX class summary failed: ${(raw as { error: string }).error}`,
     );
   const summary = jadxClassSchema.safeParse(raw);
   if (!summary.success)
@@ -278,34 +278,6 @@ const inspectMethod = async (
   });
 };
 
-/** Normalize only the selected analyst outcome and reject ambiguous engine selectors. */
-export const analyzeJadxRequest = async (
-  tools: JadxToolPort,
-  request: AndroidRequest,
-  loaded: z.infer<typeof jadxLoadSchema>,
-  engine: Engine,
-): Promise<JsonValue> => {
-  if (request.operation === "inspect_android_package")
-    return inspectPackage(tools, loaded, engine);
-  if (request.operation === "search_android_classes")
-    return searchClasses(tools, request, loaded, engine);
-  const summary = await classSummary(tools, request);
-  if (request.operation === "inspect_android_class")
-    return androidResultSchemas.inspect_android_class.parse({
-      engine,
-      class_name: summary.full_name,
-      methods: methodsOf(summary),
-      fields: summary.fields.map((field) => ({
-        name: field.name,
-        reported_type: field.type,
-      })),
-      inner_classes: summary.inner_classes,
-    });
-  if (request.operation === "inspect_android_method")
-    return inspectMethod(tools, request, summary, engine);
-  return traceReferences(tools, request, summary, engine);
-};
-
 const traceReferences = async (
   tools: JadxToolPort,
   request: Extract<AndroidRequest, { operation: "trace_android_references" }>,
@@ -385,4 +357,32 @@ const traceReferences = async (
     coverage: "complete",
     reference_unit: "using_node",
   });
+};
+
+/** Normalize only the selected analyst outcome and reject ambiguous engine selectors. */
+export const analyzeJadxRequest = async (
+  tools: JadxToolPort,
+  request: AndroidRequest,
+  loaded: z.infer<typeof jadxLoadSchema>,
+  engine: Engine,
+): Promise<JsonValue> => {
+  if (request.operation === "inspect_android_package")
+    return inspectPackage(tools, loaded, engine);
+  if (request.operation === "search_android_classes")
+    return searchClasses(tools, request, loaded, engine);
+  const summary = await classSummary(tools, request);
+  if (request.operation === "inspect_android_class")
+    return androidResultSchemas.inspect_android_class.parse({
+      engine,
+      class_name: summary.full_name,
+      methods: methodsOf(summary),
+      fields: summary.fields.map((field) => ({
+        name: field.name,
+        reported_type: field.type,
+      })),
+      inner_classes: summary.inner_classes,
+    });
+  if (request.operation === "inspect_android_method")
+    return inspectMethod(tools, request, summary, engine);
+  return traceReferences(tools, request, summary, engine);
 };
