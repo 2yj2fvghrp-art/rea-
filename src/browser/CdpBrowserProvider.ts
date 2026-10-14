@@ -77,7 +77,8 @@ import { compareUnicodeCodePoints } from "../domain/unicodeCodePointOrder.js";
 // Shutdown is best-effort per domain (see closeCdpTargetSession): targets that
 // never enabled one, such as WebMCP outside discover_webmcp_tools, reject the
 // disable command and the rejection is swallowed before detach.
-const CLEANUP_DOMAINS = [
+// Exported for tests that guard the teardown wiring against this list.
+export const CLEANUP_DOMAINS = [
   "Network",
   "Debugger",
   "Runtime",
