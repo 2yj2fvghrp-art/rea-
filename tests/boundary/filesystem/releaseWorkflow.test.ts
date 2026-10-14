@@ -2,6 +2,7 @@ import { execFile } from "node:child_process";
 import { readFile, writeFile } from "node:fs/promises";
 import { delimiter, join } from "node:path";
 import { promisify } from "node:util";
+import { fileURLToPath } from "node:url";
 import { expect, it } from "vitest";
 import { parse } from "yaml";
 import { z } from "zod";
@@ -348,7 +349,7 @@ it("binds npm and MCP publication to the same immutable release SHA", async () =
       import.meta.url,
     );
     const result = await execFileAsync(process.execPath, [
-      helper.pathname,
+      fileURLToPath(helper),
       version,
     ]);
     expect(result.stdout).toBe(tag);
@@ -624,9 +625,12 @@ it("runs release PR CI without enabling implementation pushes on release branche
         ),
       ),
     );
-  expect(workflow.on.push.branches).toEqual(["main"]);
+  expect(workflow.on.push.branches).toEqual([
+    "main",
+    "rel/first-lab-foundations",
+  ]);
   expect(workflow.on.pull_request.branches).toEqual(
-    expect.arrayContaining(["main", "release/*"]),
+    expect.arrayContaining(["main", "rel/first-lab-foundations", "release/*"]),
   );
 });
 
