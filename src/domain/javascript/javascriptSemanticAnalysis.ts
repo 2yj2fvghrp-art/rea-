@@ -678,6 +678,7 @@ const createState = (
     parentsByNode: new WeakMap(),
     scopes: [root],
     scopesById: new Map([[root.scopeId, root]]),
+    namespaceExportScopes: new Map(),
     scopeByNode: new WeakMap([[program, root]]),
     bindingsById: new Map(),
     callables: [],
@@ -749,7 +750,11 @@ function* collectDefinitionsSteps(
         openedScopes.set(node, 1);
         parentScope = dynamicScope;
       }
-      bindOuterDeclaration(node, parentScope, state);
+      bindOuterDeclaration(
+        node,
+        namespaceDeclarationScope(node, parentScope, state),
+        state,
+      );
       const nested = nestedScope(node, parent, parentScope, state);
       if (nested !== undefined) {
         stack.push(nested);
@@ -911,12 +916,20 @@ const bindInnerDeclaration = (
 ): void => {
   if (t.isImportDeclaration(node)) bindImports(node, scope, state);
   else if (t.isTSImportEqualsDeclaration(node))
-    bindImportEquals(node, scope, state);
+    bindImportEquals(
+      node,
+      namespaceDeclarationScope(node, scope, state),
+      state,
+    );
   else if (t.isVariableDeclarator(node))
     bindPattern({
       pattern: node.id,
       initializer: node.init ?? null,
-      scope: semanticVariableScope(scope, parent, state),
+      scope: semanticVariableScope(
+        namespaceDeclarationScope(node, scope, state),
+        parent,
+        state,
+      ),
       state,
       mutable:
         parent !== null && t.isVariableDeclaration(parent)
@@ -950,8 +963,8 @@ const bindImportEquals = (
   scope: JavaScriptSemanticScopeState,
   state: JavaScriptSemanticAnalysisState,
 ): void => {
+  if (node.importKind === "type") return;
   const specifier = semanticImportEqualsSpecifier(node);
-  if (specifier === null) return;
   addBinding({
     state,
     scope,
@@ -959,8 +972,16 @@ const bindImportEquals = (
     kind: "import",
     mutable: false,
     definitionNode: node.id,
-    initializer: null,
-    directOrigin: { specifier, importedPath: [], resolutionMode: "require" },
+    initializer: specifier === null ? node.moduleReference : null,
+    ...(specifier === null
+      ? {}
+      : {
+          directOrigin: {
+            specifier,
+            importedPath: [],
+            resolutionMode: "require" as const,
+          },
+        }),
   });
 };
 
@@ -1025,6 +1046,86 @@ const bindAssignment = (
     }
 };
 
+// Exported namespace declarations belong to the shared exported-member owner;
+// every namespace block keeps a distinct private lexical environment. Ambient
+// namespace and module bodies export every member without an export wrapper.
+const namespaceDeclarationScope = (
+  node: t.Node,
+  scope: JavaScriptSemanticScopeState,
+  state: JavaScriptSemanticAnalysisState,
+): JavaScriptSemanticScopeState => {
+  if (scope.namespaceExportScopeId === undefined) return scope;
+  let declaration = node;
+  let parent = state.parentsByNode.get(declaration);
+  if (t.isVariableDeclarator(declaration) && t.isVariableDeclaration(parent)) {
+    declaration = parent;
+    parent = state.parentsByNode.get(declaration);
+  }
+  if (
+    (t.isExportNamedDeclaration(parent) &&
+      parent.declaration === declaration) ||
+    ambientNamespaceContext(declaration, state)
+  )
+    return state.scopesById.get(scope.namespaceExportScopeId) ?? scope;
+  return scope;
+};
+
+/** Ambient declarations export their members by default, at any nesting depth. */
+const ambientNamespaceContext = (
+  node: t.Node,
+  state: JavaScriptSemanticAnalysisState,
+): boolean => {
+  // A declaration that is itself ambient (`declare namespace B`) exports its
+  // own name, so the walk starts at the declaration before climbing.
+  let candidate: t.Node | undefined = node;
+  while (candidate !== undefined) {
+    if (t.isTSModuleDeclaration(candidate) && candidate.declare === true)
+      return true;
+    candidate = state.parentsByNode.get(candidate);
+  }
+  return false;
+};
+
+/**
+ * Identify a top-level `declare global` augmentation. Babel discriminates it
+ * with `kind: "global"`; a nested or namespaced `declare namespace global`
+ * carries `kind: "namespace"` and stays an ordinary named namespace.
+ */
+const globalAugmentationDeclaration = (
+  node: t.Node,
+  state: JavaScriptSemanticAnalysisState,
+): boolean =>
+  t.isTSModuleDeclaration(node) &&
+  node.declare === true &&
+  node.kind === "global" &&
+  t.isProgram(state.parentsByNode.get(node) ?? null);
+
+/**
+ * Return the outer scope holding `declare global` members, creating it once
+ * per program. Augmentation members live outside the module scope so
+ * file-local bindings shadow them instead of merging with them.
+ */
+const globalAugmentationScope = (
+  programScope: JavaScriptSemanticScopeState,
+  state: JavaScriptSemanticAnalysisState,
+): JavaScriptSemanticScopeState => {
+  const scopeId = `${programScope.scopeId}:globals`;
+  const existing = state.scopesById.get(scopeId);
+  if (existing !== undefined) return existing;
+  const outer: JavaScriptSemanticScopeState = {
+    scopeId,
+    parentScopeId: null,
+    kind: "namespace",
+    location: programScope.location,
+    bindingsComplete: true,
+    bindings: new Map(),
+  };
+  state.scopes.push(outer);
+  state.scopesById.set(scopeId, outer);
+  programScope.parentScopeId = scopeId;
+  return outer;
+};
+
 const nestedScope = (
   node: t.Node,
   parent: t.Node | null,
@@ -1043,6 +1144,50 @@ const nestedScope = (
   }
   const kind = scopeKind(node, parent);
   if (kind === undefined) return undefined;
+  let namespaceExportScopeId: string | undefined;
+  if (t.isTSModuleBlock(node) && t.isTSModuleDeclaration(parent)) {
+    if (globalAugmentationDeclaration(parent, state)) {
+      // Global augmentations contribute to the surrounding global
+      // environment, outside the module scope, so file-local bindings
+      // shadow them instead of merging with them.
+      namespaceExportScopeId = globalAugmentationScope(
+        parentScope,
+        state,
+      ).scopeId;
+    } else {
+      // Babel 8 stores dotted declarations as one qualified id, not nested
+      // TSModuleDeclaration bodies. Preserve every parsed segment in its owner.
+      const names: string[] = [];
+      let id = parent.id;
+      while (t.isTSQualifiedName(id)) {
+        names.unshift(id.right.name);
+        id = id.left;
+      }
+      if (t.isIdentifier(id) || t.isStringLiteral(id)) {
+        names.unshift(t.isIdentifier(id) ? id.name : id.value);
+        let owner = namespaceDeclarationScope(parent, parentScope, state);
+        for (const [index, name] of names.entries()) {
+          const key = JSON.stringify([owner.scopeId, name]);
+          let exported = state.namespaceExportScopes.get(key);
+          if (exported === undefined) {
+            exported = {
+              scopeId: `${semanticScopeId("namespace", parent)}:exports:${JSON.stringify(names.slice(0, index + 1))}`,
+              parentScopeId: owner.scopeId,
+              kind: "namespace",
+              location: range(parent),
+              bindingsComplete: true,
+              bindings: new Map(),
+            };
+            state.namespaceExportScopes.set(key, exported);
+            state.scopes.push(exported);
+            state.scopesById.set(exported.scopeId, exported);
+          }
+          owner = exported;
+        }
+        namespaceExportScopeId = owner.scopeId;
+      }
+    }
+  }
   const scope: JavaScriptSemanticScopeState = {
     scopeId: semanticScopeId(kind, switchOwner ?? node),
     parentScopeId:
@@ -1050,6 +1195,7 @@ const nestedScope = (
       parentScope.scopeId,
     kind,
     location: range(switchOwner ?? node),
+    ...(namespaceExportScopeId === undefined ? {} : { namespaceExportScopeId }),
     bindingsComplete: true,
     bindings: new Map(),
   };
@@ -1094,6 +1240,7 @@ const scopeKind = (
   parent: t.Node | null,
 ): JavaScriptSemanticScopeState["kind"] | undefined => {
   if (t.isFunction(node)) return "function";
+  if (t.isTSModuleBlock(node)) return "namespace";
   if (t.isClass(node)) return "class";
   if (t.isCatchClause(node)) return "catch";
   if (
