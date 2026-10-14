@@ -18,6 +18,7 @@ import {
 } from "./javascriptSemanticProjection.js";
 import {
   semanticObjectPatternKeys,
+  runtimeFunctionParameters,
   semanticStaticPropertyKey,
   semanticWriteTargets,
 } from "./javascriptAstValues.js";
@@ -57,7 +58,6 @@ import {
   ELECTRON_MODULE,
 } from "./javascriptElectronMemberWrites.js";
 import { range } from "./javascriptStaticAnalysisHelpers.js";
-import { propertyName } from "./javascriptAstValues.js";
 import { semanticCoverage } from "./javascriptSemanticCoverage.js";
 import { semanticResourceLimitsIn } from "./javascriptSemanticResourceLimits.js";
 import {
@@ -718,7 +718,7 @@ function* collectDefinitionsSteps(
           functionBodies.push({
             body: node,
             scope: nested,
-            parameters: parent.params,
+            parameters: runtimeFunctionParameters(parent),
           });
       }
       const scope = currentSemanticScope(stack);
@@ -919,6 +919,21 @@ const bindImportEquals = (
   });
 };
 
+// A parameter or catch binding starts with a caller-supplied value that a
+// conditional logical assignment can retain, so its RHS is not exact.
+const hasIncomingValue = (
+  identifier: t.Identifier,
+  scope: JavaScriptSemanticScopeState,
+  state: JavaScriptSemanticAnalysisState,
+): boolean => {
+  const kind = resolveSemanticBindingFromScope(
+    scope,
+    identifier.name,
+    state,
+  )?.kind;
+  return kind === "parameter" || kind === "catch";
+};
+
 const bindAssignment = (
   node: t.Node,
   scope: JavaScriptSemanticScopeState,
@@ -929,8 +944,8 @@ const bindAssignment = (
       addAssignment(
         node.left,
         node.operator === "=" ||
-          node.operator === "||=" ||
-          node.operator === "??="
+          ((node.operator === "||=" || node.operator === "??=") &&
+            !hasIncomingValue(node.left, scope, state))
           ? node.right
           : node,
         scope,
@@ -1062,7 +1077,7 @@ const scopeKind = (
 };
 
 const functionParametersHaveExpressions = (node: t.Function): boolean => {
-  const pending: t.Node[] = [...node.params];
+  const pending: t.Node[] = [...runtimeFunctionParameters(node)];
   while (pending.length > 0) {
     const parameter = pending.pop();
     if (t.isAssignmentPattern(parameter)) return true;
@@ -1094,7 +1109,7 @@ const bindImports = (
       ? ["default"]
       : t.isImportNamespaceSpecifier(specifier)
         ? []
-        : [propertyName(specifier.imported) || "[dynamic]"];
+        : [semanticStaticPropertyKey(specifier.imported, false) ?? "[dynamic]"];
     addBinding({
       state,
       scope,
@@ -1119,7 +1134,7 @@ const bindFunctionLocals = (
   scope: JavaScriptSemanticScopeState,
   state: JavaScriptSemanticAnalysisState,
 ): void => {
-  for (const parameter of node.params)
+  for (const parameter of runtimeFunctionParameters(node))
     bindPattern({
       pattern: t.isTSParameterProperty(parameter)
         ? parameter.parameter
