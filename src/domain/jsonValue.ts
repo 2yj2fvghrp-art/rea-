@@ -118,7 +118,6 @@ const validatedJsonValue = z
   .superRefine((value, context) => {
     const issue = jsonValueValidationIssue(value);
     if (issue !== undefined)
-      // Invalid JSON must not reach enclosing semantic/hash refinements.
       context.addIssue({ code: "custom", message: issue, continue: false });
   })
   .transform((value) => value as JsonValue);
