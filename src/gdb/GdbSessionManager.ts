@@ -15,6 +15,7 @@ import {
   type AnalysisErrorOptions,
 } from "../domain/analysisErrorBase.js";
 import { createEvidence, type Evidence } from "../domain/evidence.js";
+import { projectAnalysisError } from "../domain/analysisErrorProjection.js";
 import { err, ok, type Result } from "../domain/result.js";
 import {
   ProviderProcessSupervisor,
@@ -465,15 +466,24 @@ export class GdbSessionManager {
       signal,
       options.inferiorTty,
     );
-    return mi3.ok || signal.aborted || this.#sessions.has(id)
-      ? mi3
-      : this.#startProtocol(
-          id,
-          "mi2",
-          releaseReservation,
-          signal,
-          options.inferiorTty,
-        );
+    if (mi3.ok || signal.aborted || this.#sessions.has(id)) return mi3;
+    const mi2 = await this.#startProtocol(
+      id,
+      "mi2",
+      releaseReservation,
+      signal,
+      options.inferiorTty,
+    );
+    if (mi2.ok || mi2.error.cleanupIncomplete) return mi2;
+    // Both attempts were observed: keep the preferred protocol's failure and
+    // partial startup Evidence as context instead of discarding them.
+    if (mi3.error.partialObservation !== undefined)
+      mi2.error.retainPartialObservation(mi3.error.partialObservation);
+    return err(
+      mi2.error.retainSecondaryFailure(mi3.error, {
+        mi3_startup_error: projectAnalysisError(mi3.error),
+      }),
+    );
   }
 
   async #startProtocol(
