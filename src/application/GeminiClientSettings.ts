@@ -144,17 +144,17 @@ export const readClientPolicyBlock = async (
     settings.platform,
   );
   if (workspace !== home) {
-    const path = resolve(
-      settings.workspaceDirectory,
-      ".gemini",
-      "settings.json",
-    );
-    const document = await readConfigurationFile(path, "json", resources);
-    if (!document.ok) return document;
-    if (document.value !== undefined) {
-      const trusted = await workspaceTrusted(settings, sources, resources);
-      if (!trusted.ok) return trusted;
-      if (trusted.value) {
+    const trusted = await workspaceTrusted(settings, sources, resources);
+    if (!trusted.ok) return trusted;
+    if (trusted.value) {
+      const path = resolve(
+        settings.workspaceDirectory,
+        ".gemini",
+        "settings.json",
+      );
+      const document = await readConfigurationFile(path, "json", resources);
+      if (!document.ok) return document;
+      if (document.value !== undefined) {
         const source = { path, document: document.value };
         const systemIndex = sources.findIndex(
           (item) => item.path === settings.systemPath,
