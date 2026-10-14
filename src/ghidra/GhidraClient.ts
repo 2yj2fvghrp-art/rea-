@@ -46,6 +46,7 @@ import {
 import {
   isGhidraShutdownAcknowledgement,
   parseGhidraSessionInfo,
+  GHIDRA_MUTATING_OPERATIONS,
   type GhidraSessionInfo,
 } from "./GhidraSessionValues.js";
 import { createGhidraTargetSnapshot } from "./GhidraTargetSnapshot.js";
@@ -118,6 +119,10 @@ export class GhidraClient {
   #startPromise: Promise<GhidraStartResult> | undefined;
   #ready = false;
   #closePromise: Promise<void> | undefined;
+  /** Post-analysis handshake info, retained for project-cache publishing. */
+  #sessionInfo: GhidraSessionInfo | undefined;
+  /** Set when a session mutation makes its edited program unfit to store. */
+  #clientMutated = false;
   readonly #failure = bindGhidraSessionFailure(
     () => this.#diagnostics(),
     (value, incomplete) => this.#redactAuthentication(value, incomplete),
@@ -289,6 +294,7 @@ export class GhidraClient {
   ): Promise<Result<JsonValue, GhidraSessionError>> {
     const started = await this.start(options.signal, options.progress);
     if (!started.ok) return started;
+    this.#noteMutation(operation);
     return this.#requestQueue.run(
       operation,
       parameters,
@@ -303,6 +309,7 @@ export class GhidraClient {
     options: { readonly signal?: AbortSignal } = {},
   ): Promise<Result<JsonValue, GhidraSessionError> | undefined> {
     if (!this.isReady()) return Promise.resolve(undefined);
+    this.#noteMutation(operation);
     return this.#requestQueue.run(
       operation,
       parameters,
@@ -666,6 +673,7 @@ export class GhidraClient {
     const completed = await this.#connectAndHandshake(endpoint, deadline);
     if (!completed.ok) return this.#startupFailure(completed.error);
     await this.#lineage.observe(this.#launch);
+    this.#sessionInfo = completed.value;
     this.#requestQueue.reopen();
     return completed;
   }
@@ -833,6 +841,7 @@ export class GhidraClient {
           );
         }
       }
+      await this.#publishManagedProject(forceStop);
       this.#lastDiagnostics = this.#diagnostics();
       this.#process = undefined;
       this.#launch = undefined;
@@ -949,6 +958,54 @@ export class GhidraClient {
 
   #failAll(error: GhidraSessionError): void {
     this.#pending.failAll(() => err(error));
+  }
+
+  #noteMutation(operation: GhidraOperation): void {
+    if (GHIDRA_MUTATING_OPERATIONS.has(operation)) this.#clientMutated = true;
+  }
+
+  /**
+   * Persist a clean, complete fresh import into the managed project cache. Runs
+   * while the private runtime still holds the saved project and before it is
+   * removed. A cache failure never fails session cleanup.
+   */
+  async #publishManagedProject(forceStop: boolean): Promise<void> {
+    const persistence = this.#options.projectPersistence;
+    const info = this.#sessionInfo;
+    const launch = this.#launch;
+    if (
+      persistence === undefined ||
+      !persistence.publishable ||
+      forceStop ||
+      info === undefined ||
+      launch === undefined ||
+      !info.analysis_complete ||
+      info.analysis_timed_out ||
+      this.#clientMutated
+    )
+      return;
+    const published = await persistence.store
+      .publish({
+        reservation: persistence.reservation,
+        identity: persistence.identity,
+        target: persistence.target,
+        sourceProjectDirectory: launch.projectRoot,
+        programName: info.target.name,
+        programSha256: this.#options.targetSha256,
+        producer: persistence.producer,
+      })
+      .catch((cause: unknown) => {
+        this.#logger.warn(
+          { error: cause instanceof Error ? cause.message : String(cause) },
+          "Ghidra project cache publish failed",
+        );
+        return undefined;
+      });
+    if (published !== undefined && !published.ok)
+      this.#logger.warn(
+        { reason: published.error.reason, path: published.error.path },
+        "Ghidra project was not saved to the cache",
+      );
   }
 
   async #startupInterrupted(
