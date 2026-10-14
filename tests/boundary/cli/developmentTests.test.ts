@@ -47,6 +47,7 @@ const fixture = async () => {
     "scripts/run-development-tests.mjs",
     "scripts/run-exact-tests.mjs",
     "scripts/lib/development-tests.mjs",
+    "scripts/lib/test-projects.mjs",
   ])
     await copyFile(join(process.cwd(), path), join(root, path));
   await symlink(
@@ -78,7 +79,7 @@ const testCommand = (root: string, ...arguments_: string[]) =>
   ]);
 
 describe("development test runner exact selection", () => {
-  it("matches selected test spelling to the filesystem's case behavior", async () => {
+  it("matches selected path casing to the host filesystem", async () => {
     const root = await fixture();
     try {
       await lstat(join(root, "src/VALUE.test.ts"));
@@ -147,15 +148,7 @@ describe("development test runner exact selection", () => {
     },
   );
 
-  it("runs an explicitly selected source test on a clean tree without build artifacts", async () => {
-    const root = await fixture();
-    const { stdout: status } = await git(root, "status", "--porcelain");
-    expect(status).toBe("");
-    await testCommand(root, "local", "src/value.test.ts");
-    expect(await readFile(join(root, "selected.txt"), "utf8")).toBe("1");
-  });
-
-  it("fails when any selected existing file is excluded from discovery", async () => {
+  it("fails when any selected existing test file is excluded from discovery", async () => {
     const root = await fixture();
     await writeFile(
       join(root, "src", "excluded.test.ts"),
@@ -175,7 +168,7 @@ describe("development test runner exact selection", () => {
     });
   });
 
-  it("runs all selected files and preserves a selected test failure", async () => {
+  it("runs every selected file and preserves selected test failures", async () => {
     const root = await fixture();
     await writeFile(
       join(root, "src", "failure.test.ts"),
@@ -191,7 +184,7 @@ describe("development test runner exact selection", () => {
     expect(await readFile(join(root, "selected.txt"), "utf8")).toBe("1");
   });
 
-  it("retains each configured project for the selected file", async () => {
+  it("preserves all configured projects for an exact file", async () => {
     const root = await fixture();
     await writeFile(
       join(root, "vitest.config.mjs"),
@@ -201,7 +194,7 @@ describe("development test runner exact selection", () => {
     expect(result.stdout).toMatch(/Test Files\s+2 passed/u);
   });
 
-  it("fails a selected file with no tests even when a peer passes", async () => {
+  it("fails an exact file with no tests even when another selected file passes", async () => {
     const root = await fixture();
     await writeFile(join(root, "src", "empty.test.ts"), "export {};\n");
     await expect(
@@ -214,7 +207,115 @@ describe("development test runner exact selection", () => {
   });
 });
 
+describe("development test runner symlink selection", () => {
+  it("rejects an excluded file symlink", async ({ skip }) => {
+    const root = await fixture();
+    try {
+      await symlink(
+        join(root, "src", "value.test.ts"),
+        join(root, "src", "excluded.test.ts"),
+      );
+    } catch (cause) {
+      if (
+        process.platform === "win32" &&
+        cause instanceof Error &&
+        "code" in cause &&
+        (cause.code === "EPERM" || cause.code === "EACCES")
+      )
+        skip("Windows file symlink creation requires unavailable privileges");
+      throw cause;
+    }
+    await writeFile(
+      join(root, "vitest.config.mjs"),
+      'export default { test: { projects: [{ test: { name: "domain", include: ["src/value.test.ts"] } }] } };\n',
+    );
+    await expect(
+      testCommand(root, "focused", "src/excluded.test.ts"),
+    ).rejects.toMatchObject({
+      code: 1,
+      stderr: expect.stringContaining(
+        "Selected test files were not discovered: src/excluded.test.ts",
+      ),
+    });
+    await expect(
+      readFile(join(root, "selected.txt"), "utf8"),
+    ).rejects.toMatchObject({ code: "ENOENT" });
+  });
+
+  it("retains a shared directory link when selecting an existing spelling", async () => {
+    const root = await fixture();
+    const included = join(root, "src", "domain");
+    await mkdir(included);
+    for (const name of ["value.ts", "value.test.ts"])
+      await copyFile(join(root, "src", name), join(included, name));
+    await symlink(
+      included,
+      join(root, "src", "contracts"),
+      process.platform === "win32" ? "junction" : "dir",
+    );
+    await writeFile(
+      join(root, "vitest.config.mjs"),
+      'export default { test: { projects: [{ test: { name: "domain", include: ["src/contracts/value.test.ts"] } }] } };\n',
+    );
+    let selected = "src/contracts/VALUE.test.ts";
+    try {
+      await lstat(join(root, selected));
+    } catch (cause) {
+      if (
+        !(cause instanceof Error) ||
+        !("code" in cause) ||
+        cause.code !== "ENOENT"
+      )
+        throw cause;
+      selected = "src/contracts/value.test.ts";
+    }
+    await testCommand(root, "focused", selected);
+    expect(await readFile(join(root, "selected.txt"), "utf8")).toBe("1");
+  });
+
+  it.each(["local", "focused"])(
+    "rejects an excluded directory alias in %s mode",
+    async (mode) => {
+      const root = await fixture();
+      const included = join(root, "src", "domain");
+      await mkdir(included);
+      for (const name of ["value.ts", "value.test.ts"])
+        await copyFile(join(root, "src", name), join(included, name));
+      await symlink(
+        included,
+        join(root, "src", "contracts"),
+        process.platform === "win32" ? "junction" : "dir",
+      );
+      await writeFile(
+        join(root, "vitest.config.mjs"),
+        'export default { test: { projects: [{ test: { name: "domain", include: ["src/domain/value.test.ts"] } }] } };\n',
+      );
+      await expect(
+        testCommand(root, mode, "src/contracts/value.test.ts"),
+      ).rejects.toMatchObject({
+        code: 1,
+        stderr: expect.stringContaining(
+          "Selected test files were not discovered: src/contracts/value.test.ts",
+        ),
+      });
+      await expect(
+        readFile(join(root, "selected.txt"), "utf8"),
+      ).rejects.toMatchObject({ code: "ENOENT" });
+      await testCommand(root, mode, "src/domain/value.test.ts");
+      expect(await readFile(join(root, "selected.txt"), "utf8")).toBe("1");
+    },
+  );
+});
+
 describe("development test runner public CLI", () => {
+  it("runs an explicitly selected source test on a clean tree without build artifacts", async () => {
+    const root = await fixture();
+    const { stdout: status } = await git(root, "status", "--porcelain");
+    expect(status).toBe("");
+    await testCommand(root, "local", "src/value.test.ts");
+    expect(await readFile(join(root, "selected.txt"), "utf8")).toBe("1");
+  });
+
   it("plans an exact local test without building", async () => {
     const root = await fixture();
     const { stdout } = await testCommand(
