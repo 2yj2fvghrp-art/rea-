@@ -39,7 +39,10 @@ import { ProviderAdapterError } from "../domain/providerAdapterError.js";
 import { err, ok, type Result } from "../domain/result.js";
 import type { Logger } from "pino";
 import { GhidraClient } from "./GhidraClient.js";
-import type { GhidraClientOptions } from "./GhidraClientTypes.js";
+import type {
+  GhidraClientOptions,
+  GhidraProjectPersistence,
+} from "./GhidraClientTypes.js";
 import {
   isGhidraFunctionOperation,
   parseGhidraFunctionInput,
@@ -374,9 +377,21 @@ export const createGhidraProviderClient = (input: {
   readonly profile?: AnalysisProfileCommitment;
   readonly context?: AnalysisClientContext;
   readonly installation: GhidraInstallationInspection;
+  /** Managed project-cache wiring resolved by the provider. */
+  readonly projectPersistence?: GhidraProjectPersistence;
 }): AnalysisClient => {
   const { config, logger, clientFactory, target, context, installation } =
     input;
+  const projectPersistence = input.projectPersistence;
+  const reuseProject = projectPersistence?.reuse === true;
+  const storedProject = reuseProject
+    ? projectPersistence?.reservation
+    : undefined;
+  const saveProject = projectPersistence?.publishable === true;
+  // Import-time selections apply only to a fresh import; a stored project
+  // already carries its language, seeds and disabled analyzers.
+  const importSelectionsApply =
+    config.ghidraExistingProject === undefined && !reuseProject;
   const prerequisites = ghidraClientPrerequisites(
     target,
     input.profile,
@@ -589,9 +604,17 @@ export const createGhidraProviderClient = (input: {
       bridgeScriptPath: fileURLToPath(
         new URL("../../bridge/ghidra/ReaGhidraBridge.java", import.meta.url),
       ),
-      ...(config.ghidraExistingProject === undefined
-        ? {}
-        : { existingProject: config.ghidraExistingProject }),
+      ...(config.ghidraExistingProject !== undefined
+        ? { existingProject: config.ghidraExistingProject }
+        : storedProject?.programName === undefined
+          ? {}
+          : {
+              existingProject: {
+                projectPath: storedProject.entryPath,
+                programName: storedProject.programName,
+              },
+            }),
+      ...(saveProject ? { saveImportedProject: true as const } : {}),
       ...(pspExtension?.success === true
         ? { pspExtension: pspExtension.data }
         : {}),
@@ -607,14 +630,15 @@ export const createGhidraProviderClient = (input: {
               baseAddr: target.entryPoint,
             },
           }),
-      ...(importLanguage === undefined ||
-      config.ghidraExistingProject !== undefined
+      ...(importLanguage === undefined || !importSelectionsApply
         ? {}
         : { languageOverride: importLanguage }),
-      ...(config.ghidraDisabledAnalyzers === undefined
+      ...(config.ghidraDisabledAnalyzers === undefined || !importSelectionsApply
         ? {}
         : { disabledAnalyzers: config.ghidraDisabledAnalyzers }),
-      ...(seeds === undefined ? {} : { analysisSeeds: seeds }),
+      ...(seeds === undefined || !importSelectionsApply
+        ? {}
+        : { analysisSeeds: seeds }),
       platform: installation.platform,
       ...(extensions.length === 0 ? {} : { analysisExtensions: extensions }),
     }),
@@ -654,6 +678,7 @@ export const createGhidraProviderClient = (input: {
         }
       : {}),
     ...(context === undefined ? {} : { runId: context.runId }),
+    ...(projectPersistence === undefined ? {} : { projectPersistence }),
     logger: logger.child({ layer: "ghidra-bridge" }),
   });
   const checkSessionObservations = async (
@@ -715,6 +740,11 @@ export const createGhidraProviderClient = (input: {
   const sessionLimitations = (): readonly string[] => [
     ...providerLimitations,
     ...targetLimitations,
+    ...(reuseProject
+      ? [
+          "Ghidra analysis was reused from a local project cache; this session did not import or re-analyze the target. The stored program is bound to the target, provider, JVM, and import profile it was built from.",
+        ]
+      : []),
     ...(psp ? GHIDRA_PSP_LIMITATIONS : []),
     ...softFloatLimitations,
     ...ghidraExtensionLimitations(extensions),

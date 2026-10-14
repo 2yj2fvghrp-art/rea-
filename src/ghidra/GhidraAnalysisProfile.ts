@@ -47,7 +47,7 @@ export const ghidraPinnedLanguage = (
   ghidraMipsLanguageOverride(target) ?? ghidraRiscvLanguageOverride(target);
 
 /** Reason an existing project cannot open this target, or null when it can. */
-const ghidraExistingProjectUnsupportedReason = (
+export const ghidraExistingProjectUnsupportedReason = (
   target: BinaryTarget,
 ): string | null => {
   if (target.format === "dos-mz" || target.format === "dos-com")
