@@ -112,12 +112,12 @@ it.runIf(!unsupportedHost).each(["missing", "wrong"])(
     if (result.ok) throw new Error("Expected launcher failure");
     expect(projectAnalysisError(result.error).code).toBe("execution_failure");
     expect(result.error).toMatchObject({
+      capturedOutput: { stdout: "launcher failure", truncated: false },
       diagnostics: {
         file_size_failure_marker: {
           verified: false,
           failure: expect.any(String),
         },
-        captured_output: { stdout: "launcher failure", truncated: false },
       },
     });
     await expect(access(ownedPath)).rejects.toMatchObject({ code: "ENOENT" });
@@ -163,16 +163,12 @@ it.runIf(!unsupportedHost)(
     const cleanup = z
       .object({
         reason: z.string(),
-        previous_error: z
-          .object({
-            failure_kind: z.string(),
-            stdout: z.unknown().optional(),
-            stderr: z.unknown().optional(),
-          })
-          .transform(({ failure_kind, stdout, stderr }) => ({
-            failure_kind,
-            output_repeated: stdout !== undefined || stderr !== undefined,
-          })),
+        previous_error: z.object({
+          code: z.string(),
+          category: z.string(),
+          message: z.string(),
+          details: z.record(z.string(), z.unknown()).optional(),
+        }),
         captured_output: z.object({
           truncated: z.boolean(),
           stderr: z.literal(""),
@@ -182,12 +178,13 @@ it.runIf(!unsupportedHost)(
       .parse(projectAnalysisError(result.error).details?.["diagnostics"]);
     expect(cleanup).toEqual({
       reason: "injected post-cleanup reporting failure",
-      previous_error: {
-        failure_kind: "output-limit",
-        output_repeated: false,
-      },
+      previous_error: expect.objectContaining({ code: "unreadable_output" }),
       captured_output: { truncated: true, stderr: "", stdout: 1048576 },
     });
+    expect(cleanup.previous_error.details?.["captured_output"]).toBeUndefined();
+    expect(JSON.stringify(cleanup.previous_error)).not.toContain(
+      "x".repeat(256),
+    );
     expect(result.error.cleanupResources).toContain(ownedPath);
     await access(ownedPath);
     const blocked = await provider.inspect({ path, encoding: "hex" });

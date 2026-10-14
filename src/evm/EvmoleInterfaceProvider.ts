@@ -44,7 +44,6 @@ import type { ProviderProcessSupervisor } from "../process/ProviderProcess.js";
 import {
   evmInterfaceFailure,
   capturedEvmOutput,
-  ownedCommandPreviousError,
   type EvmFileSizeFailureEvidence,
 } from "./EvmoleFailures.js";
 import {
@@ -86,6 +85,16 @@ const replySchema = z.discriminatedUnion("ok", [
 type Launcher = NonNullable<Parameters<typeof runOwnedCommand>[2]>["launcher"];
 type EvmOutcome = Result<EvmInterfaceExecution, AnalysisError>;
 
+const compactErrorProjection = (error: AnalysisError) => {
+  const projection = projectAnalysisError(error);
+  if (error.capturedOutput === undefined) return projection;
+  // The cleanup result owns this exact captured stream. Other diagnostics and
+  // partial Evidence retain their original fields, including stdout/stderr.
+  const details = { ...projection.details };
+  delete details.captured_output;
+  return { ...projection, details };
+};
+
 const evmExecutionEvidence = (
   input: InspectEvmInterfaceInput,
   execution: EvmInterfaceExecution,
@@ -107,7 +116,6 @@ const evmCleanupFailure = (
   reason: string,
   output?: AnalysisCapturedOutput,
   cause?: unknown,
-  commandFailure?: OwnedCommandFailure,
 ): ProviderCleanupError => {
   const partialObservation = result.ok
     ? evmExecutionEvidence(input, result.value)
@@ -120,11 +128,7 @@ const evmCleanupFailure = (
     resources,
     {
       reason,
-      previous_error: result.ok
-        ? null
-        : commandFailure === undefined
-          ? projectAnalysisError(result.error)
-          : ownedCommandPreviousError(commandFailure),
+      previous_error: result.ok ? null : compactErrorProjection(result.error),
       ...(capturedOutput === undefined
         ? {}
         : { captured_output: { ...capturedOutput } }),
@@ -187,7 +191,6 @@ export class EvmoleInterfaceProvider implements EvmInterfacePort {
     if (pending !== undefined) return err(pending);
     let root: Pick<PrivateRuntimeRoot, "path" | "close"> | undefined;
     let processOwner: ProviderProcessSupervisor | undefined;
-    let commandFailure: OwnedCommandFailure | undefined;
     let processCleanup:
       | {
           readonly reason: string;
@@ -451,9 +454,6 @@ export class EvmoleInterfaceProvider implements EvmInterfacePort {
         }),
       );
     } catch (cause: unknown) {
-      // A failure rethrown after retainCleanup carries no owner of its own;
-      // keep the retained worker instead of discarding it.
-      if (cause instanceof OwnedCommandFailure) commandFailure = cause;
       if (
         cause instanceof OwnedCommandFailure &&
         cause.cleanupOwner !== undefined
@@ -550,7 +550,6 @@ export class EvmoleInterfaceProvider implements EvmInterfacePort {
           processCleanup.reason,
           retainedOutput,
           processOwner,
-          commandFailure,
         ),
       );
     }

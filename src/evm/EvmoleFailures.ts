@@ -25,17 +25,6 @@ import {
 } from "./EvmoleRelease.js";
 
 /** Correlate a reserved exit with the owned worker's actual failure branch. */
-/**
- * Primary worker failure retained beside a cleanup failure. Its output is
- * already retained once as captured_output, so it is not repeated here.
- */
-export const ownedCommandPreviousError = (cause: OwnedCommandFailure) => ({
-  failure_kind: cause.reason,
-  message: cause.message,
-  exit_code: cause.snapshot?.exitCode ?? null,
-  signal: cause.snapshot?.signal ?? null,
-});
-
 export interface EvmFileSizeFailureEvidence {
   readonly verified: boolean;
   readonly failure: string | null;
@@ -68,7 +57,12 @@ export const evmInterfaceFailure = (
           ...(cause.snapshot === null
             ? {}
             : { captured_output: { ...capturedEvmOutput(cause.snapshot) } }),
-          previous_error: ownedCommandPreviousError(cause),
+          previous_error: {
+            failure_kind: cause.reason,
+            message: cause.message,
+            exit_code: cause.snapshot?.exitCode ?? null,
+            signal: cause.snapshot?.signal ?? null,
+          },
         },
         { operation: "inspect_evm_interface", cause },
       );
@@ -189,6 +183,9 @@ export const evmInterfaceFailure = (
     {
       cause,
       ...cleanupOptions,
+      ...(cause instanceof OwnedCommandFailure && cause.snapshot !== null
+        ? { capturedOutput: capturedEvmOutput(cause.snapshot) }
+        : {}),
       diagnostics: {
         phase,
         path,
@@ -204,13 +201,6 @@ export const evmInterfaceFailure = (
               failure_kind: cause.reason,
               exit_code: cause.snapshot?.exitCode ?? null,
               signal: cause.snapshot?.signal ?? null,
-              stdout: cause.snapshot?.stdout.text ?? null,
-              stderr: cause.snapshot?.stderr.text ?? null,
-              ...(cause.snapshot === null
-                ? {}
-                : {
-                    captured_output: { ...capturedEvmOutput(cause.snapshot) },
-                  }),
             }
           : {}),
       },

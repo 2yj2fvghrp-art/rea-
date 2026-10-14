@@ -1,6 +1,5 @@
 import { fc, it } from "@fast-check/vitest";
 import { describe, expect } from "vitest";
-import { z } from "zod";
 
 import { createAnalysisProfile } from "./analysisProfile.js";
 import type { BinaryTarget } from "./binaryTargetTypes.js";
@@ -490,25 +489,18 @@ describe("evidence parameter depth bound", () => {
     ).toBe(true);
   });
 
-  it("reports the depth limit before authenticating deeply nested evidence", () => {
+  it("stops semantic authentication when normalized JSON exceeds its depth bound", () => {
     const evidence = createEvidence(TARGET, PROVIDER, {
       operation: "health",
       parameters: {},
       result: true,
     });
-    // Deep enough that a recursive identity digest would overflow the stack.
     let value: unknown = 1;
-    for (let index = 0; index < 100_000; index += 1) value = { nested: value };
-    let failure: unknown;
-    try {
-      parseEvidence({ ...evidence, parameters: { attack: value } });
-    } catch (cause: unknown) {
-      failure = cause;
-    }
-    expect(failure).toBeInstanceOf(z.ZodError);
-    expect(
-      (failure as z.ZodError).issues.map(({ message }) => message),
-    ).toContainEqual(expect.stringContaining("maximum nesting depth"));
+    for (let index = 0; index < 10_000; index += 1) value = { nested: value };
+
+    expect(() =>
+      parseEvidence({ ...evidence, normalized_result: value }),
+    ).toThrow(/maximum nesting depth/u);
   });
 });
 

@@ -117,8 +117,6 @@ const validatedJsonValue = z
   .unknown()
   .superRefine((value, context) => {
     const issue = jsonValueValidationIssue(value);
-    // Abort the parse: enclosing refinements such as Evidence identity
-    // digests walk the value recursively and must never see invalid JSON.
     if (issue !== undefined)
       context.addIssue({ code: "custom", message: issue, continue: false });
   })
