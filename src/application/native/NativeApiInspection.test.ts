@@ -195,18 +195,73 @@ describe("native API inspection", () => {
     if (typeof value !== "object" || value === null || Array.isArray(value))
       throw new TypeError("Ghidra dossier fixture is invalid");
     const dossier = functionDossierSchema.parse({ ...value, native_api: null });
+    const projected = projectNativeApiInspection(dossier);
 
-    expect(projectNativeApiInspection(dossier)).toMatchObject({
+    expect(projected).toMatchObject({
       boundary: { available: false },
       unsupported_branches: [
         "structured-boundary-types",
         "jump-table-data-mapping",
+        "indirect-branch-inventory",
       ],
       residual_unknowns: [
         expect.stringContaining("boundary types"),
         expect.stringContaining("jump table"),
+        "Which indirect branches does this function contain? The provider did not report an indirect-branch inventory.",
       ],
     });
+    expect(projected.boundary).toMatchObject({
+      reason:
+        "The selected provider did not expose a structured native API boundary model.",
+      residual_unknowns: [
+        "What are the function's return and parameter boundary types?",
+        "Does this function dispatch through a jump table with recoverable data addresses?",
+      ],
+    });
+    expect(projected.residual_unknowns).toHaveLength(
+      new Set(projected.residual_unknowns).size,
+    );
+    expect(projected.boundary).not.toHaveProperty(
+      "unresolved_indirect_branches",
+    );
+  });
+
+  it("adds missing branch-inventory uncertainty to an unavailable boundary without duplicating it", () => {
+    const value = ghidraFunctionDossier();
+    if (typeof value !== "object" || value === null || Array.isArray(value))
+      throw new TypeError("Ghidra dossier fixture is invalid");
+    const inventoryUnknown =
+      "Which indirect branches does this function contain? The provider did not report an indirect-branch inventory.";
+    const dossier = functionDossierSchema.parse({
+      ...value,
+      native_api: {
+        available: false,
+        reason: "Fixture provider omitted its native API boundary.",
+        residual_unknowns: [
+          "Provider-specific boundary limitation.",
+          inventoryUnknown,
+        ],
+      },
+    });
+
+    const projected = projectNativeApiInspection(dossier);
+    expect(projected.boundary).toMatchObject({
+      available: false,
+      reason: "Fixture provider omitted its native API boundary.",
+      residual_unknowns: [
+        "Provider-specific boundary limitation.",
+        inventoryUnknown,
+      ],
+    });
+    expect(projected.residual_unknowns).toEqual([
+      "Provider-specific boundary limitation.",
+      inventoryUnknown,
+    ]);
+    expect(projected.unsupported_branches).toEqual([
+      "structured-boundary-types",
+      "jump-table-data-mapping",
+      "indirect-branch-inventory",
+    ]);
   });
 
   it("reports missing jump-table targets as an explicit unknown", () => {

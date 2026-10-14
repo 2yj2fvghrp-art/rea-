@@ -5,6 +5,9 @@ import {
   type NativeApiInspectionResult,
 } from "../../domain/native/nativeApiBoundary.js";
 
+const INDIRECT_BRANCH_INVENTORY_UNKNOWN =
+  "Which indirect branches does this function contain? The provider did not report an indirect-branch inventory.";
+
 const unavailableBoundary = (): NativeApiBoundary => ({
   available: false,
   reason:
@@ -21,7 +24,11 @@ export const projectNativeApiInspection = (
 ): NativeApiInspectionResult => {
   const boundary = dossier.native_api ?? unavailableBoundary();
   const unsupportedBranches = !boundary.available
-    ? ["structured-boundary-types", "jump-table-data-mapping"]
+    ? [
+        "structured-boundary-types",
+        "jump-table-data-mapping",
+        "indirect-branch-inventory",
+      ]
     : boundary.unresolved_indirect_branches === undefined
       ? ["indirect-branch-inventory"]
       : boundary.unresolved_indirect_branches.length > 0
@@ -29,7 +36,12 @@ export const projectNativeApiInspection = (
         : [];
   const residualUnknowns = boundary.available
     ? availableResidualUnknowns(boundary)
-    : boundary.residual_unknowns;
+    : [
+        ...new Set([
+          ...boundary.residual_unknowns,
+          INDIRECT_BRANCH_INVENTORY_UNKNOWN,
+        ]),
+      ];
   return nativeApiInspectionResultSchema.parse({
     procedure: {
       address: dossier.procedure.address,
@@ -105,9 +117,7 @@ const availableResidualUnknowns = (
   // An absent inventory means the provider did not inspect indirect
   // branches, which is not the same as observing none.
   if (boundary.unresolved_indirect_branches === undefined)
-    unknowns.push(
-      "Which indirect branches does this function contain? The provider did not report an indirect-branch inventory.",
-    );
+    unknowns.push(INDIRECT_BRANCH_INVENTORY_UNKNOWN);
   for (const branch of boundary.unresolved_indirect_branches ?? [])
     unknowns.push(
       branch.decompiler_outcome === "jump_table_recovery_failed"
