@@ -152,7 +152,7 @@ describe("MCP external command snapshot retirement", () => {
 
 describe("MCP composed workflow target admission", () => {
   it.skipIf(process.platform === "win32")(
-    "drains a reverse-engineering call and records its Evidence before close_binary snapshots the ledger",
+    "drains a reverse-engineering call and keeps its Evidence exportable when close_binary refuses the snapshot",
     async () => {
       const { targetPaths, snapshotPath } = await createWorkflowFiles(
         "rea-mcp-admitted-reverse-",
@@ -215,15 +215,23 @@ describe("MCP composed workflow target admission", () => {
         analyzed.structuredContent,
       );
       const closed = await closeRequest;
-      expect(closed.isError, JSON.stringify(closed.content)).not.toBe(true);
-      const snapshot = await readAnalysisSnapshot(snapshotPath);
-      if (!snapshot.ok) throw snapshot.error;
-      expect(snapshot.value.evidence_bundle.records).toContainEqual(
-        expect.objectContaining({
-          evidence_id: evidence.evidence_id,
-          operation: "execute_rizin_command",
-          subject: expect.objectContaining({ local_path: targetPath }),
-        }),
+      // An unrestricted provider command may have changed the artifact, so the
+      // snapshot is refused rather than written; the Evidence stays exportable.
+      expect(closed.isError).toBe(true);
+      expect(JSON.stringify(closed.content)).toContain(
+        "evidence_integrity_mismatch",
+      );
+      await expect(access(snapshotPath)).rejects.toMatchObject({
+        code: "ENOENT",
+      });
+      const bundlePath = join(fixtureDirectory, "evidence-bundle.json");
+      const exported = await mcp.callTool({
+        name: "export_evidence_bundle",
+        arguments: { path: bundlePath },
+      });
+      expect(exported.isError, JSON.stringify(exported.content)).not.toBe(true);
+      expect(await readFile(bundlePath, "utf8")).toContain(
+        evidence.evidence_id,
       );
     },
   );
