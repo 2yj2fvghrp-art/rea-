@@ -4,10 +4,14 @@
 
 - Done: config/home (1), provider-independent store (2), identity rebinding
   (3), launcher save flag (4), client publish/hit wiring (5), provider
-  restructure (6), evidence/doc surface (7), real-provider measurement (8).
+  restructure (6), evidence/doc surface (7), real-provider measurement (8),
+  and the `rea cache-list|cache-prune|cache-remove` discovery/maintenance CLI.
 - Measured on Windows Ghidra P0: `engine2.dll` first open 256.8 s, cache hit
   13.1 s (recorded in `docs/ghidra-project-cache.md`). Adding a cache assertion
   to the `verify:ghidra*` lane scripts remains for CI coverage.
+- Deferred: LRU/age eviction, a bridge-reported program-state digest,
+  seed-from-project (`rea cache import`), an `open_binary`/server-default
+  toggle, and #2150 copy serialization.
 - The default `off` path is unchanged; the Ghidra source-test folder is now
   green on Windows (platform-specific tests fixed/skipped).
 

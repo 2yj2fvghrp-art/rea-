@@ -175,6 +175,20 @@ describe("GhidraProjectStore", () => {
     await expect(stat(stagingPath)).rejects.toThrow();
   });
 
+  it("removes a stored entry by key", async () => {
+    const store = new GhidraProjectStore({ root, maxBytes: 1_000_000 });
+    const miss = await store.prepare({ identity: identity(), mode: "on" });
+    const published = await store.publish(publishable(store, miss));
+    expect(published.ok && published.value.published).toBe(true);
+    const key = ghidraProjectCacheKey(identity());
+    const removed = await store.remove(key);
+    expect(removed.ok && removed.value).toBe(true);
+    expect(await store.list()).toHaveLength(0);
+    const again = await store.remove(key);
+    expect(again.ok && again.value).toBe(false);
+    expect((await store.remove("not-a-key")).ok).toBe(false);
+  });
+
   it("abandons a reserved staging slot", async () => {
     const store = new GhidraProjectStore({ root, maxBytes: 1_000_000 });
     const miss = await store.prepare({ identity: identity(), mode: "on" });

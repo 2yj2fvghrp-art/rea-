@@ -65,6 +65,19 @@ replays in the later session.
   per-file digest is recorded at publish for integrity checks rather than
   re-hashed on every open.
 
+## Managing the cache
+
+```sh
+rea cache-list            # stored projects, sizes, and keys
+rea cache-prune           # enforce the size ceiling now
+rea cache-remove <key>    # drop one stored project
+```
+
+`cache-list` reports the cache directory, mode, ceiling, and each entry's key,
+stored program name, target digest, provider version, size, and creation time.
+Add `--format json` for machine-readable output. Listing is read-only; prune and
+remove are the only cache mutations, and neither opens a target.
+
 ## Limitations
 
 The stored project is bound to the target bytes, provider, JVM, and import

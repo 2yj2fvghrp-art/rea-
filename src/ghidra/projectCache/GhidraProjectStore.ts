@@ -237,6 +237,29 @@ export class GhidraProjectStore {
       await this.#discard(reservation.stagingPath);
   }
 
+  /** Remove one stored entry by key. Returns whether an entry was removed. */
+  async remove(key: string): Promise<Result<boolean, GhidraProjectCacheError>> {
+    if (!KEY_PATTERN.test(key))
+      return err(
+        new GhidraProjectCacheError(
+          "identity",
+          "A Ghidra project cache key is a lowercase sha256 digest",
+          key,
+        ),
+      );
+    const entryPath = this.#entryPath(key);
+    try {
+      const existing = await lstat(entryPath).catch(() => undefined);
+      if (existing === undefined) return ok(false);
+      await this.#discard(entryPath);
+      return ok(true);
+    } catch (cause: unknown) {
+      return err(
+        this.#io("Ghidra project cache removal failed", entryPath, cause),
+      );
+    }
+  }
+
   /** Every valid stored manifest, for discovery and pruning. */
   async list(signal?: AbortSignal): Promise<readonly GhidraProjectManifest[]> {
     const manifests: GhidraProjectManifest[] = [];
