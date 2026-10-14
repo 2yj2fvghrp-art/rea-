@@ -137,11 +137,11 @@ export const nestedTypeDigests = (
  * the same nominal name, and a TypeRef's resolution scope assembly is not part of its
  * name, so a type forwarded between assemblies keeps its name. A TypeSpec, an
  * unreadable row, cyclic nesting, or nesting deeper than the cap has no name,
- * so its signature has no resolved digest; an unreadable row's failure is
+ * so its declaration and signature operands have no resolved digest; an unreadable row's failure is
  * retained in `issues`, once per row. Each coded index and each row is
  * named and digested once, so repeated operands cost a lookup.
  */
-export const signatureTypeNames = (
+export const managedTypeNameDigests = (
   layout: ManagedMetadataLayout,
   issues: ManagedParseIssue[],
   parsedTypes: Pick<ReturnType<typeof parseTypes>, "types" | "nesting">,

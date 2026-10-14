@@ -236,6 +236,7 @@ export const parseTypes = (
         ),
         enclosing_type_token:
           enclosingRow === undefined ? null : metadataToken(2, enclosingRow),
+        name_sha256: null,
         field_list: {
           first_row: fieldRange.first,
           last_row: fieldRange.last,

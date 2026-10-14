@@ -1337,9 +1337,11 @@ export const buildManagedMemberPointerFixture = (
 export const buildManagedNestedTypeFixture = ({
   swapEnclosing = false,
   nestedClassRows,
+  literalTopLevelName,
 }: {
   readonly swapEnclosing?: boolean;
   readonly nestedClassRows?: readonly (readonly [number, number])[];
+  readonly literalTopLevelName?: string;
 } = {}): Buffer => {
   const image = buildManagedFixtureImage({}, (methodRva) => {
     const strings = new StringHeap();
@@ -1347,9 +1349,14 @@ export const buildManagedNestedTypeFixture = ({
     const moduleName = strings.add("Nested.dll");
     const assemblyName = strings.add("Fixture.Nested");
     const namespace = strings.add("Fixture");
-    const typeNames = ["<Module>", "A", "B", "Inner", "Inner", "Leaf"].map(
-      (name) => strings.add(name),
-    );
+    const typeNames = [
+      "<Module>",
+      "A",
+      "B",
+      "Inner",
+      literalTopLevelName ?? "Inner",
+      "Leaf",
+    ].map((name) => strings.add(name));
     const methodName = strings.add("M");
     const fieldName = strings.add("F");
     const objectName = strings.add("Object");
@@ -1384,7 +1391,10 @@ export const buildManagedNestedTypeFixture = ({
             fieldListSize: 2,
             methodListSize: 2,
             extendsRaw: index === 0 ? 0 : (1 << 2) | 1,
-            flags: index <= 2 ? 0x0010_0001 : 0x0010_0002,
+            flags:
+              index <= 2 || (index === 4 && literalTopLevelName !== undefined)
+                ? 0x0010_0001
+                : 0x0010_0002,
           }),
         ),
       ],
@@ -1412,9 +1422,13 @@ export const buildManagedNestedTypeFixture = ({
             [5, swapEnclosing ? 2 : 3],
             [6, 4],
           ]
-        ).map(([nested, enclosing]) =>
-          Buffer.concat([u16(nested), u16(enclosing)]),
-        ),
+        )
+          .filter(
+            ([nested]) => literalTopLevelName === undefined || nested !== 5,
+          )
+          .map(([nested, enclosing]) =>
+            Buffer.concat([u16(nested), u16(enclosing)]),
+          ),
       ],
       [32, [assemblyRow(assemblyName, 2, 2)]],
       [35, [assemblyRefRow(runtimeName, 0, false, 2, 2)]],

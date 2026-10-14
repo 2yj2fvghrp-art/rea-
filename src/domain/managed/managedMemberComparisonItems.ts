@@ -53,6 +53,9 @@ interface UndecodedOneSidedNames {
   readonly resolved: boolean;
   readonly undecoded: Readonly<Record<"left" | "right", ReadonlySet<string>>>;
   readonly unresolved: Readonly<Record<"left" | "right", ReadonlySet<string>>>;
+  readonly unknownOwners: Readonly<
+    Record<"left" | "right", ReadonlySet<string>>
+  >;
 }
 
 const methodDimensions = (
@@ -144,6 +147,7 @@ const unmatchedComparison = (): UnmatchedComparison => ({
 const methodOnlyItem = (
   member: OneSided<Method>,
   identity: string,
+  identityUnavailable: boolean,
   context: ComparisonItemContext,
   undecoded: UndecodedOneSidedNames,
 ): MethodItem => {
@@ -155,6 +159,7 @@ const methodOnlyItem = (
         member.left,
       ),
       unpaired: undecoded,
+      ownIdentityUnavailable: identityUnavailable,
       opposite: "right",
       inventory: "method",
     });
@@ -177,6 +182,7 @@ const methodOnlyItem = (
       member.right,
     ),
     unpaired: undecoded,
+    ownIdentityUnavailable: identityUnavailable,
     opposite: "left",
     inventory: "method",
   });
@@ -207,11 +213,22 @@ const absenceLimitations = (
   identity: string,
   opposite: {
     readonly oppositeComplete: boolean;
+    readonly ownIdentityUnavailable: boolean;
     readonly unpaired: UndecodedOneSidedNames;
     readonly opposite: "left" | "right";
     readonly inventory: "method" | "field";
   },
 ): string[] => [
+  ...(opposite.ownIdentityUnavailable
+    ? [
+        "declaring-type-name-not-resolved: Declared type identity could not be resolved; a bare display name cannot establish a counterpart or absence.",
+      ]
+    : []),
+  ...(opposite.unpaired.unknownOwners[opposite.opposite].has(member.name)
+    ? [
+        `counterpart-declaring-type-name-not-resolved: The ${opposite.opposite} ${opposite.inventory} inventory has an unpaired same-named member with unresolved enclosing-name identity, so absence was not established.`,
+      ]
+    : []),
   ...(opposite.oppositeComplete
     ? []
     : [
@@ -267,6 +284,7 @@ const pairedSignatureLimitations = (
 interface Unpaired {
   readonly item: Method | Field;
   readonly identity: string;
+  readonly identityUnavailable: boolean;
 }
 
 const undecodedOneSidedNames = (
@@ -302,6 +320,16 @@ const undecodedOneSidedNames = (
   const notResolved = (item: Method | Field) => unresolved(item, resolved);
   return {
     resolved,
+    unknownOwners: {
+      left: new Set(
+        sides.left.filter((x) => x.identityUnavailable).map((x) => x.item.name),
+      ),
+      right: new Set(
+        sides.right
+          .filter((x) => x.identityUnavailable)
+          .map((x) => x.item.name),
+      ),
+    },
     undecoded: {
       left: names(sides.left, undecoded),
       right: names(sides.right, undecoded),
@@ -316,6 +344,7 @@ const undecodedOneSidedNames = (
 const fieldOnlyItem = (
   member: OneSided<Field>,
   identity: string,
+  identityUnavailable: boolean,
   context: ComparisonItemContext,
   undecoded: UndecodedOneSidedNames,
 ): FieldItem => {
@@ -327,6 +356,7 @@ const fieldOnlyItem = (
         member.left,
       ),
       unpaired: undecoded,
+      ownIdentityUnavailable: identityUnavailable,
       opposite: "right",
       inventory: "field",
     });
@@ -348,6 +378,7 @@ const fieldOnlyItem = (
       member.right,
     ),
     unpaired: undecoded,
+    ownIdentityUnavailable: identityUnavailable,
     opposite: "left",
     inventory: "field",
   });
@@ -369,14 +400,17 @@ const fieldOnlyItem = (
 const ambiguityLimitation = (
   members: "methods" | "fields",
   basis: MethodItem["match"]["basis"],
+  identityUnavailable: boolean,
 ): string =>
-  basis === "exact-signature"
-    ? `Multiple managed ${members} share the same signature; REA did not guess declared ownership or a token remap.`
-    : basis === "exact-il-signature"
-      ? "Multiple managed methods share the same CIL and signature; REA did not guess a token remap."
-      : members === "methods"
-        ? "Multiple managed methods share the same structural shape; REA did not guess a token remap."
-        : "Multiple managed fields share the same signature; REA did not guess a token remap.";
+  identityUnavailable
+    ? "declaring-type-name-not-resolved: Declared type identity remains unresolved; REA did not guess a counterpart from display names, signatures or CIL."
+    : basis === "exact-signature"
+      ? `Multiple managed ${members} share the same signature; REA did not guess declared ownership or a token remap.`
+      : basis === "exact-il-signature"
+        ? "Multiple managed methods share the same CIL and signature; REA did not guess a token remap."
+        : members === "methods"
+          ? "Multiple managed methods share the same structural shape; REA did not guess a token remap."
+          : "Multiple managed fields share the same signature; REA did not guess a token remap.";
 
 export const buildMethodItems = (
   matches: ManagedMethodMatches,
@@ -448,7 +482,14 @@ export const buildMethodItems = (
       },
       dimensions: ["availability"],
       evidence_links: [context.leftEvidenceId, context.rightEvidenceId],
-      limitations: [ambiguityLimitation("methods", ambiguous.basis)],
+      limitations: [
+        ambiguityLimitation(
+          "methods",
+          ambiguous.basis,
+          ambiguous.left.some((item) => item.identityUnavailable) ||
+            ambiguous.right.some((item) => item.identityUnavailable),
+        ),
+      ],
     });
   }
   const undecoded = undecodedOneSidedNames(
@@ -457,11 +498,23 @@ export const buildMethodItems = (
   );
   for (const item of matches.leftOnly)
     items.push(
-      methodOnlyItem({ left: item.item }, item.identity, context, undecoded),
+      methodOnlyItem(
+        { left: item.item },
+        item.identity,
+        item.identityUnavailable,
+        context,
+        undecoded,
+      ),
     );
   for (const item of matches.rightOnly)
     items.push(
-      methodOnlyItem({ right: item.item }, item.identity, context, undecoded),
+      methodOnlyItem(
+        { right: item.item },
+        item.identity,
+        item.identityUnavailable,
+        context,
+        undecoded,
+      ),
     );
   return items;
 };
@@ -521,7 +574,14 @@ export const buildFieldItems = (
         candidate_right_tokens: ambiguous.right.map(({ item }) => item.token),
       },
       evidence_links: [context.leftEvidenceId, context.rightEvidenceId],
-      limitations: [ambiguityLimitation("fields", ambiguous.basis)],
+      limitations: [
+        ambiguityLimitation(
+          "fields",
+          ambiguous.basis,
+          ambiguous.left.some((item) => item.identityUnavailable) ||
+            ambiguous.right.some((item) => item.identityUnavailable),
+        ),
+      ],
     });
   const undecoded = undecodedOneSidedNames(
     matches,
@@ -529,11 +589,23 @@ export const buildFieldItems = (
   );
   for (const item of matches.leftOnly)
     items.push(
-      fieldOnlyItem({ left: item.item }, item.identity, context, undecoded),
+      fieldOnlyItem(
+        { left: item.item },
+        item.identity,
+        item.identityUnavailable,
+        context,
+        undecoded,
+      ),
     );
   for (const item of matches.rightOnly)
     items.push(
-      fieldOnlyItem({ right: item.item }, item.identity, context, undecoded),
+      fieldOnlyItem(
+        { right: item.item },
+        item.identity,
+        item.identityUnavailable,
+        context,
+        undecoded,
+      ),
     );
   return items;
 };

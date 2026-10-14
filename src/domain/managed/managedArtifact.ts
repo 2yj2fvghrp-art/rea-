@@ -103,6 +103,12 @@ const managedTypeSchema = z.object({
   namespace: z.string(),
   name: z.string(),
   full_name: z.string(),
+  name_sha256: digestSchema
+    .nullable()
+    .default(null)
+    .describe(
+      "Framed nominal namespace/name/enclosing-name digest, independent of build-local rows. Null for historical Evidence or unresolved nesting; defining assemblies and CLR runtime identity are not established.",
+    ),
   flags: z.number().int().min(0).max(0xffff_ffff),
   extends_token: tokenSchema.nullable(),
   enclosing_type_token: tokenSchema
@@ -480,9 +486,15 @@ export const managedMemberInspectionSchema = z.object({
   }),
   types: z.array(managedTypeSchema),
   // Member Evidence recorded before NestedClass rows were read omits this
-  // field; false means enclosing types were not examined or a NestedClass row
-  // was unreadable or invalid, not that none exist.
-  nesting_read: z.boolean().default(false),
+  // field; null is historical uncertainty. False means a current NestedClass
+  // row was unreadable or invalid, not that no nested types exist.
+  nesting_read: z
+    .boolean()
+    .nullable()
+    .default(null)
+    .describe(
+      "Whether all NestedClass rows were read and valid. Null for historical Evidence; false means current nesting is incomplete. Individual name digests can remain unresolved for missing, cyclic or over-deep enclosing chains.",
+    ),
   // Member Evidence recorded before ExportedType rows were read omits this
   // field; null means the table was not examined, not that it was empty.
   exported_types: z.array(managedExportedTypeSchema).nullable().default(null),

@@ -35,6 +35,8 @@ interface Keyed<Item> {
   readonly item: Item;
   /** Declared type and name; an unresolved type is null, the name remains. */
   readonly identity: string;
+  /** Declared identity could not be resolved; display facts remain. */
+  readonly identityUnavailable: boolean;
   readonly exactKey: string | null;
   readonly signatureKey: string | null;
   /** The name-free exact signature, resolved where both sides resolve it. */
@@ -55,67 +57,13 @@ interface Ambiguous<Item> {
   readonly basis: ConcreteMatchBasis;
 }
 
-/** A declared type: its name, or its enclosing types' names outermost first. */
+/** A declared type: a historical bare name or a tagged observed nominal digest. */
 type DeclaredName = string | string[] | null;
 type DeclaredNameOf = (item: Method | Field) => DeclaredName;
-type InspectedType = ManagedMemberInspection["types"][number];
-
-/** Deeper enclosing chains are not resolved; real nesting stays far shallower. */
-const MAX_NESTING_DEPTH = 64;
-
-/**
- * Name each inspected type by its enclosing types' names, outermost first.
- * Nested declaring types keep bare names, so two nested types that share a
- * name in different enclosing types would otherwise form one identity. Names
- * stay a list, so a type whose own name contains "+" stays distinct from a
- * nested path. Returns null
- * when nesting cannot be named for every type: Evidence recorded before
- * nesting was read, an enclosing type outside a type selection, a cycle, or a
- * chain deeper than the bound.
- */
-export const enclosingTypeNames = ({
-  types,
-  nesting_read,
-}: Pick<ManagedMemberInspection, "types" | "nesting_read">): ReadonlyMap<
-  string,
-  readonly string[]
-> | null => {
-  if (!nesting_read) return null;
-  const byToken = new Map(types.map((type) => [type.token, type]));
-  const names = new Map<string, readonly string[]>();
-  for (const type of types) {
-    const chain: InspectedType[] = [];
-    const visited = new Set<string>();
-    let enclosing: readonly string[] = [];
-    let current: InspectedType | undefined = type;
-    while (current !== undefined) {
-      const known = names.get(current.token);
-      if (known !== undefined) {
-        enclosing = known;
-        break;
-      }
-      // Stop walking a cycle or an over-deep chain as soon as it is seen.
-      if (visited.has(current.token) || chain.length === MAX_NESTING_DEPTH)
-        return null;
-      visited.add(current.token);
-      chain.push(current);
-      const token = current.enclosing_type_token;
-      if (token === null) break;
-      current = byToken.get(token);
-      if (current === undefined) return null;
-    }
-    if (enclosing.length + chain.length > MAX_NESTING_DEPTH) return null;
-    for (const link of chain.reverse()) {
-      enclosing = [...enclosing, link.full_name];
-      names.set(link.token, enclosing);
-    }
-  }
-  return names;
-};
-
 const keyMethod = (item: Method, declared: DeclaredNameOf): Keyed<Method> => ({
   item,
   identity: identityOf({ declaring_type: declared(item), name: item.name }),
+  identityUnavailable: declared(item) === null,
   signatureId: signatureIdentity(item.signature),
   exactKey:
     item.body.status === "present" &&
@@ -130,12 +78,15 @@ const keyMethod = (item: Method, declared: DeclaredNameOf): Keyed<Method> => ({
       : null,
   // The blob, with type operands named, is the exact signature; decoding
   // only gates the shape keys.
-  signatureKey: sha256([
-    "method-signature",
-    declared(item),
-    item.name,
-    signatureIdentity(item.signature),
-  ]),
+  signatureKey:
+    declared(item) === null
+      ? null
+      : sha256([
+          "method-signature",
+          declared(item),
+          item.name,
+          signatureIdentity(item.signature),
+        ]),
   structuralKey:
     item.signature.parse_status === "decoded" && item.body.status === "present"
       ? sha256([
@@ -167,6 +118,7 @@ const keyMethod = (item: Method, declared: DeclaredNameOf): Keyed<Method> => ({
 const keyField = (item: Field, declared: DeclaredNameOf): Keyed<Field> => ({
   item,
   identity: identityOf({ declaring_type: declared(item), name: item.name }),
+  identityUnavailable: declared(item) === null,
   signatureId: signatureIdentity(item.signature),
   exactKey:
     item.signature.parse_status === "decoded"
@@ -174,12 +126,15 @@ const keyField = (item: Field, declared: DeclaredNameOf): Keyed<Field> => ({
       : null,
   // Only an undecoded field reaches this round: a decoded field with the
   // same signature already met its counterpart in the exact round.
-  signatureKey: sha256([
-    "field-signature",
-    declared(item),
-    item.name,
-    signatureIdentity(item.signature),
-  ]),
+  signatureKey:
+    declared(item) === null
+      ? null
+      : sha256([
+          "field-signature",
+          declared(item),
+          item.name,
+          signatureIdentity(item.signature),
+        ]),
   structuralKey: sha256([
     "field-structural",
     item.signature.kind,
@@ -209,7 +164,7 @@ const matchMethods = (
         basis: "structural-method-shape",
         // An unresolved owner has no declared shape match to prove.
         key: declaredAs((keyed) =>
-          keyed.item.declaring_type === null ? null : keyed.structuralKey,
+          keyed.identityUnavailable ? null : keyed.structuralKey,
         ),
         competitionKey: ({ structuralKey }) => structuralKey,
       },
@@ -289,7 +244,9 @@ const declaredAs =
   <Item>(key: (item: Keyed<Item>) => string | null) =>
   (item: Keyed<Item>): string | null => {
     const value = key(item);
-    return value === null ? null : sha256([item.identity, value]);
+    return value === null || item.identityUnavailable
+      ? null
+      : sha256([item.identity, value]);
   };
 
 const matchByKeys = <Item extends Declared>({
@@ -312,7 +269,7 @@ const matchByKeys = <Item extends Declared>({
     const competitionKey = round.competitionKey ?? ((item) => item.exactKey);
     const unpairedLeft = unpairedOf(left, pairedLeft);
     const unpairedRight = unpairedOf(right, pairedRight);
-    const declarable = ownerlessDeclarable(
+    const declarable = declaredCandidates(
       unpairedLeft,
       unpairedRight,
       competitionKey,
@@ -346,7 +303,7 @@ const matchByKeys = <Item extends Declared>({
       const refused =
         round.remap === true &&
         [...leftItems, ...rightItems].some(
-          ({ item }) => item.declaring_type === null,
+          ({ identityUnavailable }) => identityUnavailable,
         );
       if (!refused && leftItems.length === 1 && rightItems.length === 1) {
         const [leftItem] = leftItems;
@@ -459,7 +416,7 @@ const ownerlessContested = <Item extends Declared>(
       const key = competitionIdentityKey(member, keyOf(member));
       if (key === null) continue;
       seen.set(key, (seen.get(key) ?? 0) + 1);
-      if (member.item.declaring_type === null) ownerless.add(key);
+      if (member.identityUnavailable) ownerless.add(key);
     }
     for (const key of ownerless)
       if ((seen.get(key) ?? 0) > 1) contested.add(key);
@@ -487,44 +444,23 @@ const remappable = <Item extends Declared>(
     return (
       (key !== null &&
         contested.has(competitionIdentityKey(member, key) ?? "")) ||
-      member.item.declaring_type === null ||
+      member.identityUnavailable ||
       !kept.has(member.identity)
     );
   });
 };
 
-/**
- * Whether a member may pair in a declared-identity round. A member with an
- * unresolved owner may, only when no other member on either side shares its
- * selected evidence key: its owner might be any of them, so a shared key
- * leaves it to the remap rounds, which keep such a group ambiguous. The
- * resolved members that share such a key stay out too, so they cannot pair and
- * consume the candidate the ownerless member might own.
- */
-const ownerlessDeclarable = <Item extends Declared>(
+/** A declared round needs a resolved owner and no unresolved contender. */
+const declaredCandidates = <Item extends Declared>(
   left: readonly Keyed<Item>[],
   right: readonly Keyed<Item>[],
   keyOf: (item: Keyed<Item>) => string | null,
 ): ((member: Keyed<Item>) => boolean) => {
-  const count = (side: readonly Keyed<Item>[]) => {
-    const seen = new Map<string, number>();
-    for (const member of side) {
-      const key = keyOf(member);
-      if (key !== null) seen.set(key, (seen.get(key) ?? 0) + 1);
-    }
-    return seen;
-  };
-  const leftSeen = count(left);
-  const rightSeen = count(right);
   const contested = ownerlessContested([left, right], keyOf);
   return (member) => {
-    const key = keyOf(member);
-    return key !== null &&
-      contested.has(competitionIdentityKey(member, key) ?? "")
-      ? false
-      : member.item.declaring_type !== null ||
-          key === null ||
-          ((leftSeen.get(key) ?? 0) <= 1 && (rightSeen.get(key) ?? 0) <= 1);
+    if (member.identityUnavailable) return false;
+    const key = competitionIdentityKey(member, keyOf(member));
+    return key === null || !contested.has(key);
   };
 };
 
@@ -596,26 +532,22 @@ export const keyMembers = (
 } => {
   const [left, right] = comparableSides(observedLeft, observedRight);
   const sides = { inLeft: observedBy(left), inRight: observedBy(right) };
-  // When either side cannot name its nesting, both keep bare nested names so
-  // their members still pair as they did before nesting was read.
-  const leftNames = enclosingTypeNames(left.result);
-  const rightNames = enclosingTypeNames(right.result);
-  const declared =
-    (names: ReadonlyMap<string, readonly string[]> | null): DeclaredNameOf =>
-    (item) => {
-      const path =
-        leftNames === null ||
-        rightNames === null ||
-        item.declaring_type_token === null
-          ? undefined
-          : names?.get(item.declaring_type_token);
-      // A top-level type keeps its name, as without nesting.
-      return path === undefined || path.length < 2
-        ? item.declaring_type
-        : [...path];
+  const modern =
+    left.result.nesting_read !== null && right.result.nesting_read !== null;
+  const declared = (inspection: ManagedMemberInspection): DeclaredNameOf => {
+    const names = new Map(
+      inspection.types.map((type) => [type.token, type.name_sha256]),
+    );
+    return (item) => {
+      if (inspection.nesting_read === false) return null;
+      // Historical observations retain their explicitly limited bare-name mode.
+      if (!modern) return item.declaring_type;
+      const digest = names.get(item.declaring_type_token ?? "");
+      return digest == null ? null : ["nominal-name-sha256", digest];
     };
-  const declaredLeft = declared(leftNames);
-  const declaredRight = declared(rightNames);
+  };
+  const declaredLeft = declared(left.result);
+  const declaredRight = declared(right.result);
   return {
     methodMatches: matchObserved(
       left.result.methods,
