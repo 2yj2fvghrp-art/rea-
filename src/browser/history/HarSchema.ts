@@ -6,7 +6,7 @@ import { CaptureFormatError } from "./CaptureFormatError.js";
 import { captureObject } from "./CaptureRedaction.js";
 
 /** Validate using the unchanged, pinned upstream HAR 1.2 draft-06 schemas. */
-export const createHarValidator = (): ((value: unknown) => void) => {
+export const createHarValidator = (): ((value: unknown) => boolean) => {
   const require = createRequire(import.meta.url);
   const schemas = z
     .record(z.string(), z.record(z.string(), z.unknown()))
@@ -22,7 +22,8 @@ export const createHarValidator = (): ((value: unknown) => void) => {
   if (validate === undefined)
     throw new Error("Pinned HAR root schema is unavailable");
   return (value) => {
-    allowObservedProducerRepresentations(value);
+    const adaptedPlaywrightAddress =
+      allowObservedProducerRepresentations(value);
     if (!validate(value)) {
       const error = validate.errors?.[0];
       // AJV messages name the violated constraint, such as the missing
@@ -35,19 +36,21 @@ export const createHarValidator = (): ((value: unknown) => void) => {
         error?.instancePath ?? "",
       );
     }
+    return adaptedPlaywrightAddress;
   };
 };
 
 /** Adapt only the disposable validation copy, preserving original reported spellings. */
-const allowObservedProducerRepresentations = (value: unknown): void => {
-  if (!captureObject(value) || !captureObject(value.log)) return;
+const allowObservedProducerRepresentations = (value: unknown): boolean => {
+  if (!captureObject(value) || !captureObject(value.log)) return false;
   const log = value.log;
-  if (!captureObject(log.creator) || !Array.isArray(log.entries)) return;
+  if (!captureObject(log.creator) || !Array.isArray(log.entries)) return false;
   const mitmproxy =
     log.creator.name === "mitmproxy" && log.creator.version === "12.2.3";
   const playwright =
     log.creator.name === "Playwright" && log.creator.version === "1.58.2";
-  if (!mitmproxy && !playwright) return;
+  if (!mitmproxy && !playwright) return false;
+  let adaptedPlaywrightAddress = false;
   for (const entry of log.entries) {
     const candidate: unknown = entry;
     if (!captureObject(candidate)) continue;
@@ -60,12 +63,15 @@ const allowObservedProducerRepresentations = (value: unknown): void => {
       address.startsWith("[") &&
       address.endsWith("]") &&
       isIP(address.slice(1, -1)) === 6
-    )
+    ) {
       candidate.serverIPAddress = address.slice(1, -1);
+      adaptedPlaywrightAddress = true;
+    }
     if (!mitmproxy) continue;
     const request = candidate.request;
     if (!captureObject(request)) continue;
     const body = request.postData;
     if (captureObject(body) && body.text === null) delete body.text;
   }
+  return adaptedPlaywrightAddress;
 };
