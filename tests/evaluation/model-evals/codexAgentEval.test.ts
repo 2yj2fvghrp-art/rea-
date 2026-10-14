@@ -218,38 +218,56 @@ describe("Codex completed tool call parsing", () => {
     },
   );
 
-  it.each([{}, { server: "other" }, { server_name: "other" }])(
-    "does not attribute completed calls to REA without its server identity: %j",
-    (identity) => {
-      const tool = "inspect_managed_artifact";
-      const metrics = evaluateCodexEvents(
-        [
-          {
-            type: "item.completed",
-            item: {
-              type: "mcp_tool_call",
-              status: "completed",
-              tool,
-              arguments: {},
-              ...identity,
-            },
-          },
-        ],
-        tool,
-        { requiredToolSubsequence: [tool] },
-      );
-
-      expect(metrics).toMatchObject({
-        naturalUse: false,
-        firstTool: null,
-        correctFirstTool: false,
-        requiredToolSubsequenceMet: false,
-        reaCalls: [],
-        evidenceIds: [],
-      });
+  it.each([
+    {
+      label: "missing server identity",
+      identity: {},
+      routed: false,
     },
-  );
+    {
+      label: "another server",
+      identity: { server: "other" },
+      routed: false,
+    },
+    {
+      label: "another server_name",
+      identity: { server_name: "other" },
+      routed: false,
+    },
+    {
+      label: "verified REA alias",
+      identity: { server_name: "rea" },
+      routed: true,
+    },
+  ])("routes only $label calls", ({ identity, routed }) => {
+    const metrics = evaluateCodexEvents(
+      [
+        {
+          type: "item.completed",
+          item: {
+            type: "mcp_tool_call",
+            status: "completed",
+            tool: "inspect_managed_artifact",
+            arguments: {},
+            ...identity,
+          },
+        },
+      ],
+      "inspect_managed_artifact",
+      { requiredToolSubsequence: ["inspect_managed_artifact"] },
+    );
 
+    expect(metrics).toMatchObject({
+      naturalUse: routed,
+      correctFirstTool: routed,
+      firstTool: routed ? "inspect_managed_artifact" : null,
+      requiredToolSubsequenceMet: routed,
+      reaCalls: routed ? [{ server: "rea" }] : [],
+    });
+  });
+});
+
+describe("Codex REA server attribution", () => {
   it.each([
     { server: "rea" },
     { server: "REA" },
