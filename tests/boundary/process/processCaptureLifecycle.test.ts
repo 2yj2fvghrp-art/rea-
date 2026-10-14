@@ -134,8 +134,8 @@ itWithCaptureCapability(
   "retains a deleted observed file when its parent becomes a regular file",
   async () => {
     const root = await createTestTempDirectory("rea-observed-parent-type-");
-    await mkdir(join(root, "reports"));
     const payload = '{"result":42}\n';
+    await mkdir(join(root, "reports"));
     await writeFile(join(root, "reports", "final.json"), payload);
     const result = await captureProcessScenario(
       parseProcessScenario({
@@ -148,8 +148,8 @@ itWithCaptureCapability(
         ],
         working_directory: root,
         filesystem_observation_paths: [join(root, "reports", "final.json")],
-        timeout_ms: 5000,
-        idle_timeout_ms: 5000,
+        timeout_ms: 5_000,
+        idle_timeout_ms: 5_000,
         settle_ms: 100,
       }),
     );

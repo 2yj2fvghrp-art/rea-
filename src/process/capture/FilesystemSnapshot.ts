@@ -185,9 +185,8 @@ export const snapshotRoots = async (
   signal?: AbortSignal,
   previous?: ProcessFilesystemSnapshot,
 ): Promise<ProcessFilesystemSnapshot> => {
-  // A prior root entry establishes that this run admitted the selected path.
-  // Preserve initial obstruction errors; a later non-directory ancestor means
-  // the previously observed entry is now absent, rather than unexamined.
+  // A prior root entry establishes same-run admission. Preserve initial
+  // obstruction errors; a later non-directory ancestor makes it absent.
   const previousPaths = new Set(previous?.files.map(({ path }) => path));
   const entries: FileState[] = [];
   const completeRoots: string[] = [];
