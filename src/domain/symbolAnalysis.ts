@@ -2,6 +2,7 @@ import type { JsonValue } from "./jsonValue.js";
 import type { AddressedName } from "./hopperValues.js";
 import {
   classifySwiftSymbol,
+  isSwiftMangledSymbolName,
   type SwiftTypeCategory,
 } from "./swiftSymbolClassification.js";
 
@@ -58,6 +59,14 @@ export const discoverObjcProtocols = (
   };
 };
 
+/**
+ * A Swift symbol carries either a demangler mangling or a visible runtime class
+ * name (`_Tt…`). Whether its nominal category can be decoded is a separate
+ * question, so it must not decide whether the symbol is Swift at all.
+ */
+const isSwiftSymbolName = (name: string): boolean =>
+  isSwiftMangledSymbolName(name) || name.startsWith("_Tt");
+
 /** Categorize procedure names using Swift manglings at their exact addresses. */
 export const categorizeSwiftTypes = (
   procedures: readonly AddressedName[],
@@ -94,7 +103,7 @@ export const categorizeSwiftTypes = (
     if (seen.has(entry.name)) continue;
     const mangledNames = [
       ...new Set([
-        ...(classifySwiftSymbol(entry.name) === undefined ? [] : [entry.name]),
+        ...(isSwiftSymbolName(entry.name) ? [entry.name] : []),
         ...(aliases.get(entry.address) ?? []),
       ]),
     ];
@@ -154,7 +163,7 @@ export const categorizeSwiftTypes = (
 const swiftAliasesByAddress = (symbols: readonly AddressedName[]) => {
   const aliases = new Map<string, string[]>();
   for (const { address, name } of symbols) {
-    if (classifySwiftSymbol(name) === undefined) continue;
+    if (!isSwiftSymbolName(name)) continue;
     const existing = aliases.get(address);
     if (existing === undefined) aliases.set(address, [name]);
     else existing.push(name);

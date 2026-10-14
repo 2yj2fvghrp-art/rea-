@@ -94,4 +94,19 @@ describe("Swift alias ambiguity", () => {
       ],
     });
   });
+
+  it("retains manglings whose prefix the demangler accepts", () => {
+    const names = [
+      "$e4main7ServiceCMa",
+      "_$e4main7ServiceCMa",
+      "@__swiftmacro_4main7ServiceCMa",
+    ];
+    const result = categorizeSwiftTypes(
+      names.map((name, index) => ({ address: `0x${String(index)}`, name })),
+    );
+    expect(result.categories.other?.items.map((item) => item.name)).toEqual(
+      names,
+    );
+    expect(result.unclassified.map((item) => item.name)).toEqual(names);
+  });
 });
