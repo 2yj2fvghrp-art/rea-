@@ -3,6 +3,7 @@ import * as t from "@babel/types";
 import { semanticBuiltinNamespacePath } from "./javascriptSemanticProvenance.js";
 
 import { semanticCallableIdForNode } from "./javascriptSemanticProjection.js";
+import { createSemanticCallableIdStack } from "./javascriptSemanticCallableStack.js";
 import {
   resolveSemanticBindingState,
   semanticResolutionBlocked,
@@ -209,21 +210,20 @@ export const traverseDataEffects = (
   context: DataEffectTraversalContext,
   visit: (node: t.Node, parent: t.Node | null) => void,
 ): void => {
-  context.callableStack.length = 0;
+  const callableStack = createSemanticCallableIdStack(
+    context.callableIds,
+    context.callableStack,
+  );
   context.ancestors.length = 0;
   traverseJavaScriptAst(program, {
     enter: (node, parent) => {
-      const callableId = semanticCallableIdForNode(node);
-      if (callableId !== null && context.callableIds.has(callableId))
-        context.callableStack.push(callableId);
+      callableStack.enter(node, parent);
       visit(node, parent);
       context.ancestors.push(node);
     },
     exit: (node) => {
       context.ancestors.pop();
-      const callableId = semanticCallableIdForNode(node);
-      if (callableId !== null && context.callableStack.at(-1) === callableId)
-        context.callableStack.pop();
+      callableStack.exit(node);
     },
   });
 };

@@ -4,10 +4,8 @@ import type {
   JavaScriptSemanticCallable,
   JavaScriptSemanticObjectOperation,
 } from "./javascriptSemanticIr.js";
-import {
-  semanticCallableIdForNode,
-  semanticReadsBeforeWrite,
-} from "./javascriptSemanticProjection.js";
+import { semanticReadsBeforeWrite } from "./javascriptSemanticProjection.js";
+import { createSemanticCallableIdStack } from "./javascriptSemanticCallableStack.js";
 import {
   semanticStaticPropertyKey,
   unwrapJavaScriptExpression,
@@ -27,14 +25,12 @@ export const collectJavaScriptSemanticObjects = (
 ): JavaScriptSemanticObjectOperation[] => {
   const output: JavaScriptSemanticObjectOperation[] = [];
   const callableIds = new Set(callables.map(({ callableId }) => callableId));
-  const callableStack: string[] = [];
+  const callableStack = createSemanticCallableIdStack(callableIds);
   const context: ObjectCollectionContext = { state, output };
   traverseJavaScriptAst(program, {
     enter: (node, parent) => {
-      const callableId = semanticCallableIdForNode(node);
-      if (callableId !== null && callableIds.has(callableId))
-        callableStack.push(callableId);
-      const ownerCallableId = callableStack.at(-1) ?? null;
+      callableStack.enter(node, parent);
+      const ownerCallableId = callableStack.callables.at(-1) ?? null;
       if (t.isMemberExpression(node) || t.isOptionalMemberExpression(node))
         collectMember(node, parent, ownerCallableId, context);
       else if (
@@ -61,11 +57,7 @@ export const collectJavaScriptSemanticObjects = (
       )
         collectDestructuring(node, ownerCallableId, state, output);
     },
-    exit: (node) => {
-      const callableId = semanticCallableIdForNode(node);
-      if (callableId !== null && callableStack.at(-1) === callableId)
-        callableStack.pop();
-    },
+    exit: (node) => callableStack.exit(node),
   });
   return output;
 };

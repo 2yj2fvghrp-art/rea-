@@ -9,10 +9,8 @@ import type {
   JavaScriptSemanticClosureCapture,
   JavaScriptSemanticFrontier,
 } from "./javascriptSemanticIr.js";
-import {
-  semanticCallableIdForNode,
-  semanticReferenceRole,
-} from "./javascriptSemanticProjection.js";
+import { semanticReferenceRole } from "./javascriptSemanticProjection.js";
+import { createSemanticCallableStack } from "./javascriptSemanticCallableStack.js";
 import { semanticStaticPropertyKey } from "./javascriptAstValues.js";
 import {
   resolveSemanticBindingState,
@@ -85,28 +83,13 @@ export const collectJavaScriptSemanticCalls = (
     parameterBindingCache: new Map(),
     ancestors: [],
   };
-  const callableStack: JavaScriptSemanticCallable[] = [];
-  const suspendedMethods = new Map<t.Node, JavaScriptSemanticCallable>();
+  const callableStack = createSemanticCallableStack((callableId) =>
+    callableById.get(callableId),
+  );
   traverseJavaScriptAst(program, {
     enter: (node, parent) => {
-      // A computed method key is evaluated before entering the method's
-      // parameter and body environments, so it belongs to the enclosing
-      // callable rather than the method.
-      if (
-        parent !== null &&
-        (t.isObjectMethod(parent) || t.isClassMethod(parent)) &&
-        parent.computed &&
-        parent.key === node &&
-        callableStack.at(-1)?.callableId === semanticCallableIdForNode(parent)
-      ) {
-        const method = callableStack.pop();
-        if (method !== undefined) suspendedMethods.set(node, method);
-      }
-      const callableId = semanticCallableIdForNode(node);
-      const callable =
-        callableId === null ? undefined : callableById.get(callableId);
-      if (callable !== undefined) callableStack.push(callable);
-      const owner = enclosingFunction(callableStack);
+      callableStack.enter(node, parent);
+      const owner = enclosingFunction(callableStack.callables);
       collectCapture(node, parent, owner, context);
       collectDynamicProperty(node, owner, state, output);
       collectDynamicScope(node, owner, state, output);
@@ -120,17 +103,7 @@ export const collectJavaScriptSemanticCalls = (
     },
     exit: (node) => {
       context.ancestors.pop();
-      const callableId = semanticCallableIdForNode(node);
-      if (
-        callableId !== null &&
-        callableStack.at(-1)?.callableId === callableId
-      )
-        callableStack.pop();
-      const method = suspendedMethods.get(node);
-      if (method !== undefined) {
-        suspendedMethods.delete(node);
-        callableStack.push(method);
-      }
+      callableStack.exit(node);
     },
   });
   return {
