@@ -10,7 +10,10 @@ import { inspectManagedMembersBytes } from "../../../dist/dotnet/ManagedMemberIn
 import { importManagedReconstructionEvidence } from "../../../dist/application/managed/ManagedReconstructionService.js";
 import { createEvidence } from "../../../dist/domain/evidence.js";
 import { MANAGED_STATIC_PROVIDER } from "../../../dist/application/InvestigationProviders.js";
-import { createManagedManifestVerifier } from "./manifest.mjs";
+import {
+  createManagedManifestVerifier,
+  selectManifestMethod,
+} from "./manifest.mjs";
 
 const execFileAsync = promisify(execFile);
 
@@ -27,10 +30,18 @@ export const createManagedConformanceOracleSupport = (context) => {
 async function runManagedAppManifestSelfTest(context) {
   const sample = await context.fixture("manifest-self-test.exe", {
     methods: [
-      { name: "FirstSemanticSlice", body: Buffer.from([0x06, 0x2a]) },
-      { name: "PinnedSemanticSlice", body: context.defaultIlBody },
-      { name: "UnselectedSemanticSlice", body: Buffer.from([0x06, 0x2a]) },
+      { name: "FirstSemanticSlice", body: manifestMethodBody(1, 0x06000003) },
+      { name: "PinnedSemanticSlice", body: manifestMethodBody(5, 0x06000001) },
+      {
+        name: "UnselectedSemanticSlice",
+        body: manifestMethodBody(9, 0x0a000001),
+      },
     ],
+    // One-character UTF-16 #US entries have a three-byte payload and a
+    // one-byte compressed length; their offsets are 1, 5 and 9.
+    userStringHeap: Buffer.from([
+      0, 3, 0x41, 0, 0, 3, 0x42, 0, 0, 3, 0x43, 0, 0,
+    ]),
   });
   const artifact = inspectManagedArtifactBytes(
     sample.bytes,
@@ -44,6 +55,7 @@ async function runManagedAppManifestSelfTest(context) {
   );
   const method = members.methods[1];
   assert.ok(method);
+  const memberFactChecks = verifyManifestSelectedFacts(members);
   const manifest = {
     label: "source-owned manifest verifier self-test",
     target: {
@@ -136,7 +148,65 @@ async function runManagedAppManifestSelfTest(context) {
     target: summary.target,
     selection_checks: 2,
     rejection_checks: rejections,
+    member_fact_checks: memberFactChecks,
   };
+}
+
+function manifestMethodBody(literalOffset, callToken) {
+  const callee = Buffer.alloc(4);
+  callee.writeUInt32LE(callToken);
+  const il = Buffer.concat([
+    // ldarg.0; ldfld 0x04000001; pop
+    Buffer.from([0x02, 0x7b, 1, 0, 0, 4, 0x26]),
+    // ldstr from this method's #US entry; pop
+    Buffer.from([0x72, literalOffset, 0, 0, 0x70, 0x26]),
+    Buffer.from([0x28]),
+    callee,
+    Buffer.from([0x2a]), // call; ret
+  ]);
+  return Buffer.concat([Buffer.from([(il.length << 2) | 2]), il]);
+}
+
+function verifyManifestSelectedFacts(members) {
+  assert.equal(members.call_edges.length, 3);
+  assert.equal(members.field_accesses.length, 3);
+  assert.equal(members.user_strings.literals.length, 3);
+  const cases = [
+    ["0x06000001", "0x06000003", "0x70000001", "A"],
+    ["0x06000002", "0x06000001", "0x70000005", "B"],
+    ["0x06000003", "0x0a000001", "0x70000009", "C"],
+  ];
+  for (const [token, callee, literal, value] of cases) {
+    const selected = selectManifestMethod(members, token);
+    assert.deepEqual(
+      selected.methods.map((method) => method.token),
+      [token],
+    );
+    assert.deepEqual(
+      selected.call_edges.map((edge) => [edge.caller_token, edge.target_token]),
+      [[token, callee]],
+    );
+    assert.deepEqual(
+      selected.field_accesses.map((access) => [
+        access.method_token,
+        access.field_token,
+        access.opcode,
+      ]),
+      [[token, "0x04000001", "ldfld"]],
+    );
+    assert.deepEqual(
+      selected.user_strings.literals.map((item) => [item.token, item.value]),
+      [[literal, value]],
+    );
+    assert.deepEqual(selected.artifact, members.artifact);
+    assert.deepEqual(selected.identity_scope, members.identity_scope);
+  }
+  assert.equal(
+    selectManifestMethod({ ...members, user_strings: null }, "0x06000002")
+      .user_strings,
+    null,
+  );
+  return cases.length;
 }
 
 async function verifyManifestRejections(context, manifest, manifestPath) {

@@ -289,7 +289,8 @@ const projectManifestMethod = (state, token) => {
   return projection;
 };
 
-function selectManifestMethod(members, token) {
+/** Project a MethodDef's already inspected facts for manifest verification. */
+export function selectManifestMethod(members, token) {
   methodTokenRow(token);
   const method = members.methods.find((candidate) => candidate.token === token);
   ensure(
