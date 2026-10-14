@@ -423,6 +423,40 @@ const allScenarios = [
       kept: true,
     },
     {
+      file: "inline-object-cache-escape.js",
+      mutation:
+        '__vite__mapDeps([0]); function mutate(box) { box.cache[0] = "./last.js"; } mutate({cache: __vite__mapDeps.f});',
+    },
+    {
+      file: "inline-array-cache-escape.js",
+      mutation:
+        '__vite__mapDeps([0]); function mutate(box) { box[0][0] = "./last.js"; } mutate([__vite__mapDeps.f]);',
+    },
+    {
+      file: "reflect-applied-cache-escape.js",
+      mutation:
+        '__vite__mapDeps([0]); function mutate(cache) { cache[0] = "./last.js"; } Reflect.apply(mutate, null, [__vite__mapDeps.f]);',
+    },
+    {
+      file: "assigned-target-cache.js",
+      mutation:
+        '__vite__mapDeps([0]); const box = {...__vite__mapDeps}; const alias = Object.assign(box, {}); alias.f[0] = "./last.js";',
+    },
+    {
+      file: "assigned-target-override.js",
+      mutation:
+        '__vite__mapDeps([0]); const box = {...__vite__mapDeps}; const alias = Object.assign(box, {f: []}); alias.f[0] = "./last.js";',
+      kept: true,
+    },
+    {
+      file: "sparse-independent-replacement.js",
+      mutation:
+        "__vite__mapDeps([0]); const copy = {...__vite__mapDeps, f: [" +
+        ",".repeat(2048) +
+        ']}; copy.f[0] = "./last.js";',
+      kept: true,
+    },
+    {
       file: "helper-alias.js",
       mutation: 'const alias = __vite__mapDeps; alias.f = ["./last.js"];',
     },

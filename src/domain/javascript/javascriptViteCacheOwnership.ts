@@ -135,8 +135,8 @@ export function* invalidateJavaScriptViteCachesSteps(
           "defineProperties",
           "setPrototypeOf",
         ].includes(intrinsicMethod ?? "");
-      if (!knownObjectOperation && invocation?.kind !== "known")
-        for (const argument of node.arguments)
+      if (!knownObjectOperation)
+        for (const argument of invocation?.arguments ?? node.arguments)
           for (const path of origins(
             t.isSpreadElement(argument) ? argument.argument : argument,
             true,
@@ -221,6 +221,7 @@ function* createViteCacheOriginsSteps(
           fact !== undefined &&
           fact.first === undefined &&
           !fact.direct &&
+          typeof source === "string" &&
           detachedCacheAt(source, node, detachments, state)
         )
           continue;
@@ -249,6 +250,7 @@ function* indexViteAliasesSteps(
   const aliases = new Map<AliasVertex, CacheAlias[]>();
   const producers: t.Node[] = [];
   const spreadFacts = new WeakMap<t.Node, SpreadCacheFact>();
+  const literalSlots = new WeakMap<t.Node, CacheLiteralSlots>();
   const freshFacts = new WeakMap<t.Node, boolean>();
   const interop = createSemanticModuleInterop(state);
   const enqueued = new WeakSet<t.Node>();
@@ -309,34 +311,10 @@ function* indexViteAliasesSteps(
         initializer.projection.length === 0 &&
         (t.isObjectExpression(expression) || t.isArrayExpression(expression))
       ) {
-        const properties = new Map<string, t.Node>();
-        const seenKeys = new Set<string>();
-        if (t.isObjectExpression(expression))
-          for (
-            let index = expression.properties.length - 1;
-            index >= 0;
-            index--
-          ) {
-            if (examined++ % 1024 === 0) yield;
-            const property = expression.properties[index];
-            if (property === undefined || t.isSpreadElement(property)) continue;
-            const key = semanticStaticPropertyKey(
-              property.key,
-              property.computed,
-            );
-            if (key !== null && !seenKeys.has(key)) {
-              seenKeys.add(key);
-              if (t.isObjectProperty(property))
-                properties.set(key, property.value);
-            }
-          }
-        else
-          for (let index = 0; index < expression.elements.length; index++) {
-            if (examined++ % 1024 === 0) yield;
-            const element = expression.elements[index];
-            if (t.isSpreadElement(element)) break;
-            if (element != null) properties.set(String(index), element);
-          }
+        const { properties } = yield* cacheLiteralSlotsSteps(
+          expression,
+          literalSlots,
+        );
         for (const [key, value] of properties) {
           if (examined++ % 1024 === 0) yield;
           normalize(value);
@@ -356,6 +334,9 @@ function* indexViteAliasesSteps(
   // Member assignments can introduce sharing after an initially fresh literal.
   yield* traverseJavaScriptAstSteps(state.program, {
     enter: (node) => {
+      if (t.isCallExpression(node) || t.isOptionalCallExpression(node))
+        for (const argument of node.arguments)
+          normalize(t.isSpreadElement(argument) ? argument.argument : argument);
       if (
         !t.isAssignmentExpression(node, { operator: "=" }) ||
         !t.isMemberExpression(node.left)
@@ -385,6 +366,20 @@ function* indexViteAliasesSteps(
     if (cursor % 1024 === 0) yield;
     const node = producers[cursor];
     if (node === undefined) break;
+    const expression = unwrapJavaScriptExpression(node).node;
+    if (t.isObjectExpression(expression) || t.isArrayExpression(expression)) {
+      const slots = yield* cacheLiteralSlotsSteps(expression, literalSlots);
+      for (const values of [slots.properties.values(), slots.dynamicValues])
+        for (const value of values) {
+          if (examined++ % 1024 === 0) yield;
+          normalize(value);
+          connect(value, {
+            target: expression,
+            first: undefined,
+            container: true,
+          });
+        }
+    }
     for (const input of yield* aliasProducerInputsSteps(
       node,
       state,
@@ -404,6 +399,51 @@ function* indexViteAliasesSteps(
     }
   }
   return aliases;
+}
+
+interface CacheLiteralSlots {
+  readonly properties: ReadonlyMap<string, t.Node>;
+  readonly dynamicValues: readonly t.Node[];
+}
+
+/** Decode each literal's effective data slots once for member and container views. */
+function* cacheLiteralSlotsSteps(
+  node: t.ObjectExpression | t.ArrayExpression,
+  cache: WeakMap<t.Node, CacheLiteralSlots>,
+): Generator<void, CacheLiteralSlots> {
+  const previous = cache.get(node);
+  if (previous !== undefined) return previous;
+  const properties = new Map<string, t.Node>();
+  const dynamicValues: t.Node[] = [];
+  if (t.isObjectExpression(node)) {
+    const seen = new Set<string>();
+    for (let index = node.properties.length - 1; index >= 0; index--) {
+      if (index % 1024 === 0) yield;
+      const property = node.properties[index];
+      if (property === undefined || t.isSpreadElement(property)) continue;
+      const key = semanticStaticPropertyKey(property.key, property.computed);
+      if (key !== null && seen.has(key)) continue;
+      if (key !== null) seen.add(key);
+      if (!t.isObjectProperty(property)) continue;
+      if (key === null) dynamicValues.push(property.value);
+      else properties.set(key, property.value);
+    }
+  } else {
+    let exactIndex = true;
+    for (let index = 0; index < node.elements.length; index++) {
+      if (index % 1024 === 0) yield;
+      const element = node.elements[index];
+      if (element == null) continue;
+      if (t.isSpreadElement(element)) {
+        exactIndex = false;
+        dynamicValues.push(element.argument);
+      } else if (exactIndex) properties.set(String(index), element);
+      else dynamicValues.push(element);
+    }
+  }
+  const result = { properties, dynamicValues };
+  cache.set(node, result);
+  return result;
 }
 
 function* aliasProducerInputsSteps(
@@ -489,6 +529,13 @@ function* aliasProducerInputsSteps(
       )
         overwritten = true;
     }
+    const target = arguments_[0];
+    if (target !== undefined && !t.isSpreadElement(target))
+      inputs.push({
+        source: target,
+        first,
+        ...(overwritten ? { copyKeepsCache: false } : {}),
+      });
     return inputs;
   }
   if (t.isCallExpression(root)) {
@@ -531,7 +578,7 @@ function* freshCacheReplacementSteps(
     phase: "visit" | "alias" | "binding" | "container";
     resultNode?: t.Node;
     bindingId?: string;
-    children?: Generator<t.Node>;
+    children?: Generator<t.Node | undefined>;
     expression?: t.ArrayExpression | t.ObjectExpression;
     fresh?: boolean;
     pendingChild?: t.Node;
@@ -565,6 +612,8 @@ function* freshCacheReplacementSteps(
           facts.set(current.expression, fresh);
         facts.set(current.node, fresh);
         pending.pop();
+      } else if (child.value === undefined) {
+        continue;
       } else if (facts.get(child.value) === false) {
         current.fresh = false;
       } else if (!facts.has(child.value)) {
@@ -659,11 +708,14 @@ function* freshCacheReplacementSteps(
 
 function* freshContainerValues(
   node: t.ArrayExpression | t.ObjectExpression,
-): Generator<t.Node> {
+): Generator<t.Node | undefined> {
   if (t.isArrayExpression(node)) {
     for (const element of node.elements)
-      if (element !== null)
-        yield t.isSpreadElement(element) ? element.argument : element;
+      yield element === null
+        ? undefined
+        : t.isSpreadElement(element)
+          ? element.argument
+          : element;
     return;
   }
   for (const property of node.properties)
@@ -777,8 +829,8 @@ const viteAliasSources = (
   state: JavaScriptSemanticAnalysisState,
   facts: ReadonlyMap<AliasVertex, CacheOwnership>,
   first: CacheKey = undefined,
-): ReadonlyMap<string, CacheKey> => {
-  const sources = new Map<string, CacheKey>();
+): ReadonlyMap<AliasVertex, CacheKey> => {
+  const sources = new Map<AliasVertex, CacheKey>();
   const pending = [{ node, first }];
   while (pending.length > 0) {
     const current = pending.pop();
@@ -805,7 +857,8 @@ const viteAliasSources = (
           sources.has(source) && previous !== key ? null : key,
         );
       }
-    } else if (t.isConditionalExpression(root))
+    } else if (facts.has(root)) sources.set(root, key);
+    else if (t.isConditionalExpression(root))
       pending.push(
         { node: root.consequent, first: key },
         { node: root.alternate, first: key },
