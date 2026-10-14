@@ -136,7 +136,7 @@ export async function verifyScenarioServiceWorkers(endpoint, targetId) {
         false,
         "Worker-influenced capture unexpectedly succeeded",
       );
-      assert.equal(result.error.reason, "target_not_allowed");
+      assert.equal(result.error.reason, "service_worker_blocked");
       assert.equal(
         result.error.partialObservation.capture.browser.cleanup,
         "disconnected-external",
@@ -582,7 +582,7 @@ const verifyRejectedPolicyInstallation = async (context, endpoint, origin) => {
       }, realm);
       await assert.rejects(
         realm === "new-iframe" ? policy.assertBlocked() : policy.initialize(),
-        (error) => error.reason === "target_not_allowed",
+        (error) => error.reason === "service_worker_guard_unavailable",
       );
       await policy.close();
       assert.equal(

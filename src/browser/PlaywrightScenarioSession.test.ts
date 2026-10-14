@@ -105,7 +105,10 @@ const fixture = () => {
   const page = Object.assign(new EventEmitter(), {
     url: () => "about:blank",
     goto: vi.fn(async () => undefined),
-    evaluate: vi.fn(async (_script: unknown) => false),
+    evaluate: vi.fn(async (_script: unknown) => ({
+      service_worker_detected: false,
+      registration_guard_installed: true,
+    })),
     addInitScript: vi.fn(async (_script: unknown) => undefined),
     context: () => context,
     frames: () => [page],
@@ -188,9 +191,17 @@ it("stops attached navigation without storage and retries rejected policy cleanu
   expect(cleanup.close).toHaveBeenCalledTimes(1);
 });
 
-it("rejects an init script accepted by CDP when the live realm is unprotected", async () => {
+it("reports an unavailable guard when the live realm is unprotected", async () => {
   const { page, cleanup } = fixture();
-  page.evaluate.mockResolvedValueOnce(false).mockResolvedValueOnce(true);
+  page.evaluate
+    .mockResolvedValueOnce({
+      service_worker_detected: false,
+      registration_guard_installed: true,
+    })
+    .mockResolvedValueOnce({
+      service_worker_detected: false,
+      registration_guard_installed: false,
+    });
   const attached = browserScenarioSchema.parse({
     ...scenario,
     browser: {
@@ -203,7 +214,7 @@ it("rejects an init script accepted by CDP when the live realm is unprotected", 
   await expect(
     PlaywrightScenarioSession.open(attached, {}, {}),
   ).rejects.toMatchObject({
-    reason: "service_worker_blocked",
+    reason: "service_worker_guard_unavailable",
   });
   expect(
     mocks.policySend.mock.calls.some(
@@ -400,7 +411,10 @@ it("cancels a stalled policy preflight without allowing late setup", async () =>
     await new Promise<void>((resolve) => {
       release = resolve;
     });
-    return false;
+    return {
+      service_worker_detected: false,
+      registration_guard_installed: true,
+    };
   });
   const cancellation = new AbortController();
   const opening = PlaywrightScenarioSession.open(
@@ -484,7 +498,10 @@ it("waits for a pending registration installation before cancelled cleanup", asy
 
 it("rejects attached block when caller-owned registrations already exist", async () => {
   const { cleanup, page } = fixture();
-  page.evaluate.mockResolvedValueOnce(true);
+  page.evaluate.mockResolvedValueOnce({
+    service_worker_detected: true,
+    registration_guard_installed: false,
+  });
   const attached = browserScenarioSchema.parse({
     ...scenario,
     browser: {

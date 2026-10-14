@@ -21,6 +21,10 @@ const attachedEvent = z.object({
   targetInfo: z.object({ type: z.string() }),
 });
 const detachedEvent = z.object({ sessionId: z.string() });
+const blockedPolicyStatus = z.strictObject({
+  service_worker_detected: z.boolean(),
+  registration_guard_installed: z.boolean(),
+});
 type PolicyTarget = {
   readonly id: string;
   ready: Promise<void>;
@@ -207,23 +211,35 @@ export class PlaywrightScenarioServiceWorkers {
   async assertBlocked(): Promise<void> {
     if (this.#session !== undefined) await this.settle();
     for (const frame of this.page.frames()) {
-      let violatesPolicy: unknown;
+      let status: z.infer<typeof blockedPolicyStatus>;
       try {
-        violatesPolicy = await frame.evaluate(`(async () => {
-          if (!("serviceWorker" in navigator)) return false;
+        status = blockedPolicyStatus.parse(
+          await frame.evaluate(`(async () => {
+          if (!("serviceWorker" in navigator)) return {
+            service_worker_detected: false,
+            registration_guard_installed: true,
+          };
           const serviceWorker = navigator.serviceWorker;
-          if (${this.#session !== undefined} &&
-              (!Object.hasOwn(serviceWorker.register, Symbol.for(${this.marker})) ||
-               typeof globalThis[${this.restoreKey}] !== "function")) return true;
-          if (serviceWorker.controller !== null) return true;
-          return (await serviceWorker.getRegistrations()).length > 0;
-        })()`);
+          const service_worker_detected = serviceWorker.controller !== null ||
+            (await serviceWorker.getRegistrations()).length > 0;
+          const registration_guard_installed = ${this.#session === undefined} || (
+            Object.hasOwn(serviceWorker.register, Symbol.for(${this.marker})) &&
+            typeof globalThis[${this.restoreKey}] === "function"
+          );
+          return { service_worker_detected, registration_guard_installed };
+        })()`),
+        );
       } catch (cause: unknown) {
         if (frame.isDetached()) continue;
         throw cause;
       }
-      if (violatesPolicy)
+      if (status.service_worker_detected)
         throw new BrowserObservationError(OPERATION, "service_worker_blocked");
+      if (!status.registration_guard_installed)
+        throw new BrowserObservationError(
+          OPERATION,
+          "service_worker_guard_unavailable",
+        );
     }
   }
 

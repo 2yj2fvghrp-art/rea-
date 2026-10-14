@@ -53,6 +53,8 @@ const observationFailureMessage = (
     return `${operation} could not find the selected target at the debugging endpoint. Refresh target discovery for that endpoint and retry with a returned target ID.`;
   if (reason === "service_worker_blocked")
     return `${operation} was blocked because a service worker controls the selected page or is registered in one of its frames. The configured service-worker policy is block.`;
+  if (reason === "service_worker_guard_unavailable")
+    return `${operation} could not verify the service-worker block policy because its registration guard was unavailable in the selected page or one of its frames. Capture was refused.`;
   if (reason === "disconnected")
     return `${operation} lost its debugging connection. Verify that the target process is still running, refresh target discovery, and retry the observation.`;
   return undefined;

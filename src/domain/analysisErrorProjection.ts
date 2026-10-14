@@ -136,6 +136,7 @@ const browserErrorCode = (
     reason === "target_not_found" ||
     reason === "target_not_allowed" ||
     reason === "service_worker_blocked" ||
+    reason === "service_worker_guard_unavailable" ||
     reason === "target_changed"
   )
     return "target_unavailable";
