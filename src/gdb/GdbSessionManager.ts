@@ -12,6 +12,7 @@ import {
 import { AnalysisError } from "../domain/analysisErrorBase.js";
 import { createEvidence, type Evidence } from "../domain/evidence.js";
 import { err, ok, type Result } from "../domain/result.js";
+import { projectAnalysisError } from "../domain/analysisErrorProjection.js";
 import {
   ProviderProcessSupervisor,
   spawnOwnedProviderProcess,
@@ -451,15 +452,24 @@ export class GdbSessionManager {
       signal,
       options.inferiorTty,
     );
-    return mi3.ok || signal?.aborted || this.#sessions.has(id)
-      ? mi3
-      : this.#startProtocol(
-          id,
-          "mi2",
-          releaseReservation,
-          signal,
-          options.inferiorTty,
-        );
+    if (mi3.ok || signal?.aborted || this.#sessions.has(id)) return mi3;
+    const mi2 = await this.#startProtocol(
+      id,
+      "mi2",
+      releaseReservation,
+      signal,
+      options.inferiorTty,
+    );
+    if (mi2.ok || mi2.error.cleanupIncomplete) return mi2;
+    // Both attempts were observed: keep the preferred protocol's failure and
+    // partial startup Evidence as context instead of discarding them.
+    if (mi3.error.partialObservation !== undefined)
+      mi2.error.retainPartialObservation(mi3.error.partialObservation);
+    return err(
+      mi2.error.retainSecondaryFailure(mi3.error, {
+        mi3_startup_error: projectAnalysisError(mi3.error),
+      }),
+    );
   }
 
   async #startProtocol(
@@ -1979,8 +1989,12 @@ export const gdbOneShotCommandMayInvalidateDetachProof = (
       "signal",
       "py",
       "python",
+      "shell",
     ].some((name) => name.startsWith(firstToken))
   )
+    return true;
+  // `!command` is shell's alias; a trailing `&` can leave a background child.
+  if (firstToken?.startsWith("!") === true || /&\s*$/u.test(command))
     return true;
   // One-shot execution cannot establish which shell/GDB context interprets
   // redirections, nor safely track multiline command definitions.
