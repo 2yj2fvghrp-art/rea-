@@ -1,5 +1,5 @@
 import { execFile } from "node:child_process";
-import { mkdir, readFile, writeFile } from "node:fs/promises";
+import { chmod, mkdir, readFile, writeFile } from "node:fs/promises";
 import { join } from "node:path";
 import { promisify } from "node:util";
 
@@ -506,6 +506,40 @@ describe("ZCode fallback registration status", () => {
       config_path: client.configPath,
     });
   });
+
+  it("reports a disabled fallback registration as stale", async () => {
+    const { home } = await zcodeClient();
+    await writeFallbackRegistration(home, {
+      command: command[0],
+      args: command.slice(1),
+      enable: false,
+    });
+
+    await expect(statusFor(home)).resolves.toMatchObject({
+      state: "stale",
+      config_path: fallbackPath(home),
+    });
+  });
+
+  it.skipIf(process.platform === "win32")(
+    "fails closed when the fallback is unreadable",
+    async () => {
+      const { home } = await zcodeClient();
+      await writeFallbackRegistration(home, {
+        command: command[0],
+        args: command.slice(1),
+      });
+      await chmod(fallbackPath(home), 0o000);
+      try {
+        await expect(statusFor(home)).resolves.toMatchObject({
+          state: "invalid",
+          config_path: fallbackPath(home),
+        });
+      } finally {
+        await chmod(fallbackPath(home), 0o644).catch(() => undefined);
+      }
+    },
+  );
 });
 
 describe("ZCode disabled registrations", () => {

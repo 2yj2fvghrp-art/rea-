@@ -139,14 +139,24 @@ export const readClientRegistrationInspections = async (
       if (
         client.format === "zcode" &&
         client.zcodeFallbackPath !== undefined &&
-        (parsed === undefined || Object.keys(parsed.servers).length === 0) &&
-        (await exists(client.zcodeFallbackPath))
-      )
-        return evaluateClient({
-          ...client,
-          configPath: client.zcodeFallbackPath,
-          format: "zcode_fallback",
-        });
+        (parsed === undefined || Object.keys(parsed.servers).length === 0)
+      ) {
+        const reachable = await fallbackReachable(client.zcodeFallbackPath);
+        if (reachable === "present")
+          return evaluateClient({
+            ...client,
+            configPath: client.zcodeFallbackPath,
+            format: "zcode_fallback",
+          });
+        if (reachable === "denied")
+          record({
+            client: client.name,
+            config_path: client.zcodeFallbackPath,
+            command: [],
+            state: "invalid",
+            remediation: `The ZCode fallback configuration ${client.zcodeFallbackPath} could not be read. Check its permissions before rerunning doctor: while the native table stays empty, ZCode loads that fallback.`,
+          });
+      }
       if (parsed === undefined) {
         record(unavailableStatus(client, "missing"));
         return;
@@ -476,6 +486,18 @@ const exists = async (path: string | undefined): Promise<boolean> => {
     // best-effort cleanup: optional registration probing; absence means unregistered.
     void cause;
     return false;
+  }
+};
+
+/** Distinguish an absent fallback from one whose permissions hide it. */
+const fallbackReachable = async (
+  path: string,
+): Promise<"present" | "absent" | "denied"> => {
+  try {
+    await access(path);
+    return "present";
+  } catch (cause: unknown) {
+    return isMissing(cause) ? "absent" : "denied";
   }
 };
 
