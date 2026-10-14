@@ -283,7 +283,7 @@ const addDiscoveredRole = (
     sourcePath: input.file.path,
     context: input.value.resolution_context,
     files: context.filesByPath,
-    directoryPaths: context.directoryPaths,
+    retainedPaths: context.retainedPaths,
   });
   const role = createElectronRoleNode(context, {
     kind:
@@ -326,13 +326,14 @@ const addSourceMapEdge = (
   const declaredUrlSha256 = createHash("sha256")
     .update(input.value.declared_url)
     .digest("hex");
-  const resolvedPath = resolveArtifactPathByContext({
+  const resolution = resolveArtifactPathByContext({
     declaredPath: input.value.declared_url,
     sourcePath: input.file.path,
     context: "url-reference",
     files: context.filesByPath,
-    directoryPaths: context.directoryPaths,
-  }).resolved_path;
+    retainedPaths: context.retainedPaths,
+  });
+  const resolvedPath = resolution.resolved_path;
   const resolvedFile =
     resolvedPath === null ? undefined : context.filesByPath.get(resolvedPath);
   const resolvedNode =
@@ -367,9 +368,11 @@ const addSourceMapEdge = (
           confidence: "medium",
           limitations: isAvailable
             ? []
-            : [
-                "The declared source map was not present in the inventoried artifact.",
-              ],
+            : resolution.resolution_status === "unavailable"
+              ? resolution.limitations
+              : [
+                  "The declared source map was not present in the inventoried artifact.",
+                ],
         }),
       },
     ],
@@ -426,14 +429,14 @@ const resolveReference = (
         sourcePath,
         context: "url-reference",
         files: context.filesByPath,
-        directoryPaths: context.directoryPaths,
+        retainedPaths: context.retainedPaths,
       })
     : resolveArtifactPathByContext({
         declaredPath: specifier,
         sourcePath,
         context: "module-specifier",
         files: context.filesByPath,
-        directoryPaths: context.directoryPaths,
+        retainedPaths: context.retainedPaths,
         ...("require" === reference.kind ||
         "static-import" === reference.kind ||
         "dynamic-import" === reference.kind

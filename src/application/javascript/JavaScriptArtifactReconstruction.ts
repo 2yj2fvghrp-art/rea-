@@ -24,7 +24,10 @@ import { createJavaScriptSourceAnalysis } from "../../artifacts/javascript/JavaS
 import { JAVASCRIPT_ANALYSIS_RESOURCE_DEFAULTS } from "../../domain/javascript/javascriptAnalysisResourceControls.js";
 import { createOwnedJavaScriptApplicationEvidenceCooperatively } from "./JavaScriptApplicationEvidence.js";
 import { readJavaScriptArtifactFiles } from "../../artifacts/javascript/JavaScriptArtifactFiles.js";
-import { buildImmutableJavaScriptArtifactGraphSteps } from "./JavaScriptArtifactGraphBuilder.js";
+import {
+  buildImmutableJavaScriptArtifactGraphSteps,
+  retainJavaScriptArtifactPaths,
+} from "./JavaScriptArtifactGraphBuilder.js";
 import {
   javascriptArtifactReconstructionInputSchema,
   type JavaScriptArtifactReconstructionInput,
@@ -213,10 +216,12 @@ export const reconstructJavaScriptArtifact = async (
         "build_javascript_application_graph",
         "Constructing application and Electron boundary relationships",
       );
+      const retainedPaths = retainJavaScriptArtifactPaths(snapshot, files);
       const applicationGraphSteps = buildImmutableJavaScriptArtifactGraphSteps(
         snapshot,
         files,
         analysis,
+        retainedPaths,
       );
       await reportCompletedPhase(
         "seal_javascript_application_graph",
@@ -252,14 +257,7 @@ export const reconstructJavaScriptArtifact = async (
           : { source_selection: files.source_selection }),
         graph,
         semantic_graph: semanticGraph,
-        electron_summary: summarizeElectronBoundaries(
-          analysis,
-          new Set(
-            snapshot.occurrences
-              .filter(({ entry_kind }) => entry_kind === "directory")
-              .map(({ logical_path }) => logical_path),
-          ),
-        ),
+        electron_summary: summarizeElectronBoundaries(analysis, retainedPaths),
         statistics: {
           relevant_files: files.files.length,
           nested_asar_containers: files.containers.length,

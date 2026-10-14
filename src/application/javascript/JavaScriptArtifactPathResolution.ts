@@ -5,7 +5,10 @@ import {
   normalizeJoinedLogicalPath,
   logicalPathEscapesRoot,
 } from "../../domain/artifactIdentity.js";
-import type { JavaScriptArtifactFile } from "../../domain/javascript/javascriptArtifactFiles.js";
+import type {
+  JavaScriptArtifactFile,
+  JavaScriptArtifactPathFacts,
+} from "../../domain/javascript/javascriptArtifactFiles.js";
 import {
   admitsCanonicalPathSyntax,
   hasScheme,
@@ -75,8 +78,7 @@ export interface ResolveArtifactPathInput {
   readonly sourcePath: string;
   readonly context: ArtifactPathResolutionContext;
   readonly files: ReadonlyMap<string, JavaScriptArtifactFile>;
-  /** Directory identities retained by the complete artifact inventory. */
-  readonly directoryPaths?: ReadonlySet<string>;
+  readonly retainedPaths?: ReadonlyMap<string, JavaScriptArtifactPathFacts>;
   readonly htmlBaseHref?: string | null;
   /** Import/require semantics; runtime resource paths omit this provenance. */
   readonly moduleKind?: JavaScriptModuleResolutionMode;
@@ -273,6 +275,8 @@ const resolveRuntimeSourceCandidates = (
     kind: "implementation",
   };
   for (const candidate of [exactCandidate, ...sourceCandidates]) {
+    const unavailable = unavailableArtifactPath(input, candidate.path);
+    if (unavailable !== null) return unavailable;
     const target = input.files.get(candidate.path);
     if (
       target === undefined ||
@@ -475,7 +479,7 @@ const bareModuleCandidate = (
         input.files,
         candidate,
         source?.container_sha256,
-        input.directoryPaths,
+        input.retainedPaths,
       )
         ? resolvePackageDependency(input, candidate, request, metadata)
         : request.packageSubpath === "." && input.moduleKind !== "import"
@@ -687,7 +691,7 @@ const resolveLegacyEsmSubpath = (
       input.files,
       candidate,
       source?.container_sha256,
-      input.directoryPaths,
+      input.retainedPaths,
     )
   )
     return unresolvedCandidate("rejected", [
@@ -756,10 +760,10 @@ const resolveExportTarget = (
   if (typeof decoded !== "string") return withTargetSource(decoded);
   const candidate = confineCandidate(decoded);
   if (typeof candidate !== "string") return withTargetSource(candidate);
-  return (
+  const outcome =
     resolveFileCandidates(input, [candidate]) ??
-    withTargetSource(exactPackageTargetNotFound(candidate, mapKind))
-  );
+    exactPackageTargetNotFound(candidate, mapKind);
+  return outcome.status === "resolved" ? outcome : withTargetSource(outcome);
 };
 
 /** Derived package identity and dependency policy; input retains the raw request. */
@@ -798,9 +802,15 @@ const hasContainerDirectory = (
   files: ReadonlyMap<string, JavaScriptArtifactFile>,
   candidate: string,
   containerSha256: string | undefined,
-  directoryPaths: ReadonlySet<string> | undefined,
+  retainedPaths: ReadonlyMap<string, JavaScriptArtifactPathFacts> | undefined,
 ): boolean => {
-  if (directoryPaths?.has(candidate) === true) return true;
+  const retained = retainedPaths?.get(candidate);
+  if (retained !== undefined)
+    return (
+      retained.kind === "directory" &&
+      (containerSha256 === undefined ||
+        retained.container_sha256 === containerSha256)
+    );
   if (
     [...indexCandidates(candidate), posix.join(candidate, "package.json")].some(
       (path) => {
@@ -816,7 +826,7 @@ const hasContainerDirectory = (
     return true;
   // Inventory has files rather than directory entries. Any same-container
   // descendant establishes a package directory even without package.json.
-  const prefix = `${candidate}/`;
+  const prefix = candidate === "" ? "" : `${candidate}/`;
   for (const [path, file] of files)
     if (
       path.startsWith(prefix) &&
@@ -931,6 +941,12 @@ const readPackageMetadata = (
   directory: string,
 ): PackageMetadata => {
   const path = posix.join(directory, "package.json");
+  const unavailable = unavailableArtifactPath(input, path);
+  if (unavailable !== null)
+    return {
+      kind: "unavailable",
+      limitation: unavailable.limitations.join(" "),
+    };
   const file = input.files.get(path);
   const source = input.files.get(input.sourcePath);
   if (
@@ -1059,9 +1075,9 @@ const resolveDirectory = (
     sourcePath: metadata.path,
     context: "package-entrypoint",
     files: input.files,
-    ...(input.directoryPaths === undefined
+    ...(input.retainedPaths === undefined
       ? {}
-      : { directoryPaths: input.directoryPaths }),
+      : { retainedPaths: input.retainedPaths }),
     ...(input.moduleKind === undefined ? {} : { moduleKind: input.moduleKind }),
   };
   const candidate = contextualCandidate(entryInput);
@@ -1098,7 +1114,8 @@ const resolveNodePackageMain = (
         : posix.normalize(`${normalizedMain}${suffix}`),
     ]);
     if (selected === null) continue;
-    if (input.moduleKind === "require") return selected;
+    if (selected.status !== "resolved" || input.moduleKind === "require")
+      return selected;
     // ESM probes the normalized main, then appends the selected suffix to
     // the original declaration before finalizing the resulting file path.
     const finalized = confineCandidate(
@@ -1115,12 +1132,12 @@ const resolveNodePackageMain = (
         input.files,
         finalized,
         source?.container_sha256,
-        input.directoryPaths,
+        input.retainedPaths,
       )
     )
       return {
         ...unresolvedCandidate("rejected", [
-          `The selected legacy ESM package main finalizes to directory ${finalized}; directory imports are unsupported and no later main or index candidate was tried.`,
+          `The selected legacy ESM package main finalizes to directory ${finalized || "."}; directory imports are unsupported and no later main or index candidate was tried.`,
         ]),
         candidatePath: finalized,
       };
@@ -1144,6 +1161,8 @@ const resolveFileCandidates = (
 ): CandidateResolution | null => {
   const source = input.files.get(input.sourcePath);
   for (const path of candidates) {
+    const unavailable = unavailableArtifactPath(input, path);
+    if (unavailable !== null) return unavailable;
     const target = input.files.get(path);
     if (
       target !== undefined &&
@@ -1160,6 +1179,32 @@ const resolveFileCandidates = (
             ],
           }
         : { resolvedPath: path, status: "resolved", limitations: [] };
+  }
+  return null;
+};
+
+const unavailableArtifactPath = (
+  input: ResolveArtifactPathInput,
+  path: string,
+): CandidateResolution | null => {
+  if (input.retainedPaths === undefined) return null;
+  const source = input.files.get(input.sourcePath);
+  let prefix = path.replace(/\/$/u, "");
+  while (prefix !== "" && prefix !== ".") {
+    const retained = input.retainedPaths?.get(prefix);
+    if (
+      retained?.kind === "symlink" &&
+      (source === undefined ||
+        retained.container_sha256 === source.container_sha256)
+    )
+      return {
+        ...unresolvedCandidate("unavailable", [
+          `Inventoried symbolic link ${prefix} has no established target in the selected artifact container; no later file or index candidate was tried.`,
+          ...retained.limitations,
+        ]),
+        candidatePath: path,
+      };
+    prefix = posix.dirname(prefix);
   }
   return null;
 };

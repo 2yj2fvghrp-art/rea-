@@ -137,7 +137,7 @@ const addWindowPreload = (
     sourcePath: input.file.path,
     context: resolutionContext,
     files: input.context.filesByPath,
-    directoryPaths: input.context.directoryPaths,
+    retainedPaths: input.context.retainedPaths,
   });
   const role = createElectronRoleNode(input.context, {
     kind: "electron-preload",
@@ -273,7 +273,7 @@ const addUtilityProcess = (
     sourcePath: file.path,
     context: value.module_resolution_context,
     files: context.filesByPath,
-    directoryPaths: context.directoryPaths,
+    retainedPaths: context.retainedPaths,
   });
   const resolved = resolution.resolved_path;
   const target =

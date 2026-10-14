@@ -6,7 +6,10 @@ import {
   type JavaScriptApplicationGraph,
 } from "../../domain/javascript/javascriptApplicationGraph.js";
 import type { JavaScriptModuleArtifactAnalysis } from "./JavaScriptArtifactAnalysisTypes.js";
-import type { JavaScriptArtifactFileSet } from "../../domain/javascript/javascriptArtifactFiles.js";
+import type {
+  JavaScriptArtifactFileSet,
+  JavaScriptArtifactPathFacts,
+} from "../../domain/javascript/javascriptArtifactFiles.js";
 import { JavaScriptArtifactGraphAccumulator } from "./JavaScriptArtifactGraphAccumulator.js";
 import {
   selfReferenceOmissions,
@@ -53,7 +56,12 @@ export const buildJavaScriptArtifactGraph = (
 ): JavaScriptApplicationGraph =>
   createJavaScriptApplicationGraph(
     completeSynchronously(
-      buildJavaScriptArtifactGraphInputSteps(snapshot, fileSet, analysis),
+      buildJavaScriptArtifactGraphInputSteps(
+        snapshot,
+        fileSet,
+        analysis,
+        retainJavaScriptArtifactPaths(snapshot, fileSet),
+      ),
     ),
   );
 
@@ -66,11 +74,16 @@ export function* buildImmutableJavaScriptArtifactGraphSteps(
   snapshot: ArtifactInventorySnapshot,
   fileSet: JavaScriptArtifactFileSet,
   analysis: JavaScriptModuleArtifactAnalysis,
+  retainedPaths: ReadonlyMap<
+    string,
+    JavaScriptArtifactPathFacts
+  > = retainJavaScriptArtifactPaths(snapshot, fileSet),
 ): Generator<void, JavaScriptApplicationGraph> {
   const input = yield* buildJavaScriptArtifactGraphInputSteps(
     snapshot,
     fileSet,
     analysis,
+    retainedPaths,
   );
   // The input was built here and is not retained, so it can be transferred.
   return yield* sealTransferredJavaScriptApplicationGraphSteps(input);
@@ -87,6 +100,7 @@ function* buildJavaScriptArtifactGraphInputSteps(
   snapshot: ArtifactInventorySnapshot,
   fileSet: JavaScriptArtifactFileSet,
   analysis: JavaScriptModuleArtifactAnalysis,
+  retainedPaths: ReadonlyMap<string, JavaScriptArtifactPathFacts>,
 ): Generator<void, unknown> {
   const accumulator = new JavaScriptArtifactGraphAccumulator();
   const root = createJavaScriptArtifactRootNode(accumulator, snapshot);
@@ -95,11 +109,7 @@ function* buildJavaScriptArtifactGraphInputSteps(
     snapshot,
     fileSet,
     analysis,
-    directoryPaths: new Set(
-      snapshot.occurrences
-        .filter(({ entry_kind }) => entry_kind === "directory")
-        .map(({ logical_path }) => logical_path),
-    ),
+    retainedPaths,
     root,
     filesByPath: new Map(fileSet.files.map((file) => [file.path, file])),
     fileNodes: new Map(),
@@ -158,6 +168,48 @@ function* buildJavaScriptArtifactGraphInputSteps(
     ],
   };
 }
+
+export const retainJavaScriptArtifactPaths = (
+  snapshot: ArtifactInventorySnapshot,
+  fileSet: JavaScriptArtifactFileSet,
+): ReadonlyMap<string, JavaScriptArtifactPathFacts> => {
+  const containers = [...fileSet.containers].sort(
+    (left, right) => right.path.length - left.path.length,
+  );
+  const paths = new Map<string, JavaScriptArtifactPathFacts>([
+    [
+      "",
+      {
+        kind: "directory",
+        container_sha256: snapshot.manifest.root_sha256,
+        limitations: [],
+      },
+    ],
+  ]);
+  for (const container of containers)
+    paths.set(container.path, {
+      kind: "directory",
+      container_sha256: container.sha256,
+      limitations: [],
+    });
+  for (const occurrence of snapshot.occurrences) {
+    if (
+      occurrence.entry_kind !== "directory" &&
+      occurrence.entry_kind !== "symlink"
+    )
+      continue;
+    const path = occurrence.logical_path === "." ? "" : occurrence.logical_path;
+    const container = containers.find(({ path: prefix }) =>
+      path.startsWith(`${prefix}/`),
+    );
+    paths.set(path, {
+      kind: occurrence.entry_kind,
+      container_sha256: container?.sha256 ?? snapshot.manifest.root_sha256,
+      limitations: occurrence.limitations,
+    });
+  }
+  return paths;
+};
 
 const graphCoverage = (context: JavaScriptArtifactGraphContext) => {
   const resourceLimits = semanticResourceLimits(context);
