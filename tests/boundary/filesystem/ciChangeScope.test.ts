@@ -996,6 +996,15 @@ it.each([
     { code: true, package: true, browser: true, evm: true },
   ],
   ["docs/.vitepress/config.ts", { code: true, docs: true, package: false }],
+  [
+    "docs/package.json",
+    { code: true, docs: true, runtime: false, package: false },
+  ],
+  [
+    "docs/.vitepress/package.json",
+    { code: true, docs: true, runtime: false, package: false },
+  ],
+  ["docs/data.json", { code: false, docs: true, package: false }],
   ["CHANGELOG.md", { code: false, docs: true, package: false }],
   ["SECURITY.md", { code: false, docs: true, package: false }],
   [".github/pull_request_template.md", { code: false, docs: true }],
@@ -1011,6 +1020,10 @@ it.each([
   ["scripts/unknown-website-helper.mjs", { code: true, package: true }],
   [
     ".github/workflows/release.yml",
+    { workflows: true, code: true, package: false, website: false },
+  ],
+  [
+    ".github/workflows/pr-readiness.yml",
     { workflows: true, code: true, package: false, website: false },
   ],
   [
