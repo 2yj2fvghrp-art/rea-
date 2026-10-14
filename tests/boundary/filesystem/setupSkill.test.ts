@@ -151,9 +151,11 @@ describe("skill directory admission", () => {
     await access(join(retained, "native-and-artifacts.md"));
   });
 
-  it.skipIf(process.platform === "win32" || process.getuid?.() === 0)(
-    "retains an unreadable reference as unknown rather than a content mismatch",
-    async () => {
+  it
+    .skipIf(process.platform === "win32" || process.getuid?.() === 0)
+    .each(["aligned", "stale", "missing"] as const)(
+    "reports every unreadable reference with a %s manifest",
+    async (manifestState) => {
       const directory = await createTestTempDirectory(
         "rea-skill-unreadable-reference-",
       );
@@ -162,27 +164,45 @@ describe("skill directory admission", () => {
       );
       const [selected] = skillDestinations(directory, ["claude_code"]);
       if (selected === undefined) throw new Error("Missing skill destination");
-      const reference = join(
-        selected.path,
+      const manifest = join(selected.path, "SKILL.md");
+      if (manifestState === "stale")
+        await writeFile(manifest, "\nlocal changes\n", { flag: "a" });
+      if (manifestState === "missing") await rm(manifest);
+      const references = [
         "references/connection-and-recovery.md",
-      );
-      await chmod(reference, 0o000);
+        "references/evidence-workflows.md",
+      ].map((relative) => join(selected.path, relative));
+      for (const reference of references) await chmod(reference, 0o000);
       try {
-        expect(
-          await readInstalledSkillIdentity(directory, ["claude_code"]),
-        ).toMatchObject({
+        const identity = await readInstalledSkillIdentity(directory, [
+          "claude_code",
+        ]);
+        const issues = references.map((path) =>
+          expect.objectContaining({
+            path,
+            kind: "unreadable",
+            detail: expect.stringContaining("EACCES"),
+          }),
+        );
+        expect(identity).toMatchObject({
           canonical: false,
-          version: PRODUCT_IDENTITY.skillVersion,
-          issues: [
-            expect.objectContaining({
-              path: reference,
-              kind: "unreadable",
-              detail: expect.stringContaining("EACCES"),
-            }),
-          ],
+          version:
+            manifestState === "missing" ? null : PRODUCT_IDENTITY.skillVersion,
+          issues,
+        });
+        const report = await runDoctor(
+          undefined,
+          createDoctorHostFixture({
+            installedSkillIdentity: () => Promise.resolve(identity),
+          }),
+        );
+        expect(report.identity?.skill).toMatchObject({
+          state: "unknown",
+          issues,
+          remediation: expect.stringContaining("evidence-workflows.md"),
         });
       } finally {
-        await chmod(reference, 0o600);
+        for (const reference of references) await chmod(reference, 0o600);
       }
     },
   );

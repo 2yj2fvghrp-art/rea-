@@ -358,51 +358,81 @@ const canonicalSkillFiles = async (
   );
 };
 
-interface SkillInspectionFailure {
-  readonly issues: readonly SkillPathIssue[];
-  readonly cause: unknown;
+interface CanonicalSkillInspection {
+  readonly canonical: boolean;
+  readonly manifest: string | undefined;
 }
 
-const inspectCanonicalSkillAlignment = async (
+interface SkillInspectionFailure {
+  readonly _tag: "SkillInspectionFailure";
+  readonly issues: readonly SkillPathIssue[];
+  readonly cause: unknown;
+  readonly manifest: string | undefined;
+}
+
+const inspectCanonicalSkill = async (
   home: string,
   clientIds: readonly string[],
   environment: Readonly<NodeJS.ProcessEnv>,
   platform: NodeJS.Platform,
   resources?: ArtifactResourceScope,
-): Promise<Result<boolean, SkillInspectionFailure>> => {
-  const issues = await skillDirectoryIssues(
-    skillDestinations(home, clientIds, environment, platform),
-  );
-  if (issues.length > 0) return err({ issues, cause: issues });
-  for (const { path: root } of skillDestinations(
+): Promise<Result<CanonicalSkillInspection, SkillInspectionFailure>> => {
+  const destinations = skillDestinations(
     home,
     clientIds,
     environment,
     platform,
-  )) {
+  );
+  const issues = [...(await skillDirectoryIssues(destinations))];
+  if (issues.length > 0)
+    return err({
+      _tag: "SkillInspectionFailure",
+      issues,
+      cause: issues,
+      manifest: undefined,
+    });
+  let canonical = true;
+  let manifest: string | undefined;
+  let failureCause: unknown;
+  for (const { path: root } of destinations) {
     for (const relativePath of MANAGED_SKILL_FILES) {
       const destination = join(root, relativePath);
-      const content = await canonicalSkillContent(relativePath);
       let original: SkillFileState | undefined;
       try {
         original = await readOptionalSkillState(destination, resources);
       } catch (cause: unknown) {
-        return err({
-          issues: [
-            {
-              path: destination,
-              kind: "unreadable",
-              detail: causeReason(cause),
-            },
-          ],
-          cause,
+        if (
+          cause instanceof RegularFileCleanupFailure ||
+          cause instanceof ArtifactReaderFailure
+        )
+          throw cause;
+        issues.push({
+          path: destination,
+          kind: "unreadable",
+          detail: causeReason(cause),
         });
+        if (issues.length === 1) failureCause = cause;
+        canonical = false;
+        continue;
       }
-      if (original?.bytes.equals(Buffer.from(content, "utf8")) !== true)
-        return ok(false);
+      if (relativePath === "SKILL.md" && manifest === undefined)
+        manifest = original?.bytes.toString("utf8");
+      // A mismatch settles freshness, but not coverage of later read failures.
+      if (canonical) {
+        const content = await canonicalSkillContent(relativePath);
+        canonical =
+          original?.bytes.equals(Buffer.from(content, "utf8")) === true;
+      }
     }
   }
-  return ok(true);
+  return issues.length === 0
+    ? ok({ canonical, manifest })
+    : err({
+        _tag: "SkillInspectionFailure",
+        issues,
+        cause: failureCause,
+        manifest,
+      });
 };
 
 /** Report whether setup would change any file in the managed REA skill bundle. */
@@ -414,20 +444,14 @@ export const canonicalSkillNeedsInstall = async (
   resources?: ArtifactResourceScope,
 ): Promise<boolean> => {
   try {
-    const inspection = await inspectCanonicalSkillAlignment(
+    const inspection = await inspectCanonicalSkill(
       home,
       clientIds,
       environment,
       platform,
       resources,
     );
-    if (
-      !inspection.ok &&
-      (inspection.error.cause instanceof RegularFileCleanupFailure ||
-        inspection.error.cause instanceof ArtifactReaderFailure)
-    )
-      throw inspection.error.cause;
-    return !inspection.ok || !inspection.value;
+    return !inspection.ok || !inspection.value.canonical;
   } catch (cause: unknown) {
     if (
       cause instanceof RegularFileCleanupFailure ||
@@ -585,60 +609,28 @@ export const readInstalledSkillIdentity = async (
   platform: NodeJS.Platform = process.platform,
   resources?: ArtifactResourceScope,
 ): Promise<InstalledSkillIdentity | undefined> => {
-  const destinations = skillDestinations(
-    home,
-    clientIds,
-    environment,
-    platform,
-  );
-  const issues = [...(await skillDirectoryIssues(destinations))];
-  if (issues.length > 0)
-    return { canonical: false, version: null, toolCount: null, issues };
-  let content: string | undefined;
-  for (const destination of destinations) {
-    try {
-      content = await readSkillFile(
-        join(destination.path, "SKILL.md"),
-        resources,
-      );
-      break;
-    } catch (cause: unknown) {
-      if (
-        cause instanceof RegularFileCleanupFailure ||
-        cause instanceof ArtifactReaderFailure
-      )
-        throw cause;
-      if (
-        !(cause instanceof Error && "code" in cause && cause.code === "ENOENT")
-      )
-        issues.push({
-          path: join(destination.path, "SKILL.md"),
-          kind: "unreadable",
-          detail: cause instanceof Error ? cause.message : String(cause),
-        });
-      // Another selected copy may provide metadata; retain unresolved read facts.
-    }
-  }
-  if (content === undefined)
-    return issues.length === 0
-      ? undefined
-      : { canonical: false, version: null, toolCount: null, issues };
-  const toolCount = /^\s{2}tool_count:\s*(\d+)\s*$/mu.exec(content)?.[1];
-  const inspection = await inspectCanonicalSkillAlignment(
+  const inspection = await inspectCanonicalSkill(
     home,
     clientIds,
     environment,
     platform,
     resources,
   );
-  if (!inspection.ok) {
-    if (inspection.error.cause instanceof RegularFileCleanupFailure)
-      throw inspection.error.cause;
-    issues.push(...inspection.error.issues);
-  }
+  const content = inspection.ok
+    ? inspection.value.manifest
+    : inspection.error.manifest;
+  const issues = inspection.ok ? [] : inspection.error.issues;
+  if (content === undefined && issues.length === 0) return undefined;
+  const toolCount =
+    content === undefined
+      ? undefined
+      : /^\s{2}tool_count:\s*(\d+)\s*$/mu.exec(content)?.[1];
   return {
-    canonical: inspection.ok && inspection.value,
-    version: /^\s{2}version:\s*"([^"]+)"\s*$/mu.exec(content)?.[1] ?? null,
+    canonical: inspection.ok && inspection.value.canonical,
+    version:
+      content === undefined
+        ? null
+        : (/^\s{2}version:\s*"([^"]+)"\s*$/mu.exec(content)?.[1] ?? null),
     toolCount: toolCount === undefined ? null : Number.parseInt(toolCount, 10),
     ...(issues.length === 0 ? {} : { issues }),
   };
