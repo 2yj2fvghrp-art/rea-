@@ -55,9 +55,67 @@ interface Ambiguous<Item> {
   readonly basis: ConcreteMatchBasis;
 }
 
-const keyMethod = (item: Method): Keyed<Method> => ({
+/** A declared type: its name, or its enclosing types' names outermost first. */
+type DeclaredName = string | string[] | null;
+type DeclaredNameOf = (item: Method | Field) => DeclaredName;
+type InspectedType = ManagedMemberInspection["types"][number];
+
+/** Deeper enclosing chains are not resolved; real nesting stays far shallower. */
+const MAX_NESTING_DEPTH = 64;
+
+/**
+ * Name each inspected type by its enclosing types' names, outermost first.
+ * Nested declaring types keep bare names, so two nested types that share a
+ * name in different enclosing types would otherwise form one identity. Names
+ * stay a list, so a type whose own name contains "+" stays distinct from a
+ * nested path. Returns null
+ * when nesting cannot be named for every type: Evidence recorded before
+ * nesting was read, an enclosing type outside a type selection, a cycle, or a
+ * chain deeper than the bound.
+ */
+export const enclosingTypeNames = ({
+  types,
+  nesting_read,
+}: Pick<ManagedMemberInspection, "types" | "nesting_read">): ReadonlyMap<
+  string,
+  readonly string[]
+> | null => {
+  if (!nesting_read) return null;
+  const byToken = new Map(types.map((type) => [type.token, type]));
+  const names = new Map<string, readonly string[]>();
+  for (const type of types) {
+    const chain: InspectedType[] = [];
+    const visited = new Set<string>();
+    let enclosing: readonly string[] = [];
+    let current: InspectedType | undefined = type;
+    while (current !== undefined) {
+      const known = names.get(current.token);
+      if (known !== undefined) {
+        enclosing = known;
+        break;
+      }
+      // Stop walking a cycle or an over-deep chain as soon as it is seen.
+      if (visited.has(current.token) || chain.length === MAX_NESTING_DEPTH)
+        return null;
+      visited.add(current.token);
+      chain.push(current);
+      const token = current.enclosing_type_token;
+      if (token === null) break;
+      current = byToken.get(token);
+      if (current === undefined) return null;
+    }
+    if (enclosing.length + chain.length > MAX_NESTING_DEPTH) return null;
+    for (const link of chain.reverse()) {
+      enclosing = [...enclosing, link.full_name];
+      names.set(link.token, enclosing);
+    }
+  }
+  return names;
+};
+
+const keyMethod = (item: Method, declared: DeclaredNameOf): Keyed<Method> => ({
   item,
-  identity: identityOf(item),
+  identity: identityOf({ declaring_type: declared(item), name: item.name }),
   signatureId: signatureIdentity(item.signature),
   exactKey:
     item.body.status === "present" &&
@@ -74,7 +132,7 @@ const keyMethod = (item: Method): Keyed<Method> => ({
   // only gates the shape keys.
   signatureKey: sha256([
     "method-signature",
-    item.declaring_type,
+    declared(item),
     item.name,
     signatureIdentity(item.signature),
   ]),
@@ -106,9 +164,9 @@ const keyMethod = (item: Method): Keyed<Method> => ({
       : null,
 });
 
-const keyField = (item: Field): Keyed<Field> => ({
+const keyField = (item: Field, declared: DeclaredNameOf): Keyed<Field> => ({
   item,
-  identity: identityOf(item),
+  identity: identityOf({ declaring_type: declared(item), name: item.name }),
   signatureId: signatureIdentity(item.signature),
   exactKey:
     item.signature.parse_status === "decoded"
@@ -118,7 +176,7 @@ const keyField = (item: Field): Keyed<Field> => ({
   // same signature already met its counterpart in the exact round.
   signatureKey: sha256([
     "field-signature",
-    item.declaring_type,
+    declared(item),
     item.name,
     signatureIdentity(item.signature),
   ]),
@@ -222,7 +280,7 @@ export const identityOf = ({
   declaring_type,
   name,
 }: {
-  readonly declaring_type: string | null;
+  readonly declaring_type: DeclaredName;
   readonly name: string;
 }): string => sha256([declaring_type, name]);
 
@@ -509,21 +567,22 @@ const matchObserved = <Item extends Declared>(
     left: readonly Keyed<Item>[],
     right: readonly Keyed<Item>[],
   ) => ReturnType<typeof matchByKeys<Item>>,
-  key: (item: Item) => Keyed<Item>,
+  keyLeft: (item: Item) => Keyed<Item>,
+  keyRight: (item: Item) => Keyed<Item>,
 ): ReturnType<typeof matchByKeys<Item>> => {
   const matched = match(
-    left.filter(sides.inRight).map(key),
-    right.filter(sides.inLeft).map(key),
+    left.filter(sides.inRight).map(keyLeft),
+    right.filter(sides.inLeft).map(keyRight),
   );
   return {
     ...matched,
     leftOnly: [
       ...matched.leftOnly,
-      ...left.filter((item) => !sides.inRight(item)).map(key),
+      ...left.filter((item) => !sides.inRight(item)).map(keyLeft),
     ],
     rightOnly: [
       ...matched.rightOnly,
-      ...right.filter((item) => !sides.inLeft(item)).map(key),
+      ...right.filter((item) => !sides.inLeft(item)).map(keyRight),
     ],
   };
 };
@@ -537,20 +596,42 @@ export const keyMembers = (
 } => {
   const [left, right] = comparableSides(observedLeft, observedRight);
   const sides = { inLeft: observedBy(left), inRight: observedBy(right) };
+  // When either side cannot name its nesting, both keep bare nested names so
+  // their members still pair as they did before nesting was read.
+  const leftNames = enclosingTypeNames(left.result);
+  const rightNames = enclosingTypeNames(right.result);
+  const declared =
+    (names: ReadonlyMap<string, readonly string[]> | null): DeclaredNameOf =>
+    (item) => {
+      const path =
+        leftNames === null ||
+        rightNames === null ||
+        item.declaring_type_token === null
+          ? undefined
+          : names?.get(item.declaring_type_token);
+      // A top-level type keeps its name, as without nesting.
+      return path === undefined || path.length < 2
+        ? item.declaring_type
+        : [...path];
+    };
+  const declaredLeft = declared(leftNames);
+  const declaredRight = declared(rightNames);
   return {
     methodMatches: matchObserved(
       left.result.methods,
       right.result.methods,
       sides,
       matchMethods,
-      keyMethod,
+      (item) => keyMethod(item, declaredLeft),
+      (item) => keyMethod(item, declaredRight),
     ),
     fieldMatches: matchObserved(
       left.result.fields,
       right.result.fields,
       sides,
       matchFields,
-      keyField,
+      (item) => keyField(item, declaredLeft),
+      (item) => keyField(item, declaredRight),
     ),
   };
 };

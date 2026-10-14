@@ -75,6 +75,7 @@ const unavailable = (
       },
       types: [],
       signature_resolution: "type-names-v1",
+      nesting_read: false,
       exported_types: null,
       user_strings: null,
       fields: [],
@@ -291,6 +292,7 @@ export const inspectManagedMembersBytes = (
               ? parsedTypes.types
               : parsedTypes.types.filter((type) => selected.has(type.token)),
           signature_resolution: "type-names-v1",
+          nesting_read: parsedTypes.nesting.complete,
           exported_types: exportedTypes.exportedTypes,
           fields: fields.fields,
           methods: methods.methods,
