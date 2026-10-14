@@ -39,6 +39,8 @@ const authority = (
   options: {
     readonly jobMemoryLimit?: true;
     readonly polls?: readonly unknown[];
+    /** Observations the job reports after termination, in order. */
+    readonly afterTerminate?: readonly unknown[];
     readonly appliedLimit?: (requested: unknown) => unknown;
   } = {},
 ) => {
@@ -87,6 +89,10 @@ const authority = (
         return observed;
       }
       if (operation === "process_terminate") {
+        if (options.afterTerminate !== undefined) {
+          polls.splice(0, polls.length, ...options.afterTerminate);
+          return true;
+        }
         polls.splice(
           0,
           polls.length,
@@ -524,6 +530,42 @@ describe("Windows output backpressure and cleanup", () => {
         calls.filter((call) => call.operation === "process_poll"),
       ).toHaveLength(2);
       expect(child.stdout.destroyed).toBe(true);
+      expect(child.outputIncomplete).toBe(true);
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
+  it("keeps discarding output that blocks after explicit cleanup began", async () => {
+    vi.useFakeTimers();
+    try {
+      const chunk = Buffer.alloc(65536, 0x65);
+      const { native, calls } = authority({
+        polls: [],
+        afterTerminate: [
+          {
+            stdout: chunk,
+            stderr: Buffer.alloc(0),
+            stdoutEnded: false,
+            stderrEnded: false,
+            exitCode: 0,
+            activeProcesses: 1,
+          },
+          { ...settledPoll, stderr: Buffer.alloc(0) },
+        ],
+      });
+      const child = launch(native);
+      child.stdout.pause();
+      const closed = once(child, "close");
+      // No stream is blocked yet: the first post-termination poll blocks it.
+      const cleanup = child.cleanup();
+      await vi.advanceTimersByTimeAsync(100);
+
+      expect(await cleanup).toEqual({ cleaned: true, signaled: true });
+      await closed;
+      expect(
+        calls.filter((call) => call.operation === "process_poll"),
+      ).toHaveLength(2);
       expect(child.outputIncomplete).toBe(true);
     } finally {
       vi.useRealTimers();

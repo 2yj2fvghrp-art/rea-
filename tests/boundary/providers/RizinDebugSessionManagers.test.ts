@@ -57,6 +57,7 @@ process.stdin.on("data", (chunk) => {
       await chmod(provider, 0o700);
       const manager = createRizinTestManager({
         REA_RIZIN_COMMAND: provider,
+        REA_PROCESS_RUN_ID: undefined,
       });
       managers.push(manager);
 

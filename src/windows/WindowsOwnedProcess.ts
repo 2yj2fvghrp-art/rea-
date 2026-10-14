@@ -71,6 +71,7 @@ export class WindowsOwnedProcess extends EventEmitter {
   #shutdownRequested = false;
   #blockedWake: NodeJS.Timeout | undefined;
   readonly #blockedOutput = new Set<PassThrough>();
+  #discardingOutput = false;
   #unreferenced = false;
   #cleanup: Promise<ProcessCleanupResult> | undefined;
   readonly #memoryLimitBytes: number | undefined;
@@ -262,6 +263,9 @@ export class WindowsOwnedProcess extends EventEmitter {
         clearTimeout(this.#timer);
         this.#timer = undefined;
       }
+      // From here on, output that would block a consumer is discarded so the
+      // job's closed pipes stay observable until cleanup settles.
+      this.#discardingOutput = true;
       this.#discardBlockedOutput();
       this.#schedule();
       const settled = await Promise.race([
@@ -393,6 +397,11 @@ export class WindowsOwnedProcess extends EventEmitter {
       return;
     }
     if (stream.write(bytes)) return;
+    if (this.#discardingOutput) {
+      this.#outputIncomplete = true;
+      stream.destroy();
+      return;
+    }
     this.#blockedOutput.add(stream);
     const unblock = () => {
       stream.off("drain", unblock);

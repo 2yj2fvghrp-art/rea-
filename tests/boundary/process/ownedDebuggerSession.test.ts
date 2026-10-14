@@ -1306,7 +1306,7 @@ it.skipIf(process.platform === "win32")(
       'const child = spawn(process.execPath, ["-e", "setInterval(() => {}, 1000)"], { stdio: ["ignore", "pipe", "pipe"] });',
       "process.stdout.write(`debugger-pid=${child.pid}\\n`);",
       "const supervisor = new ProviderProcessSupervisor({ process: child, ownsProcessLifetime: true });",
-      "const session = { id: 'debugger-with-selected-pty-inferior', get exited() { return child.exitCode !== null || child.signalCode !== null; }, launched: { process: child }, supervisor, detachInferior: async () => ({ status: 'detached', outputSink: 'durable' }) };",
+      "const session = { id: 'debugger-with-selected-pty-inferior', get exited() { return child.exitCode !== null || child.signalCode !== null; }, launched: { process: child }, supervisor, detachInferior: async () => ({ status: 'detached', outputSink: 'durable', inputSink: 'durable' }) };",
       "const result = await stopOwnedDebuggerProcess(session, 'GDB', { platform: 'linux' });",
       "process.stdout.write(`probe-result=${JSON.stringify(result)}\\n`);",
     ].join("\n");
