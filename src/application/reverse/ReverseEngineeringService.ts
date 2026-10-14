@@ -40,8 +40,7 @@ import {
 import type { ProviderProcessSupervisor } from "../../process/ProviderProcess.js";
 
 export type ReverseEngineeringOperation =
-  | "inspect_with_objdump"
-  | "execute_rizin_command";
+  "inspect_with_objdump" | "execute_rizin_command";
 
 const DEFAULT_TIMEOUT_MS = 120_000;
 const MAX_COMBINED_OUTPUT_BYTES = 16 * 1024 * 1024;
@@ -873,9 +872,17 @@ const digestFile = async (
     });
   let stream: ReadStream | undefined;
   let interruption: Error | undefined;
+  let rejectInterrupted: (cause: Error) => void = () => undefined;
+  // Settles on cancellation or deadline so a stalled open or stat cannot
+  // outlive them; the late filesystem result is closed or ignored below.
+  const interrupted = new Promise<never>((_, reject) => {
+    rejectInterrupted = reject;
+  });
+  interrupted.catch(() => undefined);
   const interrupt = (cause: Error): void => {
     interruption ??= cause;
     stream?.destroy(cause);
+    rejectInterrupted(cause);
   };
   // Armed before the open so the deadline also covers it.
   const timer = setTimeout(
@@ -902,9 +909,18 @@ const digestFile = async (
   try {
     // The path may be replaced between the stat above and this open; a FIFO
     // would block a worker. Open non-blocking and classify the opened handle.
-    handle = await open(path, constants.O_RDONLY | (constants.O_NONBLOCK ?? 0));
+    handle = await Promise.race([
+      open(path, constants.O_RDONLY | (constants.O_NONBLOCK ?? 0)).then(
+        (opened) => {
+          if (interruption !== undefined)
+            void opened.close().catch(() => undefined);
+          return opened;
+        },
+      ),
+      interrupted,
+    ]);
     if (interruption !== undefined) throw interruption;
-    if (!(await handle.stat()).isFile())
+    if (!(await Promise.race([handle.stat(), interrupted])).isFile())
       throw Object.assign(
         new Error("Artifact digest requires a regular file"),
         { code: "EINVAL" },
