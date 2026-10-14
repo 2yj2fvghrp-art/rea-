@@ -1,8 +1,8 @@
 export interface ReferenceSourcePathLookup {
   readonly resolve: (path: string) => string | undefined;
   readonly resolveCandidates: (paths: readonly string[]) => string | undefined;
-  /** Resolve this relative path or its nearest recorded parent directory. */
-  readonly resolveAncestor: (path: string) => string | undefined;
+  /** Resolve recorded prefixes from outermost to innermost; undefined means ambiguous identity. */
+  readonly resolvePrefixes: (path: string) => readonly string[] | undefined;
 }
 
 interface PathIndex {
@@ -52,7 +52,7 @@ export const createReferenceSourcePathLookup = (
     resolveCandidates: (candidates) =>
       candidates.find((path) => exact.has(path)) ??
       candidates.map(equivalent).find((path) => path !== undefined),
-    resolveAncestor: (path) => {
+    resolvePrefixes: (path) => {
       // Build only for ancestor consumers; normalize each query once instead
       // of repeatedly normalizing and hashing successively shorter prefixes.
       ancestorIndexes ??= [
@@ -62,12 +62,13 @@ export const createReferenceSourcePathLookup = (
       let exactNode: PathIndex | undefined = ancestorIndexes[0];
       let canonicalNode: PathIndex | undefined = ancestorIndexes[1];
       const normalized = path.normalize("NFC").split("/");
-      let found: string | undefined;
+      const found: string[] = [];
       for (const [index, part] of path.split("/").entries()) {
         exactNode = exactNode?.children.get(part);
         canonicalNode = canonicalNode?.children.get(normalized[index]!);
         const value = exactNode?.value ?? canonicalNode?.value;
-        if (value !== undefined) found = value ?? undefined;
+        if (value === null) return undefined;
+        if (value !== undefined) found.push(value);
         if (exactNode === undefined && canonicalNode === undefined) break;
       }
       return found;

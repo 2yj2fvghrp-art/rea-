@@ -41,9 +41,9 @@ describe.skipIf(process.platform === "win32")(
         expect(graph.inventory_state).toBe("partial");
         expect(graph.exclusions).toContainEqual({
           path: "dist",
+          entry_kind: "directory",
           reason: "default-ignored",
           pattern: "dist/",
-          entry_kind: "directory",
         });
         expect(graph.entries).toEqual(
           expect.arrayContaining([
@@ -98,16 +98,19 @@ describe.skipIf(process.platform === "win32")(
           expect.arrayContaining([
             {
               path: "project.tmp",
+              entry_kind: "file",
               reason: "project-ignored",
               pattern: "project.tmp",
             },
             {
               path: "logs/application.log",
+              entry_kind: "file",
               reason: "default-ignored",
               pattern: "*.log",
             },
             {
               path: "private.txt",
+              entry_kind: "file",
               reason: "configured-secret",
               pattern: "private.txt",
             },

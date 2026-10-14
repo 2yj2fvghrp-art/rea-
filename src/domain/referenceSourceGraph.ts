@@ -18,7 +18,7 @@ const relativePathSchema = z
   .refine(
     (path) =>
       !path.startsWith("/") &&
-      !path.includes("\\") &&
+      !path.includes("\0") &&
       path
         .split("/")
         .every((part) => part !== "" && part !== "." && part !== ".."),
@@ -85,10 +85,9 @@ const symlinkTargetSchema = z
   .min(1)
   .refine(
     (target) =>
-      isPortableAbsoluteReferenceTarget(target) ||
-      (!target.startsWith("/") &&
-        !target.includes("\\") &&
-        posix.normalize(target) === target),
+      !target.includes("\0") &&
+      (isPortableAbsoluteReferenceTarget(target) ||
+        (!target.startsWith("/") && posix.normalize(target) === target)),
     "Expected a normalized POSIX symlink target",
   );
 
@@ -134,6 +133,9 @@ const parseFailureSchema = z.strictObject({
 const exclusionSchema = z.discriminatedUnion("reason", [
   z.strictObject({
     path: relativePathSchema,
+    entry_kind: z
+      .enum(["file", "directory", "symlink", "other", "unknown"])
+      .exactOptional(),
     reason: z.enum([
       "configured-secret",
       "project-ignored",
@@ -141,11 +143,12 @@ const exclusionSchema = z.discriminatedUnion("reason", [
       "caller-excluded",
     ]),
     pattern: boundedTextSchema,
-    // Absent in older graphs: only exact-path exclusion is established.
-    entry_kind: z.literal("directory").exactOptional(),
   }),
   z.strictObject({
     path: relativePathSchema,
+    entry_kind: z
+      .enum(["file", "directory", "symlink", "other", "unknown"])
+      .exactOptional(),
     reason: z.enum(["symlink-escape", "unreadable"]),
   }),
 ]);
@@ -326,12 +329,15 @@ const checkSymlinks = (
   context: z.RefinementCtx,
 ): void => {
   const lookupPath = createReferenceSourcePathLookup(paths);
-  const kinds = new Map(graph.entries.map(({ path, kind }) => [path, kind]));
+  const inventoryKinds = new Map(
+    graph.entries.map(({ path, kind }) => [path, kind]),
+  );
   for (const [index, exclusion] of graph.exclusions.entries()) {
-    if (!("entry_kind" in exclusion) || exclusion.entry_kind !== "directory")
-      continue;
-    const inventoriedKind = kinds.get(exclusion.path);
-    if (inventoriedKind !== undefined && inventoriedKind !== "directory")
+    if (exclusion.entry_kind !== "directory") continue;
+    // Both records preserve filesystem spelling; Unicode equivalence does not
+    // establish that a distinct observed entry has the same filesystem identity.
+    const kind = inventoryKinds.get(exclusion.path);
+    if (kind !== undefined && kind !== "unknown" && kind !== "directory")
       context.addIssue({
         code: "custom",
         message: "Directory exclusion conflicts with inventoried entry kind",
@@ -341,31 +347,42 @@ const checkSymlinks = (
   const excludedPaths = createReferenceSourcePathLookup(
     graph.exclusions.map(({ path }) => path),
   );
-  const escapePaths = new Set(
-    graph.exclusions
-      .filter(({ reason }) => reason === "symlink-escape")
-      .map(({ path }) => path),
-  );
-  const excludedDirectories = new Set(
-    graph.exclusions.flatMap((entry) =>
-      "entry_kind" in entry &&
-      entry.entry_kind === "directory" &&
-      !escapePaths.has(entry.path)
-        ? [entry.path]
-        : [],
-    ),
-  );
+  const excludedKinds = new Map<
+    string,
+    Set<GraphStructure["exclusions"][number]["entry_kind"]>
+  >();
+  const escapePaths = new Set<string>();
+  for (const entry of graph.exclusions) {
+    const kinds = excludedKinds.get(entry.path) ?? new Set();
+    kinds.add(entry.entry_kind);
+    excludedKinds.set(entry.path, kinds);
+    if (entry.reason === "symlink-escape") escapePaths.add(entry.path);
+  }
   const coveredByExclusion = (resolved: string): boolean => {
+    if (graph.exclusions.length === 0) return false;
+    const prefixes = excludedPaths.resolvePrefixes(resolved);
+    if (prefixes === undefined || prefixes.length === 0) return false;
     const exact = excludedPaths.resolve(resolved);
-    if (exact !== undefined && !escapePaths.has(exact)) return true;
-    if (excludedDirectories.size === 0) return false;
-    const ancestor = excludedPaths.resolveAncestor(resolved);
-    return ancestor !== undefined && excludedDirectories.has(ancestor);
+    return prefixes.every((path) => {
+      if (escapePaths.has(path)) return false;
+      if (path === exact) return true;
+      const kinds = excludedKinds.get(path);
+      return kinds?.size === 1 && kinds.has("directory");
+    });
   };
   for (const [index, entry] of graph.entries.entries()) {
-    if (entry.kind !== "symlink") continue;
-    if (entry.target === null) continue;
-    const absolute = isPortableAbsoluteReferenceTarget(entry.target);
+    if (entry.kind !== "symlink" || entry.target === null) continue;
+    const resolved = posix.normalize(
+      posix.join(posix.dirname(entry.path), entry.target),
+    );
+    const escapesRoot = resolved.startsWith("../") || resolved === "..";
+    const inventoried =
+      resolved === "." || lookupPath.resolve(resolved) !== undefined;
+    const ownedRelativeTarget =
+      !entry.target.startsWith("/") && !escapesRoot && inventoried;
+    const absolute =
+      isPortableAbsoluteReferenceTarget(entry.target) &&
+      !(entry.target_state === "internal" && ownedRelativeTarget);
     if (
       (entry.target_state === "external" && !absolute) ||
       (entry.target_state === "internal" && absolute)
@@ -376,17 +393,7 @@ const checkSymlinks = (
         path: ["entries", index, "target"],
       });
     if (entry.target_state !== "internal") continue;
-    const resolved = posix.normalize(
-      posix.join(posix.dirname(entry.path), entry.target),
-    );
-    if (
-      resolved.startsWith("../") ||
-      resolved === ".." ||
-      // The inventory root is implicit rather than an entry with path ".".
-      (resolved !== "." &&
-        lookupPath.resolve(resolved) === undefined &&
-        !coveredByExclusion(resolved))
-    )
+    if (escapesRoot || (!inventoried && !coveredByExclusion(resolved)))
       context.addIssue({
         code: "custom",
         message:
