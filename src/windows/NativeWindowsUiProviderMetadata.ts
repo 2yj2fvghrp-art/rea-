@@ -1,6 +1,6 @@
 import {
-  systemWindowsNativeAuthority,
-  type WindowsNativeLoadResult,
+  systemWindowsWindowCaptureAuthority,
+  type WindowsWindowCaptureLoadResult,
 } from "./WindowsNativeLoader.js";
 import type {
   CapabilityDescriptor,
@@ -19,15 +19,16 @@ export const NATIVE_WINDOWS_UI_PROVIDER_IDENTITY: ProviderIdentity =
 export const nativeWindowsUiCapabilities = (
   platform: NodeJS.Platform = process.platform,
   architecture: string = process.arch,
-  load: () => WindowsNativeLoadResult = systemWindowsNativeAuthority,
+  load: () => WindowsWindowCaptureLoadResult = systemWindowsWindowCaptureAuthority,
 ): readonly CapabilityDescriptor[] => {
   const loaded =
     platform === "win32" && architecture === "x64" ? load() : undefined;
+  const captureReady =
+    loaded?.available === true ||
+    (loaded?.available === false && loaded.retryable === true);
   const availability =
     platform === "win32" && architecture === "x64"
-      ? loaded?.retryable === true ||
-        (loaded?.available === true &&
-          loaded.authority.inspection.windowCapture === true)
+      ? captureReady
         ? ({ available: true, reason: null } as const)
         : ({
             available: false,

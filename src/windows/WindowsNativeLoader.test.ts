@@ -4,6 +4,7 @@ import { describe, expect, it } from "vitest";
 
 import {
   loadWindowsNativeAuthority,
+  loadWindowsWindowCaptureAuthority,
   type WindowsNativeLoadHost,
 } from "./WindowsNativeLoader.js";
 
@@ -49,21 +50,60 @@ const fixture = (
     loadArtifact: () => {
       loads++;
       return {
-        call: () => ({
-          abiVersion: 1,
-          nodeApiVersion: 8,
-          architecture: "x64",
-          filesystem: identity,
-          privateDacl: true,
-          atomicJobAssignment: true,
-          killOnOwnerClose: true,
-          ...capabilities,
-        }),
+        call: (operation: string) =>
+          operation === "inspect_window_capture"
+            ? {
+                abiVersion: 1,
+                nodeApiVersion: 8,
+                architecture: "x64",
+                ...(capabilities.windowCapture === undefined
+                  ? {}
+                  : { windowCapture: capabilities.windowCapture }),
+              }
+            : {
+                abiVersion: 1,
+                nodeApiVersion: 8,
+                architecture: "x64",
+                filesystem: identity,
+                privateDacl: true,
+                atomicJobAssignment: true,
+                killOnOwnerClose: true,
+                ...capabilities,
+              },
       };
     },
   };
   return { host, manifest, bytes, loads: () => loads };
 };
+
+describe("selected-window native admission", () => {
+  it("admits selected-window capture without unrelated native self-tests", () => {
+    const value = fixture({ windowCapture: true });
+    const result = loadWindowsWindowCaptureAuthority({
+      ...value.host,
+      loadArtifact: () => ({
+        call: (operation: string) => {
+          if (operation === "inspect")
+            throw new Error("private runtime self-test failed");
+          return {
+            abiVersion: 1,
+            nodeApiVersion: 8,
+            architecture: "x64",
+            windowCapture: true,
+          };
+        },
+      }),
+    });
+    expect(result).toMatchObject({ available: true });
+  });
+
+  it("refuses an addon that does not expose selected-window inspection", () => {
+    const value = fixture();
+    expect(loadWindowsWindowCaptureAuthority(value.host)).toMatchObject({
+      available: false,
+    });
+  });
+});
 
 describe("packaged Windows native admission", () => {
   it("retains capture support as an affirmative artifact observation", () => {
@@ -209,7 +249,9 @@ describe("packaged Windows native admission", () => {
       reason: expect.stringContaining("private DACL: access denied"),
     });
   });
+});
 
+describe("native inspection contract", () => {
   it("requires every inspected native fact", () => {
     const value = fixture();
     const loaded = loadWindowsNativeAuthority({

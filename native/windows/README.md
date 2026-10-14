@@ -94,7 +94,9 @@ without this lane reports Windows native controls as unavailable.
   work or waits for an in-flight paint request to reach its deadline. If the
   target handler outlives that deadline, the native surface stays owned until
   the target process exits, and another capture is not admitted while that
-  owner remains. The Node event loop stays live. It
+  owner remains. If explicit GDI cleanup still refuses after process exit, the
+  exact surface owner is retained for a later safe cleanup retry rather than
+  discarded. The Node event loop stays live. It
   never enumerates windows, captures a desktop or region, searches titles,
   writes a caller-selected path, sends input, changes permissions, or falls
   back to BitBlt. Protected, elevated, hung, minimized, GPU-composited, or

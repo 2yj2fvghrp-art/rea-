@@ -432,7 +432,9 @@ most 4 million source pixels, scales the returned image to a caller-selected
 maximum dimension (2,048 by default), and retains at most 3 MiB of PNG bytes.
 If a timed-out paint handler can still use the supplied HDC, REA retains the
 surface until the selected process exits and blocks another capture while that
-owner remains. This keeps GDI resources alive without accumulating surfaces.
+owner remains. If explicit GDI cleanup still refuses after process exit, REA
+retains the exact surface owner for a later safe cleanup retry rather than
+discarding its handles.
 
 `WM_PRINT` asks the selected process to render into REA's private bitmap, so it
 can run the target's paint handler even though REA sends no UI input. That paint

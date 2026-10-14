@@ -1,10 +1,16 @@
 import { createHash } from "node:crypto";
+import { mkdtemp, rm, writeFile } from "node:fs/promises";
+import { tmpdir } from "node:os";
+import { join } from "node:path";
 
-import { expect, it } from "vitest";
+import { expect, it, vi } from "vitest";
 
 import type { BinaryTarget } from "../domain/binaryTargetTypes.js";
+import { OwnedFileHandle } from "../filesystem/OwnedFileHandle.js";
 import {
   captureWindowsWindowScreenshot,
+  hashWindowsCaptureExecutable,
+  NativeWindowsUiProvider,
   type WindowsWindowCaptureHost,
 } from "./NativeWindowsUiProvider.js";
 
@@ -134,7 +140,9 @@ it.each([
   [6, "artifact_changed", "AnalysisArtifactChangedError"],
   [13, "artifact_changed", "AnalysisArtifactChangedError"],
   [5, "window_owner_mismatch", "AnalysisInputError"],
+  [13, "window_state", "AnalysisInputError"],
   [5, "process_identity_mismatch", "AnalysisInputError"],
+  [87, "process_identity_mismatch", "AnalysisInputError"],
 ] as const)(
   "preserves native refusal semantics for code %s and %s",
   async (code, kind, tag) => {
@@ -153,6 +161,67 @@ it.each([
     expect(captured).toMatchObject({ ok: false, error: { _tag: tag } });
   },
 );
+
+it("keeps source-pixel capacity distinct from selected window state", async () => {
+  const captured = await captureWindowsWindowScreenshot(
+    TARGET,
+    { pid: 42, window_handle: "0x1234" },
+    host({
+      capture: () => {
+        throw Object.assign(
+          new Error("Source area exceeds the capture limit"),
+          {
+            win32Code: 8,
+            failureKind: "source_pixel_limit",
+          },
+        );
+      },
+    }),
+  );
+  expect(captured).toMatchObject({
+    ok: false,
+    error: {
+      _tag: "AnalysisResourceConstraintError",
+      resource: "capacity",
+      reportedLimits: { maximum_source_pixels: 4 * 1024 * 1024 },
+    },
+  });
+});
+
+it("retains and retries an executable descriptor whose close first fails", async () => {
+  const directory = await mkdtemp(join(tmpdir(), "rea-window-capture-"));
+  const executable = join(directory, "fixture.exe");
+  const originalClose = OwnedFileHandle.prototype.close;
+  let firstClose = true;
+  const close = vi
+    .spyOn(OwnedFileHandle.prototype, "close")
+    .mockImplementation(async function (this: OwnedFileHandle): Promise<void> {
+      if (firstClose) {
+        firstClose = false;
+        throw new Error("injected executable close failure");
+      }
+      await originalClose.call(this);
+    });
+  try {
+    await writeFile(executable, "fixture");
+    await expect(hashWindowsCaptureExecutable(executable)).rejects.toThrow(
+      "Selected executable descriptor cleanup failed",
+    );
+    close.mockRestore();
+    const client = new NativeWindowsUiProvider(host(), "linux").createClient(
+      TARGET,
+    );
+    await expect(client.close()).resolves.toMatchObject({ ok: true });
+    await expect(
+      hashWindowsCaptureExecutable(executable),
+    ).resolves.toMatchObject({
+      sha256: createHash("sha256").update("fixture").digest("hex"),
+    });
+  } finally {
+    close.mockRestore();
+    await rm(directory, { force: true, recursive: true });
+  }
+});
 
 it("does not commit a screenshot cancelled during final identity reads", async () => {
   const controller = new AbortController();

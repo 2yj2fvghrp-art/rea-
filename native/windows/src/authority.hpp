@@ -33,6 +33,7 @@ enum class FailureKind {
   Native,
   ArtifactChanged,
   WindowOwnerMismatch,
+  WindowState,
   ProcessIdentityMismatch,
   SourcePixelLimit,
 };
@@ -182,6 +183,7 @@ std::unique_ptr<Process> spawnProcess(const std::wstring& command, const std::ws
 napi_value processCall(napi_env env, const std::wstring& operation,
                        const std::vector<napi_value>& args);
 napi_value windowCaptureCall(napi_env env, const std::vector<napi_value>& args);
+napi_value inspectWindowCapture(napi_env env);
 napi_value inspect(napi_env env, std::unique_ptr<Runtime>& probe);
 
 } // namespace rea

@@ -93,6 +93,7 @@ napi_value failureValue(napi_env env, const Failure& failure) {
       case FailureKind::Native: break;
       case FailureKind::ArtifactChanged: semantic = "artifact_changed"; break;
       case FailureKind::WindowOwnerMismatch: semantic = "window_owner_mismatch"; break;
+      case FailureKind::WindowState: semantic = "window_state"; break;
       case FailureKind::ProcessIdentityMismatch: semantic = "process_identity_mismatch"; break;
       case FailureKind::SourcePixelLimit: semantic = "source_pixel_limit"; break;
     }
@@ -139,6 +140,11 @@ static napi_value call(napi_env env, napi_callback_info info) {
     require(count == 2, "Native call requires operation and arguments", L"", ERROR_INVALID_PARAMETER);
     const auto operation = wide(env, args[0]);
     const auto values = array(env, args[1], 64);
+    if (operation == L"inspect_window_capture") {
+      require(values.empty(), "Selected-window capture inspection takes no arguments", L"",
+              ERROR_INVALID_PARAMETER);
+      return inspectWindowCapture(env);
+    }
     if (operation == L"inspect") {
       require(values.empty(), "Inspect takes no arguments", L"", ERROR_INVALID_PARAMETER);
       return inspect(env, static_cast<InspectionContext*>(data)->probe);

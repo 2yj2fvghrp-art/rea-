@@ -15,9 +15,11 @@ import { analysisInputErrorFromIssues } from "../domain/inputIssueProjection.js"
 import type { BinaryTarget } from "../domain/binaryTargetTypes.js";
 import {
   openRegularFile,
+  RegularFileAdmissionFailure,
   RegularFileChangedError,
   sameRegularFileState,
 } from "../filesystem/RegularFile.js";
+import { OwnedFileHandle } from "../filesystem/OwnedFileHandle.js";
 import {
   AnalysisAccessDeniedError,
   AnalysisArtifactChangedError,
@@ -27,7 +29,10 @@ import {
   AnalysisResourceConstraintError,
   AnalysisTimeoutError,
 } from "../domain/analysisErrorCore.js";
-import { AnalysisError } from "../domain/analysisErrorBase.js";
+import {
+  AnalysisError,
+  type AnalysisCleanupObservation,
+} from "../domain/analysisErrorBase.js";
 import {
   MAX_WINDOWS_WINDOW_PNG_BYTES,
   windowsWindowPngSchema,
@@ -37,7 +42,7 @@ import {
   type WindowsWindowScreenshotResult,
 } from "../domain/native/windowsWindowScreenshot.js";
 import { err, ok, type Result } from "../domain/result.js";
-import { requireWindowsNativeAuthority } from "./WindowsNativeLoader.js";
+import { requireWindowsWindowCaptureAuthority } from "./WindowsNativeLoader.js";
 import {
   NATIVE_WINDOWS_UI_PROVIDER_IDENTITY as IDENTITY,
   nativeWindowsUiCapabilities,
@@ -77,6 +82,63 @@ interface ExecutableIdentity {
   readonly sha256: string;
 }
 
+type ExecutableIdentityOutcome =
+  | { readonly kind: "completed"; readonly value: ExecutableIdentity }
+  | { readonly kind: "failed"; readonly cause: unknown };
+
+/** Preserves both identity outcome and a descriptor whose close is unconfirmed. */
+class ExecutableIdentityCleanupFailure extends Error {
+  constructor(
+    readonly path: string,
+    readonly owner: OwnedFileHandle,
+    readonly outcome: ExecutableIdentityOutcome,
+    readonly cleanupCause: unknown,
+  ) {
+    super(`Selected executable descriptor cleanup failed: ${path}`, {
+      cause: outcome.kind === "failed" ? outcome.cause : cleanupCause,
+    });
+    this.name = "ExecutableIdentityCleanupFailure";
+  }
+}
+
+const retainedExecutableIdentityHandles = new Map<OwnedFileHandle, string>();
+
+const retainExecutableIdentityHandle = (
+  owner: OwnedFileHandle,
+  path: string,
+): void => {
+  retainedExecutableIdentityHandles.set(owner, path);
+};
+
+/** Retry every retained owner before admitting more target-identity work. */
+const retryRetainedExecutableIdentityHandles = async (): Promise<
+  AnalysisCleanupObservation | undefined
+> => {
+  let failure: unknown;
+  for (const [owner] of retainedExecutableIdentityHandles) {
+    try {
+      await owner.close();
+      retainedExecutableIdentityHandles.delete(owner);
+    } catch (cause: unknown) {
+      failure ??= cause;
+    }
+  }
+  if (retainedExecutableIdentityHandles.size === 0) return undefined;
+  return {
+    reason: `Selected executable descriptor cleanup remains incomplete: ${failureReason(failure)}`,
+    resources: [...new Set(retainedExecutableIdentityHandles.values())],
+  };
+};
+
+const incompleteExecutableIdentityCleanupError = (
+  cleanup: AnalysisCleanupObservation,
+): AnalysisOutputError =>
+  new AnalysisOutputError(
+    OPERATION,
+    "Previous selected executable descriptor cleanup remains incomplete.",
+    { cleanup },
+  );
+
 /** Narrow test seam: no test needs a Windows desktop or a packaged addon. */
 export interface WindowsWindowCaptureHost {
   capture(
@@ -104,13 +166,9 @@ const systemCaptureHost = (): WindowsWindowCaptureHost => ({
     targetIdentity,
     signal,
   ) => {
-    let authority: ReturnType<typeof requireWindowsNativeAuthority>;
+    let authority: ReturnType<typeof requireWindowsWindowCaptureAuthority>;
     try {
-      authority = requireWindowsNativeAuthority();
-      if (authority.inspection.windowCapture !== true)
-        throw new Error(
-          "The loaded Windows addon does not support selected-window capture; rebuild or install the matching native artifact.",
-        );
+      authority = requireWindowsWindowCaptureAuthority();
     } catch (cause) {
       throw new AnalysisCapabilityUnavailableError(
         IDENTITY.id,
@@ -194,7 +252,12 @@ export class NativeWindowsUiProvider implements AnalysisProvider {
             )
           : result;
       },
-      close: async () => ok(null),
+      close: async () => {
+        const cleanup = await retryRetainedExecutableIdentityHandles();
+        return cleanup === undefined
+          ? ok(null)
+          : err(incompleteExecutableIdentityCleanupError(cleanup));
+      },
     };
   }
 }
@@ -395,7 +458,12 @@ const hashExecutable = async (
   path: string,
   signal?: AbortSignal,
 ): Promise<ExecutableIdentity> => {
+  const priorCleanup = await retryRetainedExecutableIdentityHandles();
+  if (priorCleanup !== undefined)
+    throw incompleteExecutableIdentityCleanupError(priorCleanup);
   const handle = await openRegularFile(path, { symlinks: "follow", signal });
+  const owner = new OwnedFileHandle(handle);
+  let outcome: ExecutableIdentityOutcome;
   try {
     const metadata = await handle.stat({ bigint: true });
     if (metadata.ino === 0n)
@@ -438,29 +506,70 @@ const hashExecutable = async (
       !sameRegularFileState(metadata, currentPath)
     )
       throw new RegularFileChangedError(path);
-    return {
-      fileIdentity: `${String(metadata.dev)}:${String(metadata.ino)}`,
-      sha256: digest.digest("hex"),
+    outcome = {
+      kind: "completed",
+      value: {
+        fileIdentity: `${String(metadata.dev)}:${String(metadata.ino)}`,
+        sha256: digest.digest("hex"),
+      },
     };
-  } finally {
-    await handle.close();
+  } catch (cause: unknown) {
+    outcome = { kind: "failed", cause };
   }
+  try {
+    await owner.close();
+  } catch (cleanupCause: unknown) {
+    retainExecutableIdentityHandle(owner, path);
+    throw new ExecutableIdentityCleanupFailure(
+      path,
+      owner,
+      outcome,
+      cleanupCause,
+    );
+  }
+  if (outcome.kind === "failed") throw outcome.cause;
+  return outcome.value;
 };
+
+/** Narrow descriptor-cleanup test seam; production reaches this through the host. */
+export const hashWindowsCaptureExecutable = hashExecutable;
 
 const identityError = (
   path: string,
   cause: unknown,
   signal?: AbortSignal,
 ): AnalysisError => {
+  let cleanup: AnalysisCleanupObservation | undefined;
+  if (cause instanceof RegularFileAdmissionFailure) {
+    retainExecutableIdentityHandle(cause.owner, path);
+    cleanup = {
+      reason: `Selected executable descriptor close failed: ${failureReason(cause.cleanupCause)}`,
+      resources: [path],
+    };
+    cause = cause.cause;
+  } else if (cause instanceof ExecutableIdentityCleanupFailure) {
+    cleanup = {
+      reason: `Selected executable descriptor close failed: ${failureReason(cause.cleanupCause)}`,
+      resources: [cause.path],
+    };
+    cause =
+      cause.outcome.kind === "failed"
+        ? cause.outcome.cause
+        : cause.cleanupCause;
+  }
+  const options = {
+    cause,
+    ...(cleanup === undefined ? {} : { cleanup }),
+  };
   if (
     signal?.aborted === true ||
     (cause instanceof Error && cause.name === "AbortError")
   )
-    return new AnalysisCancelledError(OPERATION, { cause });
-  if (cause instanceof AnalysisError) return cause;
+    return new AnalysisCancelledError(OPERATION, options);
+  if (cause instanceof AnalysisError) return withCleanup(cause, cleanup);
   if (cause instanceof RegularFileChangedError)
     return new AnalysisArtifactChangedError(OPERATION, path, cause.message, {
-      cause,
+      ...options,
     });
   const filesystem = z.object({ code: z.string() }).safeParse(cause);
   if (filesystem.success) {
@@ -469,21 +578,47 @@ const identityError = (
         OPERATION,
         path,
         filesystem.data.code,
-        { cause },
+        options,
       );
     if (filesystem.data.code === "ENOENT" || filesystem.data.code === "ESTALE")
       return new AnalysisArtifactChangedError(
         OPERATION,
         path,
         "Selected executable is no longer available.",
-        { cause },
+        options,
       );
   }
   return new AnalysisOutputError(
     OPERATION,
     `Cannot establish selected executable identity: ${cause instanceof Error ? cause.message : String(cause)}`,
-    { cause },
+    options,
   );
+};
+
+const failureReason = (cause: unknown): string =>
+  cause instanceof Error ? cause.message : String(cause);
+
+/** Keep the primary typed error while surfacing unconfirmed descriptor cleanup. */
+const withCleanup = (
+  error: AnalysisError,
+  cleanup: AnalysisCleanupObservation | undefined,
+): AnalysisError => {
+  if (cleanup === undefined) return error;
+  const merged =
+    error.cleanup === undefined
+      ? cleanup
+      : {
+          reason: `${error.cleanup.reason}; ${cleanup.reason}`,
+          resources: [
+            ...new Set([...error.cleanup.resources, ...cleanup.resources]),
+          ],
+        };
+  Object.defineProperties(error, {
+    cleanup: { configurable: true, value: merged },
+    cleanupIncomplete: { configurable: true, value: true },
+    cleanupResources: { configurable: true, value: merged.resources },
+  });
+  return error;
 };
 
 const nativeFailureReason = (cause: unknown): string =>
@@ -507,6 +642,7 @@ const captureFailure = (
         .enum([
           "artifact_changed",
           "window_owner_mismatch",
+          "window_state",
           "process_identity_mismatch",
           "source_pixel_limit",
         ])
@@ -538,12 +674,15 @@ const captureFailure = (
     );
   if (
     native.data.failureKind === "window_owner_mismatch" ||
+    native.data.failureKind === "window_state" ||
     native.data.failureKind === "process_identity_mismatch"
   ) {
     const field =
       native.data.failureKind === "window_owner_mismatch"
         ? "window_handle"
-        : "pid";
+        : native.data.failureKind === "window_state"
+          ? "window_handle"
+          : "pid";
     return analysisInputErrorFromIssues(
       OPERATION,
       [{ path: [field], code: "custom", message: nativeFailureReason(cause) }],
