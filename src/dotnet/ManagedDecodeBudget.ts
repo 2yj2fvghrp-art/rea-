@@ -18,6 +18,14 @@ export class ManagedDecodeBudget {
   readonly #rows = new Map<number, Set<number>>();
   readonly #strings = new Map<number, CachedString>();
   readonly #digests = new WeakMap<ArrayBufferLike, Map<string, string>>();
+  readonly #admittedObjects = new WeakSet<object>();
+
+  /** Retain projection identity so re-admitting child objects does not double-charge capacity. */
+  admitObject(target: object): boolean {
+    if (this.#admittedObjects.has(target)) return false;
+    this.#admittedObjects.add(target);
+    return true;
+  }
 
   reserve(bytes: number, offset: number | null): void {
     this.#admit(bytes, offset);
@@ -147,14 +155,17 @@ export const admitManagedProjection = <Value>(
   budget: ManagedDecodeBudget = new ManagedDecodeBudget(),
 ): Value => {
   const visit = (item: unknown): void => {
-    if (Array.isArray(item)) {
-      budget.reserve(item.length + 2, null);
-      for (const child of item) visit(child);
-    } else if (item !== null && typeof item === "object") {
-      budget.reserve(2, null);
-      for (const key of Object.keys(item)) {
-        budget.reserve(jsonBytes(key) + 2, null);
-        visit(Reflect.get(item, key));
+    if (item !== null && typeof item === "object") {
+      if (!budget.admitObject(item)) return;
+      if (Array.isArray(item)) {
+        budget.reserve(item.length + 2, null);
+        for (const child of item) visit(child);
+      } else {
+        budget.reserve(2, null);
+        for (const key of Object.keys(item)) {
+          budget.reserve(jsonBytes(key) + 2, null);
+          visit(Reflect.get(item, key));
+        }
       }
     } else {
       budget.reserve(jsonBytes(item), null);

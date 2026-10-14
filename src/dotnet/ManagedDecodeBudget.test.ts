@@ -35,6 +35,21 @@ describe("managed projection admission", () => {
       ManagedReaderFailure,
     );
   });
+
+  it("does not double-charge already-admitted child objects in parent projections while still charging repeated string properties", () => {
+    const budget = new ManagedDecodeBudget();
+    const payload = "x".repeat(40 * 1024 * 1024);
+    const child = { value: payload };
+
+    admitManagedProjection(child, budget);
+
+    expect(() => admitManagedProjection({ child }, budget)).not.toThrow();
+
+    const freshBudget = new ManagedDecodeBudget();
+    expect(() =>
+      admitManagedProjection({ first: payload, second: payload }, freshBudget),
+    ).toThrow(ManagedReaderFailure);
+  });
 });
 
 describe("managed decoding bounds", () => {
