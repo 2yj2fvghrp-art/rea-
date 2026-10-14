@@ -367,11 +367,26 @@ const isDirectCreateRequireBinding = (
   )
     return false;
   // The establishing write installs the loader; only later writes replace
-  // it, so calls before them still see the loader.
+  // it, so calls before them still see the loader. A call that provably runs
+  // before the establishing write — textually before it in the same
+  // straight-line scope — runs before the loader exists: it throws or, for
+  // `require?.(...)`, no-ops, so it cannot be a module load and must not
+  // invent a dependency. Any other timing (a call in another function, a
+  // deferred field initializer) is unknowable from source order, so the
+  // loader is treated as installed, keeping the previous behavior there.
   const laterWrites = binding.initializers
     .filter((initializer) => initializer !== establishing)
     .map((initializer) => requireWriteFact(initializer.node, state));
-  return !requireWriteShadowsCall(laterWrites, node, state);
+  const establishingFact = requireWriteFact(establishing.node, state);
+  const { line, column } = range(node).start;
+  const callFunction = nearestFunctionNode(node, state);
+  const callBeforeEstablishing =
+    establishingFact.endLine > line ||
+    (establishingFact.endLine === line && establishingFact.endColumn > column);
+  const installed = !(
+    callBeforeEstablishing && establishingFact.functionNode === callFunction
+  );
+  return installed && !requireWriteShadowsCall(laterWrites, node, state);
 };
 
 /**
@@ -458,6 +473,8 @@ interface RequireWriteFact {
   readonly endColumn: number;
   /** Nearest enclosing function of the write, or null at program top level. */
   readonly functionNode: t.Node | null;
+  /** The write node itself, for conditional-ancestor checks. */
+  readonly node: t.Node;
 }
 
 interface RetainedRequireFacts {
@@ -543,16 +560,34 @@ const requireWriteFact = (
     endLine: line,
     endColumn: column,
     functionNode: nearestFunctionNode(writeNode, state),
+    node: writeNode,
   };
 };
+
+/**
+ * A write fact textually precedes a call in the same function scope when the
+ * call starts at or after the write's end position. A write at program top
+ * level precedes calls anywhere after it; a write inside a function body
+ * only precedes calls in that same body, since source order cannot establish
+ * when the body runs relative to an outer call.
+ */
+const writeFactPrecedesCall = (
+  write: RequireWriteFact,
+  line: number,
+  column: number,
+  callFunction: t.Node | null,
+): boolean =>
+  (write.endLine < line ||
+    (write.endLine === line && write.endColumn <= column)) &&
+  (write.functionNode === null || write.functionNode === callFunction);
 
 /**
  * A call at or after an effective write in the same function scope no longer
  * sees the loader. A write takes effect when its assignment expression
  * finishes evaluating, so a call inside the write's own right-hand side
  * (e.g. `require = require("./dep.cjs")`) still sees the loader. A write
- * inside a function body only shadows calls in that same body: source order
- * cannot establish when the body runs relative to an outer call.
+ * that may never execute cannot hide the dependency: the call may still run
+ * with the loader in place.
  */
 const requireWriteShadowsCall = (
   writes: readonly RequireWriteFact[],
@@ -563,10 +598,54 @@ const requireWriteShadowsCall = (
   const callFunction = nearestFunctionNode(node, state);
   return writes.some(
     (write) =>
-      (write.endLine < line ||
-        (write.endLine === line && write.endColumn <= column)) &&
-      (write.functionNode === null || write.functionNode === callFunction),
+      writeFactPrecedesCall(write, line, column, callFunction) &&
+      writeMustRunBeforeCall(write.node, node, callFunction, state),
   );
+};
+
+/**
+ * A write shadows a call only when it must execute before the call. Each
+ * conditional construct (`if`, loop, `switch` case, `try`) on the path from
+ * the write up to the shared function scope may skip the write — `if (false)
+ * require = localLoader` leaves the loader in place — so the write only
+ * counts when the call sits in the same branch after it. There the write runs
+ * first on every execution that reaches the call (e.g. a write and call
+ * together in a loop body). A `for...of`/`for...in` write is modeled at the
+ * loop statement itself, so the loop head is not treated as conditional for
+ * its own write.
+ */
+const writeMustRunBeforeCall = (
+  writeNode: t.Node,
+  node: JavaScriptCallLike,
+  callFunction: t.Node | null,
+  state: JavaScriptSemanticAnalysisState,
+): boolean => {
+  const writeBranches = new Map<t.Node, t.Node>();
+  let child: t.Node = writeNode;
+  let current: t.Node | undefined = state.parentsByNode.get(child);
+  while (current !== undefined && current !== callFunction) {
+    if (
+      t.isIfStatement(current) ||
+      t.isLoop(current) ||
+      t.isSwitchCase(current) ||
+      t.isTryStatement(current)
+    )
+      writeBranches.set(current, child);
+    child = current;
+    current = state.parentsByNode.get(current);
+  }
+  if (writeBranches.size === 0) return true;
+  const callParents = new Map<t.Node, t.Node>();
+  let callChild: t.Node = node;
+  let callCurrent: t.Node | undefined = state.parentsByNode.get(callChild);
+  while (callCurrent !== undefined) {
+    callParents.set(callCurrent, callChild);
+    callChild = callCurrent;
+    callCurrent = state.parentsByNode.get(callCurrent);
+  }
+  for (const [ancestor, writeChild] of writeBranches)
+    if (callParents.get(ancestor) !== writeChild) return false;
+  return true;
 };
 
 /**
@@ -576,8 +655,13 @@ const requireWriteShadowsCall = (
  * enclosing body, not inside the assigned function. A computed method key
  * (e.g. the key of `{ [require("ghost")]() {} }`) executes in the enclosing
  * scope, not inside the method it names, so the walk skips that method. An
- * incomplete parent chain falls back to null, which keeps the previous
- * positional behavior for that write or call.
+ * instance field initializer only runs when the class is instantiated, so a
+ * write there is deferred work scoped to its field — not a write at class
+ * declaration — which keeps an uninstantiated class from hiding a later
+ * dependency. Static field initializers, computed keys, and decorators run
+ * when the class is defined and keep the previous behavior. An incomplete
+ * parent chain falls back to null, which keeps the previous positional
+ * behavior for that write or call.
  */
 const nearestFunctionNode = (
   node: t.Node,
@@ -588,11 +672,25 @@ const nearestFunctionNode = (
   while (current !== undefined) {
     if (t.isFunction(current) && !isComputedKeyOf(child, current))
       return current;
+    if (isDeferredInstanceFieldValue(child, current)) return current;
     child = current;
     current = state.parentsByNode.get(current);
   }
   return null;
 };
+
+/**
+ * An instance field value runs at instantiation, not at class declaration.
+ * Static fields initialize with the class, computed keys evaluate during
+ * class definition, and decorators run at definition time, so only a
+ * non-static field's own value counts as deferred.
+ */
+const isDeferredInstanceFieldValue = (child: t.Node, parent: t.Node): boolean =>
+  (t.isClassProperty(parent) ||
+    t.isClassPrivateProperty(parent) ||
+    t.isClassAccessorProperty(parent)) &&
+  !parent.static &&
+  parent.value === child;
 
 /** A computed method key runs in the enclosing scope, not inside the method. */
 const isComputedKeyOf = (child: t.Node, parent: t.Node): boolean =>

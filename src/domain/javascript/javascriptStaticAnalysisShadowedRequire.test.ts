@@ -103,6 +103,18 @@ const shadowedCases = [
     "call after a for-of write",
     `var require;\nfor (require of [() => "local"]) {}\nrequire("./after.cjs");`,
   ],
+  [
+    "call before the createRequire establishing write invents no dependency",
+    `import { createRequire } from "node:module";\nlet require;\nrequire?.("./ghost.cjs");\nrequire = createRequire(import.meta.url);`,
+  ],
+  [
+    "call after a write in a static class field",
+    `var require;\nclass C { static initialized = (require = () => "local"); }\nrequire("./ghost.cjs");`,
+  ],
+  [
+    "call after a write in the same if branch",
+    `var require;\nif (condition) { require = localLoader; require("./ghost.cjs"); }`,
+  ],
 ];
 
 const loaderCases = [
@@ -215,6 +227,26 @@ const loaderCases = [
     "iterable call of a for-of loop sees the loader",
     `var require;\nfor (require of require("./iter.cjs")) { require("./ghost.cjs"); }`,
     ["./iter.cjs"],
+  ],
+  [
+    "write inside if(false) does not hide the dependency",
+    `var require;\nif (false) require = localLoader;\nrequire("./dep.cjs");`,
+    ["./dep.cjs"],
+  ],
+  [
+    "write inside a never-entered loop does not hide the dependency",
+    `var require;\nwhile (false) { require = localLoader; }\nrequire("./dep.cjs");`,
+    ["./dep.cjs"],
+  ],
+  [
+    "write in a skipped if branch does not hide the dependency",
+    `var require;\nif (condition) require = localLoader; else require = otherLoader;\nrequire("./dep.cjs");`,
+    ["./dep.cjs"],
+  ],
+  [
+    "write in an uninstantiated class field does not hide the dependency",
+    `var require;\nclass C { value = (require = () => "local"); }\nrequire("./dep.cjs");`,
+    ["./dep.cjs"],
   ],
 ];
 
