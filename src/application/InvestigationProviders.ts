@@ -20,11 +20,13 @@ export const workflowAnalysisProfile = (
     upstream_analysis_profile: upstream,
     ...(operation === "binary_overview"
       ? { workflow_revision: 3 }
-      : operation === "batch_decompile" ||
-          operation === "get_call_graph" ||
-          operation === "trace_feature"
-        ? { workflow_revision: 2 }
-        : {}),
+      : operation === "inspect_native_api"
+        ? { workflow_revision: 1 }
+        : operation === "batch_decompile" ||
+            operation === "get_call_graph" ||
+            operation === "trace_feature"
+          ? { workflow_revision: 2 }
+          : {}),
   });
 
 /** Provider identity for deterministic artifact inventories. */
