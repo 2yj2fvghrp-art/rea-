@@ -135,8 +135,9 @@ export const parseJavaScriptSource = (
         ? parse(source, { ...options, sourceType: "commonjs" })
         : file;
     if (/\.d\.(?:ts|mts|cts)$/iu.test(sourcePath ?? "") && result !== null)
-      (result as { ambientDeclarationFile?: boolean }).ambientDeclarationFile =
-        true;
+      (
+        result.program as { ambientDeclarationFile?: boolean }
+      ).ambientDeclarationFile = true;
     return result;
   } catch (cause: unknown) {
     // Unparseable source is represented by the null return.
