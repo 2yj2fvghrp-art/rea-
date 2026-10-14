@@ -1,6 +1,6 @@
 <div align="center">
 
-# REA: Reverse Engineer Anything
+# REE: Reverse Engineer Everything
 
 ### One MCP for reverse engineering across binaries, applications, and runtime behavior.
 
