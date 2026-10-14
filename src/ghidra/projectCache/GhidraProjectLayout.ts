@@ -10,6 +10,7 @@ import { err, ok, type Result } from "../../domain/result.js";
 import {
   GhidraProjectCacheError,
   GHIDRA_PROJECT_DATA_DIRECTORY,
+  GHIDRA_PROJECT_MANIFEST_FILE,
   GHIDRA_PROJECT_MARKER_FILE,
 } from "./GhidraProjectCacheTypes.js";
 import type { GhidraProjectFileRecord } from "./GhidraProjectManifest.js";
@@ -133,6 +134,10 @@ export const digestGhidraProjectDirectory = async (
   const walk = async (from: string, relative: string): Promise<void> => {
     signal?.throwIfAborted();
     for (const name of (await readdir(from)).sort()) {
+      // The store's own manifest is written after the project is digested, so it
+      // is not part of the project content identity.
+      if (relative.length === 0 && name === GHIDRA_PROJECT_MANIFEST_FILE)
+        continue;
       const absolute = join(from, name);
       const path = relative.length === 0 ? name : `${relative}/${name}`;
       const entry = await lstat(absolute);

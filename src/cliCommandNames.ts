@@ -23,6 +23,7 @@ export const CLI_COMMANDS = Object.freeze({
   cacheList: "cache-list",
   cachePrune: "cache-prune",
   cacheRemove: "cache-remove",
+  cacheVerify: "cache-verify",
   xrefs: "xrefs",
   trace: "trace",
   traceNativeUiAction: "trace-native-ui-action",

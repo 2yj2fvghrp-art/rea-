@@ -189,6 +189,21 @@ describe("GhidraProjectStore", () => {
     expect((await store.remove("not-a-key")).ok).toBe(false);
   });
 
+  it("verifies a clean entry and detects a tampered one", async () => {
+    const store = new GhidraProjectStore({ root, maxBytes: 1_000_000 });
+    const miss = await store.prepare({ identity: identity(), mode: "on" });
+    await store.publish(publishable(store, miss));
+    const key = ghidraProjectCacheKey(identity());
+    expect(await store.verify()).toEqual([{ key, ok: true, issues: [] }]);
+    await writeFile(
+      join(root, key, "rea-project.rep", "idata", "db.gbf"),
+      "tampered",
+    );
+    const [row] = await store.verify();
+    expect(row?.ok).toBe(false);
+    expect(row?.issues.join(" ")).toMatch(/digest/u);
+  });
+
   it("abandons a reserved staging slot", async () => {
     const store = new GhidraProjectStore({ root, maxBytes: 1_000_000 });
     const miss = await store.prepare({ identity: identity(), mode: "on" });

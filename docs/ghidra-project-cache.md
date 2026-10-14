@@ -69,14 +69,18 @@ replays in the later session.
 
 ```sh
 rea cache-list            # stored projects, sizes, and keys
+rea cache-verify          # re-check manifests and digests
+rea cache-verify --repair # also remove corrupt entries
 rea cache-prune           # enforce the size ceiling now
 rea cache-remove <key>    # drop one stored project
 ```
 
 `cache-list` reports the cache directory, mode, ceiling, and each entry's key,
 stored program name, target digest, provider version, size, and creation time.
-Add `--format json` for machine-readable output. Listing is read-only; prune and
-remove are the only cache mutations, and neither opens a target.
+`cache-verify` re-admits each entry and re-hashes its files against the recorded
+project digest, reporting any mismatch. Add `--format json` for machine-readable
+output. Listing and verification are read-only; prune, remove, and
+`--repair` are the only cache mutations, and none of them opens a target.
 
 ## Limitations
 

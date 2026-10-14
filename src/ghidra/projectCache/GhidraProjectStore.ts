@@ -260,6 +260,71 @@ export class GhidraProjectStore {
     }
   }
 
+  /**
+   * Re-validate every stored entry: layout admission, manifest identity, and the
+   * full per-file digest recorded at publish. Returns one row per entry; a row
+   * with issues is corrupt and may be removed with {@link remove}.
+   */
+  async verify(signal?: AbortSignal): Promise<
+    readonly {
+      readonly key: string;
+      readonly ok: boolean;
+      readonly issues: readonly string[];
+    }[]
+  > {
+    const results: {
+      readonly key: string;
+      readonly ok: boolean;
+      readonly issues: readonly string[];
+    }[] = [];
+    for (const key of await this.#entryKeys(signal))
+      results.push(await this.#verifyEntry(key, signal));
+    return results;
+  }
+
+  async #verifyEntry(
+    key: string,
+    signal?: AbortSignal,
+  ): Promise<{
+    readonly key: string;
+    readonly ok: boolean;
+    readonly issues: readonly string[];
+  }> {
+    const entryPath = this.#entryPath(key);
+    const issues: string[] = [];
+    const admitted = await admitGhidraProjectDirectory(entryPath);
+    if (!admitted.ok) issues.push(admitted.error.message);
+    const manifest = await this.#readManifest(entryPath);
+    if (!manifest.ok) {
+      issues.push(manifest.error.message);
+    } else if (manifest.value.key !== key) {
+      issues.push("Manifest key does not match its directory");
+    } else if (admitted.ok) {
+      issues.push(
+        ...(await this.#digestIssues(entryPath, manifest.value, signal)),
+      );
+    }
+    return { key, ok: issues.length === 0, issues };
+  }
+
+  async #digestIssues(
+    entryPath: string,
+    manifest: GhidraProjectManifest,
+    signal?: AbortSignal,
+  ): Promise<readonly string[]> {
+    try {
+      const digest = await digestGhidraProjectDirectory(entryPath, signal);
+      const issues: string[] = [];
+      if (digest.projectDigest !== manifest.project_digest)
+        issues.push("Stored project digest does not match its manifest");
+      if (digest.sizeBytes !== manifest.size_bytes)
+        issues.push("Stored project size does not match its manifest");
+      return issues;
+    } catch (cause: unknown) {
+      return [cause instanceof Error ? cause.message : String(cause)];
+    }
+  }
+
   /** Every valid stored manifest, for discovery and pruning. */
   async list(signal?: AbortSignal): Promise<readonly GhidraProjectManifest[]> {
     const manifests: GhidraProjectManifest[] = [];
