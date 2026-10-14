@@ -157,6 +157,13 @@ export interface GhidraHeadlessLauncherOptions {
   readonly platform?: NodeJS.Platform;
   /** Open a pre-imported project copy instead of importing the target again. */
   readonly existingProject?: GhidraExistingProject;
+  /**
+   * Import the target without `-readOnly`, so Ghidra saves the analyzed program
+   * into the (owned, throwaway) project at the caller's `projectRoot`. The
+   * caller persists that saved project after the process exits. Mutually
+   * exclusive with `existingProject`.
+   */
+  readonly saveImportedProject?: true;
   readonly comSpec?: string;
   /** Select the admitted 16-bit real-mode MZ import instead of auto-detection. */
   readonly dosMz?: true;
@@ -284,6 +291,9 @@ export class GhidraHeadlessLauncher implements GhidraLauncher {
         ...(existingProject === undefined
           ? {}
           : { existingProject: { programName: existingProject.programName } }),
+        ...(this.options.saveImportedProject === undefined
+          ? {}
+          : { saveImportedProject: this.options.saveImportedProject }),
         bridgeScriptPath: this.options.bridgeScriptPath,
         descriptorPath: paths.descriptorPath,
         ghidraLogPath: paths.ghidraLogPath,
@@ -552,6 +562,8 @@ export interface GhidraHeadlessArgumentOptions {
   readonly existingProject?: {
     readonly programName: string;
   };
+  /** Import without `-readOnly` so the analyzed program is saved to the project. */
+  readonly saveImportedProject?: true;
   readonly bridgeScriptPath: string;
   readonly descriptorPath: string;
   readonly ghidraLogPath: string;
@@ -584,6 +596,10 @@ export const ghidraHeadlessArguments = (
   const override = options.languageOverride;
   const rawBinary = options.rawBinary;
   const existing = options.existingProject;
+  if (existing !== undefined && options.saveImportedProject === true)
+    throw new Error(
+      "A saved-import Ghidra project and a pre-imported existing project cannot be combined.",
+    );
   if (existing !== undefined) {
     // The pre-imported project carries its own analysis; every import-time
     // selection is therefore rejected instead of silently ignored. The Windows
@@ -717,8 +733,12 @@ export const ghidraHeadlessArguments = (
       : []),
     // An existing project opens with -noanalysis: its auto-analysis was paid
     // when the project was imported, outside this session's startup deadline.
+    // A saved-import project stays writable so Ghidra writes the analyzed
+    // program, which the caller persists after the process exits.
     ...(existing === undefined
-      ? ["-readOnly", "-deleteProject"]
+      ? options.saveImportedProject === true
+        ? []
+        : ["-readOnly", "-deleteProject"]
       : ["-noanalysis", "-readOnly"]),
     "-log",
     options.ghidraLogPath,
