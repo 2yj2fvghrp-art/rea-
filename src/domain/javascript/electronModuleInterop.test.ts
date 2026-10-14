@@ -568,6 +568,7 @@ describe("Electron module interop generic invocations", () => {
     'const bind = Object.defineProperty.bind; const change = bind.call(Object.defineProperty,null,Object,"create"); change({value:customCreate});',
     'const change = Object.defineProperty.bind(null,Object,"create"); const invoke = change.call; invoke.call(change,null,{value:customCreate});',
     'const args = [null,Object,"create"]; const make = Function.prototype.bind.bind(Object.defineProperty); const change = make.apply(null,args); change({value:customCreate});',
+    'const poison = (receiver, values) => { Object.create = customCreate; }; const metadata = {}; Object.assign(Function.prototype.apply, {apply: poison}); Object.defineProperty.apply.apply(Object.defineProperty, [null, [metadata, "x", {value:1}]]);',
   ])("follows the callable receiver of a generic invocation: %s", (write) => {
     expect(
       analyzeJavaScriptStaticSource(

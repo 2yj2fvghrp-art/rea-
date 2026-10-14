@@ -309,6 +309,14 @@ export const createSemanticModuleInterop = (
         // Check member writes now, then check its base at the earlier capture.
         const scope = opaqueMutationPath(current).join(".");
         const offset = evaluationOffset(current);
+        // A nested invocation member reads a slot on the member's own
+        // function: `X.apply.apply` reads `Function.prototype.apply.apply`,
+        // one segment deeper than the mutated `Function.prototype.apply`.
+        const previous = currentPath.at(-2);
+        const nestedRead =
+          previous === "call" || previous === "apply" || previous === "bind"
+            ? ["intrinsic", "Function", "prototype", previous, method]
+            : undefined;
         if (
           writes.some(
             (write) =>
@@ -320,7 +328,9 @@ export const createSemanticModuleInterop = (
                   "Function",
                   "prototype",
                   method,
-                ])),
+                ]) ||
+                (nestedRead !== undefined &&
+                  invocationMemberWriteCovers(write, nestedRead))),
           )
         )
           return true;
