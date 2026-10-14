@@ -20,9 +20,13 @@ export const projectNativeApiInspection = (
   dossier: FunctionDossier,
 ): NativeApiInspectionResult => {
   const boundary = dossier.native_api ?? unavailableBoundary();
-  const unsupportedBranches = boundary.available
-    ? []
-    : ["structured-boundary-types", "jump-table-data-mapping"];
+  const unsupportedBranches = !boundary.available
+    ? ["structured-boundary-types", "jump-table-data-mapping"]
+    : boundary.unresolved_indirect_branches === undefined
+      ? ["indirect-branch-inventory"]
+      : boundary.unresolved_indirect_branches.length > 0
+        ? ["indirect-branch-target-recovery"]
+        : [];
   const residualUnknowns = boundary.available
     ? availableResidualUnknowns(boundary)
     : boundary.residual_unknowns;
@@ -98,6 +102,18 @@ const availableResidualUnknowns = (
         `Which source-level case values correspond to every target dispatched at ${table.dispatch_address}?`,
       );
   }
+  // An absent inventory means the provider did not inspect indirect
+  // branches, which is not the same as observing none.
+  if (boundary.unresolved_indirect_branches === undefined)
+    unknowns.push(
+      "Which indirect branches does this function contain? The provider did not report an indirect-branch inventory.",
+    );
+  for (const branch of boundary.unresolved_indirect_branches ?? [])
+    unknowns.push(
+      branch.decompiler_outcome === "jump_table_recovery_failed"
+        ? `Which targets can the indirect branch at ${branch.branch_address} reach? The decompiler could not recover a jump table there and rewrote it as a call or return; it may be a dispatch inside this function or an indirect tail call.`
+        : `Is the indirect branch at ${branch.branch_address} a tail call or a dispatch inside this function, and which targets can it reach?`,
+    );
   for (const value of [boundary.return_type, ...boundary.parameters]) {
     if (value.confidence === "low")
       unknowns.push(
