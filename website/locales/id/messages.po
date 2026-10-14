@@ -75,7 +75,7 @@ msgstr "Oleh N0zoM1z0 · 10 Oktober 2026"
 #: website/public/guides/browser/index.html:507
 #: website/public/guides/index.html:282
 #: website/public/guides/javascript/index.html:503
-#: website/public/guides/native/index.html:509 website/public/index.html:1219
+#: website/public/guides/native/index.html:509 website/public/index.html:1124
 #: website/public/showcase/aegis/index.html:808
 #: website/public/showcase/ctf/index.html:777
 #: website/public/showcase/dx-ball/index.html:785
@@ -5588,7 +5588,7 @@ msgctxt "page:index.html"
 msgid "On this page"
 msgstr "Di halaman ini"
 
-#: website/public/index.html:197 website/public/index.html:273
+#: website/public/index.html:197 website/public/index.html:236
 msgctxt "page:index.html"
 msgid "Set up REA"
 msgstr "Siapkan REA"
@@ -5601,25 +5601,9 @@ msgctxt "page:index.html"
 msgid "{ph0}Set up REA{ph1}"
 msgstr "{ph0}Siapkan REA {ph1}"
 
-#. {ph0}: <a href="#what-is-re">
-#. {ph1}: </a>
-#: website/public/index.html:209
-#, python-brace-format
-msgctxt "page:index.html"
-msgid "{ph0}What is RE?{ph1}"
-msgstr "{ph0}Apa itu RE?{ph1}"
-
-#. {ph0}: <a href="#how-rea-helps">
-#. {ph1}: </a>
-#: website/public/index.html:210
-#, python-brace-format
-msgctxt "page:index.html"
-msgid "{ph0}How REA helps{ph1}"
-msgstr "{ph0}Bagaimana REA membantu{ph1}"
-
 #. {ph0}: <a href="#dinosaur">
 #. {ph1}: </a>
-#: website/public/index.html:211
+#: website/public/index.html:210
 #, python-brace-format
 msgctxt "page:index.html"
 msgid "{ph0}Dinosaur game{ph1}"
@@ -5627,7 +5611,7 @@ msgstr "{ph0}Permainan dinosaurus{ph1}"
 
 #. {ph0}: <a href="#calculator">
 #. {ph1}: </a>
-#: website/public/index.html:212
+#: website/public/index.html:211
 #, python-brace-format
 msgctxt "page:index.html"
 msgid "{ph0}Calculator{ph1}"
@@ -5635,7 +5619,7 @@ msgstr "{ph0}Kalkulator{ph1}"
 
 #. {ph0}: <a href="#try-rea">
 #. {ph1}: </a>
-#: website/public/index.html:214
+#: website/public/index.html:213
 #, python-brace-format
 msgctxt "page:index.html"
 msgid "{ph0}Try REA{ph1}"
@@ -5643,34 +5627,25 @@ msgstr "{ph0}Coba REA {ph1}"
 
 #. {ph0}: <a href="#analyze">
 #. {ph1}: </a>
-#: website/public/index.html:215
+#: website/public/index.html:214
 #, python-brace-format
 msgctxt "page:index.html"
 msgid "{ph0}Go deeper{ph1}"
 msgstr "{ph0}Pelajari lebih lanjut{ph1}"
 
-#: website/public/index.html:224
+#: website/public/index.html:223
 msgctxt "page:index.html"
 msgid "Reverse engineering, with your coding agent"
 msgstr "Rekayasa balik, dengan agen pengkodean Anda"
 
 #. {ph0}: <br />
-#: website/public/index.html:225
+#: website/public/index.html:224
 #, python-brace-format
 msgctxt "page:index.html"
 msgid "Find out how{ph0}software works."
 msgstr "Cari tahu bagaimana{ph0}perangkat lunak bekerja."
 
-#: website/public/index.html:226
-msgctxt "page:index.html"
-msgid ""
-"REA gives your agent the tools to inspect a program and explain what it "
-"does."
-msgstr ""
-"REA menyediakan alat bagi agen pemrograman Anda untuk memeriksa program dan "
-"menjelaskan cara kerjanya."
-
-#: website/public/index.html:274
+#: website/public/index.html:237
 msgctxt "page:index.html"
 msgid "Copy this into your coding agent:"
 msgstr "Tempel prompt ini ke agen pemrograman Anda:"
@@ -5683,64 +5658,32 @@ msgstr "Tempel prompt ini ke agen pemrograman Anda:"
 #. {ph5}: <i>
 #. {ph6}: </i>
 #. {ph7}: </span >
-#: website/public/index.html:277
+#: website/public/index.html:240
 #, python-brace-format
 msgctxt "page:index.html"
 msgid "{ph0}{ph1}{ph2}{ph3}{ph4}{ph5}{ph6}{ph7}Your coding agent"
 msgstr "{ph0}{ph1}{ph2}{ph3}{ph4}{ph5}{ph6}{ph7}Agen pengkodean Anda"
 
-#: website/public/index.html:282 website/public/index.html:306
-#: website/public/index.html:531 website/public/index.html:699
-#: website/public/index.html:935
+#: website/public/index.html:245 website/public/index.html:269
+#: website/public/index.html:500 website/public/index.html:651
+#: website/public/index.html:865
 msgctxt "page:index.html"
 msgid "Copy"
 msgstr "Salin"
 
-#: website/public/index.html:303
+#: website/public/index.html:266
 msgctxt "page:index.html"
 msgid "Or run this in your terminal:"
 msgstr "Atau jalankan perintah ini di terminal:"
 
-#: website/public/index.html:315
+#: website/public/index.html:278
 msgctxt "page:index.html"
 msgid "Approve the setup plan, then restart your agent."
 msgstr "Periksa dan setujui rencana perubahan, lalu mulai ulang agen Anda."
 
-#: website/public/index.html:340
-msgctxt "page:index.html"
-msgid "What is reverse engineering?"
-msgstr "Apa itu rekayasa balik?"
-
-#. {ph0}: <strong>
-#. {ph1}: </strong>
-#: website/public/index.html:341
-#, python-brace-format
-msgctxt "page:index.html"
-msgid ""
-"Finding out how software works by {ph0}examining the program itself.{ph1}"
-msgstr ""
-"Memahami cara kerja perangkat lunak dengan {ph0}memeriksa program itu "
-"sendiri.{ph1}"
-
-#. {ph0}: <mark class="prose-highlight">
-#. {ph1}: </mark>
-#. {ph2}: <mark class="prose-highlight">
-#. {ph3}: </mark>
-#. {ph4}: <mark class="prose-highlight">
-#. {ph5}: </mark>
-#: website/public/index.html:346
-#, python-brace-format
-msgctxt "page:index.html"
-msgid ""
-"The goal: understand a feature well enough to {ph0}explain it{ph1}, "
-"{ph2}change it{ph3} or {ph4}rebuild it.{ph5}"
-msgstr ""
-"Tujuannya: memahami fitur dengan cukup baik untuk {ph0}jelaskan{ph1}, "
-"{ph2}ubahlah{ph3} atau {ph4}bangun kembali.{ph5}"
-
 #. {ph0}: <span>
 #. {ph1}: </span>
-#: website/public/index.html:373
+#: website/public/index.html:345
 #, python-brace-format
 msgctxt "page:index.html"
 msgid "{ph0}01{ph1} Decode branches"
@@ -5748,7 +5691,7 @@ msgstr "{ph0}01{ph1} Dekode cabang"
 
 #. {ph0}: <span>
 #. {ph1}: </span>
-#: website/public/index.html:381
+#: website/public/index.html:353
 #, python-brace-format
 msgctxt "page:index.html"
 msgid "{ph0}02{ph1} Trace calls"
@@ -5756,7 +5699,7 @@ msgstr "{ph0}02{ph1} Melacak panggilan"
 
 #. {ph0}: <span>
 #. {ph1}: </span>
-#: website/public/index.html:389
+#: website/public/index.html:361
 #, python-brace-format
 msgctxt "page:index.html"
 msgid "{ph0}03{ph1} Recover the rule"
@@ -5764,22 +5707,22 @@ msgstr "{ph0}03{ph1} Pulihkan aturan"
 
 #. {ph0}: <span>
 #. {ph1}: </span>
-#. {ph2}: <span class="assembly-disclosure" aria-hidden="true">
+#. {ph2}: <span class="assembly-disclosure" aria-hidden="true" >
 #. {ph3}: </span>
-#: website/public/index.html:404
+#: website/public/index.html:376
 #, python-brace-format
 msgctxt "page:index.html"
 msgid "{ph0}Original x64 · selected instructions{ph1} {ph2}{ph3}"
 msgstr "{ph0}x64 asli * instruksi yang dipilih{ph1} {ph2}{ph3}"
 
-#: website/public/index.html:443
+#: website/public/index.html:418
 msgctxt "page:index.html"
 msgid "01 · Which branch?"
 msgstr "01 * Cabang mana?"
 
 #. {ph0}: <strong>
 #. {ph1}: </strong>
-#: website/public/index.html:444
+#: website/public/index.html:419
 #, python-brace-format
 msgctxt "page:index.html"
 msgid ""
@@ -5788,29 +5731,29 @@ msgid ""
 msgstr ""
 "“{ph0}0x5b? 0x5c?{ph1} Dua lompatan ke tempat yang sama. Operator mana ini?”"
 
-#: website/public/index.html:448
+#: website/public/index.html:423
 msgctxt "page:index.html"
 msgid "Look up the command IDs, then label the branch."
 msgstr "Cari ID perintah, lalu beri label pada cabang."
 
-#: website/public/index.html:454
+#: website/public/index.html:429
 msgctxt "page:index.html"
 msgid "Divide ÷"
 msgstr "Membagi ÷"
 
-#: website/public/index.html:458
+#: website/public/index.html:433
 msgctxt "page:index.html"
 msgid "Multiply ×"
 msgstr "Kalikan ×"
 
-#: website/public/index.html:463
+#: website/public/index.html:438
 msgctxt "page:index.html"
 msgid "02 · What do the calls do?"
 msgstr "02 · Apa yang dilakukan fungsi yang dipanggil?"
 
-#. {ph0}: <strong>
+#. {ph0}: <strong >
 #. {ph1}: </strong >
-#: website/public/index.html:464
+#: website/public/index.html:439
 #, python-brace-format
 msgctxt "page:index.html"
 msgid ""
@@ -5820,24 +5763,24 @@ msgstr ""
 "\"100 sudah jelas. Panggilan itu hanya alamat. {ph0}Yang mana yang membelah?"
 " Nilai mana yang masuk?{ph1}”"
 
-#: website/public/index.html:469
+#: website/public/index.html:445
 msgctxt "page:index.html"
 msgid "Inspect the helpers and trace the stored values."
 msgstr "Periksa fungsi pembantu dan lacak nilai yang disimpan."
 
-#: website/public/index.html:479
+#: website/public/index.html:455
 msgctxt "page:index.html"
 msgid "Divide"
 msgstr "Membagi"
 
-#: website/public/index.html:484
+#: website/public/index.html:460
 msgctxt "page:index.html"
 msgid "03 · What is the rule?"
 msgstr "03 · Apa aturannya?"
 
 #. {ph0}: <strong>
 #. {ph1}: </strong>
-#: website/public/index.html:485
+#: website/public/index.html:461
 #, python-brace-format
 msgctxt "page:index.html"
 msgid ""
@@ -5847,19 +5790,19 @@ msgstr ""
 "\"Jalur ini dikalikan dengan masukan lainnya. Jadi {ph0}10% berarti 10% dari"
 " 200{ph1} setelah +.”"
 
-#: website/public/index.html:489
+#: website/public/index.html:465
 msgctxt "page:index.html"
 msgid "Name the operands and check both operator paths."
 msgstr "Beri nama operan dan periksa kedua jalur operator."
 
-#: website/public/index.html:505 website/public/index.html:433
+#: website/public/index.html:481 website/public/index.html:408
 msgctxt "page:index.html"
 msgid "Illustrative expert reasoning"
 msgstr "Penalaran ahli ilustratif"
 
 #. {ph0}: <strong >
 #. {ph1}: </strong >
-#: website/public/index.html:508
+#: website/public/index.html:484
 #, python-brace-format
 msgctxt "page:index.html"
 msgid ""
@@ -5869,27 +5812,6 @@ msgstr ""
 "{ph0}Anda memecahkan kode instruksi, mengikuti pemanggilan fungsi, dan "
 "merekonstruksi perhitungannya.{ph1}"
 
-#. {ph0}: <strong class="prose-highlight">
-#. {ph1}: </strong>
-#: website/public/index.html:516
-#, python-brace-format
-msgctxt "page:index.html"
-msgid "With REA · You ask {ph0}your agent{ph1}"
-msgstr "Dengan REA · Anda bertanya kepada {ph0}agen Anda{ph1}"
-
-#: website/public/index.html:520
-msgctxt "page:index.html"
-msgid "One prompt."
-msgstr "Cukup satu prompt."
-
-#. {ph0}: <strong>
-#. {ph1}: </strong>
-#: website/public/index.html:521
-#, python-brace-format
-msgctxt "page:index.html"
-msgid "Ask your agent {ph0}in plain English.{ph1}"
-msgstr "Tanyakan kepada agen Anda {ph0}dengan bahasa sehari-hari.{ph1}"
-
 #. {ph0}: <span class="terminal-dots" aria-hidden="true" >
 #. {ph1}: <i>
 #. {ph2}: </i>
@@ -5898,20 +5820,20 @@ msgstr "Tanyakan kepada agen Anda {ph0}dengan bahasa sehari-hari.{ph1}"
 #. {ph5}: <i>
 #. {ph6}: </i>
 #. {ph7}: </span >
-#: website/public/index.html:526
+#: website/public/index.html:495
 #, python-brace-format
 msgctxt "page:index.html"
 msgid "{ph0}{ph1}{ph2}{ph3}{ph4}{ph5}{ph6}{ph7}Example prompt · Calculator"
 msgstr "{ph0}{ph1}{ph2}{ph3}{ph4}{ph5}{ph6}{ph7}Contoh prompt * Kalkulator"
 
-#: website/public/index.html:548
+#: website/public/index.html:517
 msgctxt "page:index.html"
 msgid "Example answer · based on the findings"
 msgstr "Contoh jawaban * berdasarkan temuan"
 
 #. {ph0}: <strong>
 #. {ph1}: </strong>
-#: website/public/index.html:551
+#: website/public/index.html:520
 #, python-brace-format
 msgctxt "page:index.html"
 msgid ""
@@ -5919,138 +5841,81 @@ msgid ""
 msgstr ""
 "Setelah +, tombol % mengambil {ph0}persentase dari angka pertama.{ph1}"
 
-#: website/public/index.html:250 website/public/index.html:563
+#: website/public/index.html:533
 msgctxt "page:index.html"
 msgid "REA supplies"
 msgstr "REA menyediakan"
 
-#: website/public/index.html:252 website/public/index.html:564
+#: website/public/index.html:534
 msgctxt "page:index.html"
 msgid "The handler’s instructions, decompiled code and calls."
 msgstr "Instruksi pawang, kode yang didekompilasi, dan panggilan."
 
-#: website/public/index.html:259 website/public/index.html:569
+#: website/public/index.html:539
 msgctxt "page:index.html"
 msgid "Your agent explains"
 msgstr "Agen Anda menjelaskan"
 
-#: website/public/index.html:570
+#: website/public/index.html:540
 msgctxt "page:index.html"
 msgid "Which branch applies, what it calculates and how to rebuild it."
 msgstr ""
 "Cabang mana yang berlaku, apa yang menghitungnya, dan bagaimana membangunnya"
 " kembali."
 
-#. {ph0}: <a href="#calculator">
-#. {ph1}: </a>
-#: website/public/index.html:577
-#, python-brace-format
-msgctxt "page:index.html"
-msgid ""
-"Selected assembly from the installed Calculator DLL. The thoughts and reply "
-"illustrate the findings. {ph0}Continue with the Calculator example ↓{ph1}"
-msgstr ""
-"Rakitan yang dipilih dari Kalkulator DLL yang diinstal. Pemikiran dan "
-"balasannya menggambarkan temuan tersebut. {ph0}Lanjutkan dengan contoh "
-"Kalkulator ↓{ph1}"
-
-#. {ph0}: <strong>
-#. {ph1}: </strong>
-#: website/public/index.html:588
-#, python-brace-format
-msgctxt "page:index.html"
-msgid ""
-"{ph0}Let's try two examples.{ph1} Change a game's speed, then return to "
-"Calculator and rebuild its % button."
-msgstr ""
-"{ph0}Mari kita coba dua contoh.{ph1} Ubah kecepatan permainan, lalu kembali "
-"ke Kalkulator dan buat kembali tombol % - nya."
-
-#: website/public/index.html:594
+#: website/public/index.html:560
 msgctxt "page:index.html"
 msgid "Example 01 · Chrome’s dinosaur game"
 msgstr "Contoh 01 * Game dinosaurus Chrome"
 
-#: website/public/index.html:595
+#: website/public/index.html:561
 msgctxt "page:index.html"
 msgid "Why does the dinosaur get faster?"
 msgstr "Mengapa dinosaurus semakin cepat?"
 
-#: website/public/index.html:599 website/public/index.html:837
-msgctxt "page:index.html"
-msgid "Goal"
-msgstr "Tujuan"
-
-#. {ph0}: <mark class="prose-highlight">
-#. {ph1}: </mark>
-#: website/public/index.html:600
-#, python-brace-format
-msgctxt "page:index.html"
-msgid "Rebuild the game with {ph0}adjustable speed.{ph1}"
-msgstr ""
-"Bangun kembali game dengan {ph0}kecepatan yang dapat disesuaikan.{ph1}"
-
-#: website/public/index.html:606 website/public/index.html:844
-msgctxt "page:index.html"
-msgid "Why reverse engineer it?"
-msgstr "Mengapa merekayasa baliknya?"
-
-#. {ph0}: <strong>
-#. {ph1}: </strong>
-#: website/public/index.html:607
-#, python-brace-format
-msgctxt "page:index.html"
-msgid ""
-"To reproduce its acceleration, we need {ph0}the rule in the running "
-"game{ph1}: how fast it starts, how much it increases and when it stops."
-msgstr ""
-"Untuk mereproduksi percepatannya, kita membutuhkan {ph0}aturan dalam "
-"permainan lari{ph1}: seberapa cepat dimulai, seberapa banyak meningkat dan "
-"kapan berhenti."
-
-#: website/public/index.html:616
+#: website/public/index.html:569
 msgctxt "page:index.html"
 msgid "Play the reconstruction"
 msgstr "Mainkan hasil rekonstruksi"
 
-#: website/public/index.html:648
+#: website/public/index.html:601
 msgctxt "page:index.html"
 msgid "Play"
 msgstr "Main"
 
-#: website/public/index.html:651
+#: website/public/index.html:604
 msgctxt "page:index.html"
 msgid "Jump ↑"
 msgstr "Lompat ↑"
 
-#: website/public/index.html:652
+#: website/public/index.html:605
 msgctxt "page:index.html"
 msgid "Restart"
 msgstr "Mulai ulang"
 
-#: website/public/index.html:655
+#: website/public/index.html:608
 msgctxt "page:index.html"
 msgid "Speed"
 msgstr "Kecepatan"
 
-#: website/public/index.html:665
+#: website/public/index.html:618
 msgctxt "page:index.html"
 msgid "Use the recovered acceleration rule"
 msgstr "Gunakan aturan akselerasi yang dipulihkan"
 
-#: website/public/index.html:669
+#: website/public/index.html:622
 msgctxt "page:index.html"
 msgid "Original rule: start at 6, then increase toward 13."
 msgstr "Aturan awal: mulai dari 6, lalu tingkatkan menjadi 13."
 
-#: website/public/index.html:672
+#: website/public/index.html:625
 msgctxt "page:index.html"
 msgid "Move the slider to set your own speed. Space or Jump clears a cactus."
 msgstr ""
 "Gerakkan penggeser untuk mengatur kecepatan Anda sendiri. Ruang atau "
 "Lompatan membersihkan kaktus."
 
-#: website/public/index.html:677
+#: website/public/index.html:630
 msgctxt "page:index.html"
 msgid ""
 "Enable JavaScript to play the reconstruction. The code and explanation above"
@@ -6059,23 +5924,10 @@ msgstr ""
 "Aktifkan JavaScript untuk memainkan rekonstruksi. Kode dan penjelasan di "
 "atas tetap dapat dibaca."
 
-#: website/public/index.html:685 website/public/index.html:915
+#: website/public/index.html:638 website/public/index.html:848
 msgctxt "page:index.html"
 msgid "REA returned"
 msgstr "REA mengembalikan"
-
-#. {ph0}: <strong>
-#. {ph1}: </strong>
-#: website/public/index.html:686
-#, python-brace-format
-msgctxt "page:index.html"
-msgid ""
-"{ph0}The script actually running in the page.{ph1} The agent reads its "
-"update function and speed settings, then uses that rule in a new game."
-msgstr ""
-"{ph0}Skrip benar-benar berjalan di halaman.{ph1} Agen membaca fungsi "
-"pembaruan dan pengaturan kecepatannya, lalu menggunakan aturan tersebut di "
-"game baru."
 
 #. {ph0}: <span class="terminal-dots" aria-hidden="true" >
 #. {ph1}: <i>
@@ -6085,7 +5937,7 @@ msgstr ""
 #. {ph5}: <i>
 #. {ph6}: </i>
 #. {ph7}: </span >
-#: website/public/index.html:694
+#: website/public/index.html:646
 #, python-brace-format
 msgctxt "page:index.html"
 msgid "{ph0}{ph1}{ph2}{ph3}{ph4}{ph5}{ph6}{ph7}Example prompt · Dinosaur game"
@@ -6098,7 +5950,7 @@ msgstr ""
 #. {ph3}: </span >
 #. {ph4}: <span class="terminal-cursor" aria-hidden="true">
 #. {ph5}: </span>
-#: website/public/index.html:708
+#: website/public/index.html:660
 #, python-brace-format
 msgctxt "page:index.html"
 msgid ""
@@ -6112,35 +5964,19 @@ msgstr ""
 
 #. {ph0}: <a href="https://wayou.github.io/t-rex-runner/" >
 #. {ph1}: </a >
-#: website/public/index.html:717
+#: website/public/index.html:669
 #, python-brace-format
 msgctxt "page:index.html"
 msgid "Inspected target: {ph0}wayou’s Chromium-derived browser edition{ph1}."
 msgstr ""
 "Target yang diperiksa: {ph0}edisi peramban turunan Chromium wayou{ph1}."
 
-#. {ph0}: <strong>
-#. {ph1}: </strong>
-#. {ph2}: <strong>
-#. {ph3}: </strong>
-#. {ph4}: <strong>
-#. {ph5}: </strong>
-#: website/public/index.html:734
-#, python-brace-format
-msgctxt "page:index.html"
-msgid ""
-"{ph0}Start at 6.{ph1} Add {ph2}0.001{ph3} each update without a collision, "
-"while speed is below {ph4}13{ph5}."
-msgstr ""
-"{ph0}Mulai dari 6.{ph1} Tambahkan {ph2}0.001{ph3} setiap pembaruan tanpa "
-"tabrakan, sementara kecepatan di bawah {ph4}13{ph5}."
-
-#: website/public/index.html:739
+#: website/public/index.html:690
 msgctxt "page:index.html"
 msgid "Open the speed lab →"
 msgstr "Buka lab kecepatan →"
 
-#: website/public/index.html:745
+#: website/public/index.html:700
 msgctxt "page:index.html"
 msgid "What each part does"
 msgstr "Apa yang dilakukan setiap bagian"
@@ -6151,7 +5987,7 @@ msgstr "Apa yang dilakukan setiap bagian"
 #. {ph3}: </span >
 #. {ph4}: <span class="flow-note" >
 #. {ph5}: </span >
-#: website/public/index.html:747
+#: website/public/index.html:702
 #, python-brace-format
 msgctxt "page:index.html"
 msgid ""
@@ -6168,7 +6004,7 @@ msgstr ""
 #. {ph3}: </span >
 #. {ph4}: <span class="flow-note" >
 #. {ph5}: </span >
-#: website/public/index.html:754
+#: website/public/index.html:709
 #, python-brace-format
 msgctxt "page:index.html"
 msgid ""
@@ -6185,7 +6021,7 @@ msgstr ""
 #. {ph3}: </span >
 #. {ph4}: <span class="flow-note" >
 #. {ph5}: </span >
-#: website/public/index.html:762
+#: website/public/index.html:717
 #, python-brace-format
 msgctxt "page:index.html"
 msgid ""
@@ -6195,13 +6031,13 @@ msgstr ""
 "{ph0}03 * Kamu{ph1}{ph2}Mengubah kecepatan dan bermain{ph3}{ph4}Coba "
 "akselerasi asli, lalu pilih kecepatan Anda sendiri.{ph5}"
 
-#: website/public/index.html:773
+#: website/public/index.html:696
 msgctxt "page:index.html"
 msgid "See the script, checks and how to try the analysis"
 msgstr "Lihat skrip, cek, dan cara mencoba analisisnya"
 
 #. {ph0}: <code>index.js</code>
-#: website/public/index.html:776
+#: website/public/index.html:727
 #, python-brace-format
 msgctxt "page:index.html"
 msgid ""
@@ -6211,7 +6047,7 @@ msgstr ""
 "REA memeriksa edisi browser HTTP melalui koneksi debugging lokal dan "
 "mengembalikan yang dimuat {ph0}, termasuk sumber dan intisarinya."
 
-#: website/public/index.html:789
+#: website/public/index.html:740
 msgctxt "page:index.html"
 msgid ""
 "We called the original game’s update function in a controlled browser check,"
@@ -6225,7 +6061,7 @@ msgstr ""
 
 #. {ph0}: <a href="examples/dino-lab/">
 #. {ph1}: </a>
-#: website/public/index.html:795
+#: website/public/index.html:746
 #, python-brace-format
 msgctxt "page:index.html"
 msgid ""
@@ -6242,7 +6078,7 @@ msgstr ""
 #. {ph1}: </a>
 #. {ph2}: <a href="https://wayou.github.io/t-rex-runner/" >
 #. {ph3}: </a >
-#: website/public/index.html:801
+#: website/public/index.html:752
 #, python-brace-format
 msgctxt "page:index.html"
 msgid ""
@@ -6260,7 +6096,7 @@ msgstr ""
 #. {ph1}: </a >
 #. {ph2}: <a href="assets/licenses/dinosaur.txt" >
 #. {ph3}: </a >
-#: website/public/index.html:810
+#: website/public/index.html:761
 #, python-brace-format
 msgctxt "page:index.html"
 msgid ""
@@ -6269,73 +6105,39 @@ msgstr ""
 "{ph0}Kode kecepatan yang diperiksa{ph1} · {ph2} Penulis Chromium * Lisensi "
 "BSD{ph3}"
 
-#: website/public/index.html:827
+#: website/public/index.html:778
 msgctxt "page:index.html"
 msgid "Example 02 · Windows Calculator"
 msgstr "Contoh 02 * Kalkulator Windows"
 
-#: website/public/index.html:828
+#: website/public/index.html:779
 msgctxt "page:index.html"
 msgid "Rebuild Calculator’s % button."
 msgstr "Buat ulang tombol % Kalkulator."
 
-#. {ph0}: <mark class="prose-highlight">
-#. {ph1}: </mark>
-#: website/public/index.html:838
-#, python-brace-format
-msgctxt "page:index.html"
-msgid ""
-"Build a small calculator that handles {ph0}both + and × correctly.{ph1}"
-msgstr "Buat kalkulator kecil yang menangani {ph0}keduanya + dan × {ph1}"
-
-#. {ph0}: <strong>
-#. {ph1}: </strong>
-#: website/public/index.html:845
-#, python-brace-format
-msgctxt "page:index.html"
-msgid ""
-"The same button uses {ph0}different rules after + and ×.{ph1} We inspect the"
-" installed app to find which number the percentage is applied to."
-msgstr ""
-"Tombol yang sama menggunakan {ph0}aturan berbeda setelah + dan ×{ph1} Kami "
-"memeriksa aplikasi yang diinstal untuk menemukan angka persentase yang "
-"diterapkan."
-
-#: website/public/index.html:265 website/public/index.html:854
+#: website/public/index.html:787
 msgctxt "page:index.html"
 msgid "Try the calculation"
 msgstr "Coba perhitungannya"
 
-#: website/public/index.html:898
+#: website/public/index.html:831
 msgctxt "page:index.html"
 msgid "Reset"
 msgstr "Reset"
 
-#: website/public/index.html:906
+#: website/public/index.html:839
 msgctxt "page:index.html"
 msgid "10% of 200 = 20. Then 200 + 20 = 220."
 msgstr "10% dari 200 = 20. Kemudian 200 + 20 = 220."
 
-#: website/public/index.html:909
+#: website/public/index.html:842
 msgctxt "page:index.html"
 msgid "Interactive illustration of the inspected percentage rule."
 msgstr "Ilustrasi interaktif dari aturan persentase yang diinspeksi."
 
-#. {ph0}: <strong >
-#. {ph1}: </strong >
-#: website/public/index.html:916
-#, python-brace-format
-msgctxt "page:index.html"
-msgid ""
-"{ph0}One branch divides by 100. The other also multiplies by the first "
-"number.{ph1} The agent uses both to recreate the % button."
-msgstr ""
-"{ph0}Satu cabang dibagi dengan 100. Yang lain juga dikalikan dengan angka "
-"pertama.{ph1} Agen menggunakan keduanya untuk membuat ulang tombol%."
-
 #. {ph0}: <code>previous = 200</code>
 #. {ph1}: <code>current = 10</code>
-#: website/public/index.html:924
+#: website/public/index.html:854
 #, python-brace-format
 msgctxt "page:index.html"
 msgid "For this example, {ph0} and {ph1}."
@@ -6349,7 +6151,7 @@ msgstr "Untuk contoh ini, {ph0} dan {ph1}."
 #. {ph5}: <i>
 #. {ph6}: </i>
 #. {ph7}: </span >
-#: website/public/index.html:930
+#: website/public/index.html:860
 #, python-brace-format
 msgctxt "page:index.html"
 msgid ""
@@ -6365,7 +6167,7 @@ msgstr ""
 #. {ph3}: </span >
 #. {ph4}: <span class="terminal-cursor" aria-hidden="true">
 #. {ph5}: </span>
-#: website/public/index.html:944
+#: website/public/index.html:874
 #, python-brace-format
 msgctxt "page:index.html"
 msgid ""
@@ -6376,35 +6178,35 @@ msgstr ""
 "{ph0}›{ph1}{ph2}Gunakan REA untuk memeriksa tombol % Kalkulator Windows. "
 "Pulihkan aturan setelah + dan × {ph3}{ph4}{ph5}"
 
-#: website/public/index.html:965
+#: website/public/index.html:895
 msgctxt "page:index.html"
 msgid "With +"
 msgstr "Dengan +"
 
-#. {ph0}: <strong>
-#. {ph1}: </strong >
+#. {ph0}: <span>
+#. {ph1}: </span >
 #. {ph2}: <code>10% of 200 = 20 → 200 + 20 = 220</code>
-#: website/public/index.html:966
+#: website/public/index.html:896
 #, python-brace-format
 msgctxt "page:index.html"
 msgid "{ph0}Take 10% of the first number.{ph1}{ph2}"
 msgstr "{ph0}Ambil 10% dari angka pertama.{ph1}{ph2}"
 
-#: website/public/index.html:972
+#: website/public/index.html:902
 msgctxt "page:index.html"
 msgid "With ×"
 msgstr "Dengan ×"
 
-#. {ph0}: <strong>
-#. {ph1}: </strong >
+#. {ph0}: <span>
+#. {ph1}: </span>
 #. {ph2}: <code>200 × 0.1 = 20</code>
-#: website/public/index.html:973
+#: website/public/index.html:903
 #, python-brace-format
 msgctxt "page:index.html"
 msgid "{ph0}Turn 10% into 0.1.{ph1}{ph2}"
 msgstr "{ph0}Ubah 10% menjadi 0,1.{ph1}{ph2}"
 
-#: website/public/index.html:982
+#: website/public/index.html:913
 msgctxt "page:index.html"
 msgid "From the installed app to a working % button"
 msgstr "Dari aplikasi yang diinstal ke tombol % yang berfungsi"
@@ -6416,7 +6218,7 @@ msgstr "Dari aplikasi yang diinstal ke tombol % yang berfungsi"
 #. {ph4}: <span class="flow-note" >
 #. {ph5}: <code>100</code>
 #. {ph6}: </span >
-#: website/public/index.html:995
+#: website/public/index.html:926
 #, python-brace-format
 msgctxt "page:index.html"
 msgid ""
@@ -6434,7 +6236,7 @@ msgstr ""
 #. {ph3}: </span >
 #. {ph4}: <span class="flow-note" >
 #. {ph5}: </span >
-#: website/public/index.html:1003
+#: website/public/index.html:934
 #, python-brace-format
 msgctxt "page:index.html"
 msgid ""
@@ -6446,12 +6248,12 @@ msgstr ""
 "aturan{ph3}{ph4}Periksa silang cabang dengan sumber Microsoft, lalu coba + "
 "dan × {ph5}"
 
-#: website/public/index.html:1014
+#: website/public/index.html:911
 msgctxt "page:index.html"
 msgid "See the real code and how the answer was checked"
 msgstr "Lihat kode sebenarnya dan bagaimana jawabannya diperiksa"
 
-#: website/public/index.html:1040
+#: website/public/index.html:969
 msgctxt "page:index.html"
 msgid ""
 "Inspected with REA 4.1.0: Windows Calculator 11.2508.4.0, x64. The readable "
@@ -6472,7 +6274,7 @@ msgstr ""
 #. {ph3}: </a >
 #. {ph4}: <a href="guides/native/">
 #. {ph5}: </a>
-#: website/public/index.html:1045
+#: website/public/index.html:974
 #, python-brace-format
 msgctxt "page:index.html"
 msgid ""
@@ -6482,17 +6284,17 @@ msgstr ""
 "{ph0}Implementasi persentase{ph1} · {ph2}Kasus uji Microsoft{ph3} · "
 "{ph4}Panduan penyiapan asli{ph5}"
 
-#: website/public/index.html:1118
+#: website/public/index.html:1043
 msgctxt "page:index.html"
 msgid "Your first investigation"
 msgstr "Investigasi pertamamu"
 
-#: website/public/index.html:1119
+#: website/public/index.html:1044
 msgctxt "page:index.html"
 msgid "Try REA on a small app."
 msgstr "Coba REA di aplikasi kecil."
 
-#: website/public/index.html:1120
+#: website/public/index.html:1045
 msgctxt "page:index.html"
 msgid ""
 "Download our Notes example, trace its CSV export, and check one changed "
@@ -6501,43 +6303,17 @@ msgstr ""
 "Unduh contoh Catatan kami, lacak ekspor CSV - nya, dan periksa satu input "
 "yang diubah."
 
-#: website/public/index.html:1125
+#: website/public/index.html:1050
 msgctxt "page:index.html"
 msgid "Try the guided example"
 msgstr "Coba contoh terpandu"
 
-#: website/public/index.html:1134
-msgctxt "page:index.html"
-msgid "Want to go deeper?"
-msgstr "Ingin mempelajari lebih lanjut?"
-
-#. {ph0}: <strong>
-#. {ph1}: </strong>
-#. {ph2}: <strong>
-#. {ph3}: </strong>
-#: website/public/index.html:1135
-#, python-brace-format
-msgctxt "page:index.html"
-msgid ""
-"Tell your agent what you want to understand or build. With REA, you can work"
-" together on anything from {ph0}cloning this website{ph1} to "
-"{ph2}reconstructing a game from its executable.{ph3}"
-msgstr ""
-"Beri tahu agen Anda apa yang ingin Anda pahami atau bangun. Dengan REA, Anda"
-" dapat bekerja sama dalam segala hal mulai dari {ph0}mengkloning situs web "
-"ini{ph1} untuk {ph2}merekonstruksi game dari executable-nya.{ph3}"
-
-#: website/public/index.html:1142
-msgctxt "page:index.html"
-msgid "For setup and analysis steps, choose your target:"
-msgstr "Untuk langkah penyiapan dan analisis, pilih target Anda:"
-
-#: website/public/index.html:1147
+#: website/public/index.html:1067
 msgctxt "page:index.html"
 msgid "Native binaries"
 msgstr "Program kode mesin"
 
-#: website/public/index.html:1148
+#: website/public/index.html:1068
 msgctxt "page:index.html"
 msgid ""
 "Inspect functions, strings, references and call relationships in executables"
@@ -6546,17 +6322,17 @@ msgstr ""
 "Periksa fungsi, string, referensi, dan hubungan pemanggilan fungsi di "
 "executable dan pustaka."
 
-#: website/public/index.html:1152
+#: website/public/index.html:1072
 msgctxt "page:index.html"
 msgid "Native analysis guide"
 msgstr "Analisis panduan program kode mesin"
 
-#: website/public/index.html:1155
+#: website/public/index.html:1075
 msgctxt "page:index.html"
 msgid "JavaScript & Electron"
 msgstr "JavaScript & Electron"
 
-#: website/public/index.html:1156
+#: website/public/index.html:1076
 msgctxt "page:index.html"
 msgid ""
 "Map modules, routes, IPC and native dependencies from an application folder "
@@ -6565,17 +6341,17 @@ msgstr ""
 "Modul peta, rute, IPC, dan dependensi asli dari folder aplikasi atau arsip "
 "ASAR."
 
-#: website/public/index.html:1160
+#: website/public/index.html:1080
 msgctxt "page:index.html"
 msgid "Application workflows"
 msgstr "Alur kerja aplikasi"
 
-#: website/public/index.html:1163
+#: website/public/index.html:1083
 msgctxt "page:index.html"
 msgid "Browser & runtime activity"
 msgstr "Aktivitas browser & waktu proses"
 
-#: website/public/index.html:1164
+#: website/public/index.html:1084
 msgctxt "page:index.html"
 msgid ""
 "Capture selected browser or process activity, then compare the results "
@@ -6584,12 +6360,12 @@ msgstr ""
 "Tangkap browser atau aktivitas proses yang dipilih, lalu bandingkan hasilnya"
 " di seluruh proses."
 
-#: website/public/index.html:1168
+#: website/public/index.html:1088
 msgctxt "page:index.html"
 msgid "Browser observation guide"
 msgstr "Panduan pengamatan browser"
 
-#: website/public/index.html:1176
+#: website/public/index.html:1096
 msgctxt "page:index.html"
 msgid "Any questions?"
 msgstr "Ada pertanyaan?"
@@ -6600,7 +6376,7 @@ msgstr "Ada pertanyaan?"
 #. {ph3}: </a >
 #. {ph4}: <a href="https://github.com/morluto/rea/issues/new/choose" >
 #. {ph5}: </a >
-#: website/public/index.html:1177
+#: website/public/index.html:1097
 #, python-brace-format
 msgctxt "page:index.html"
 msgid ""
@@ -6609,20 +6385,6 @@ msgid ""
 msgstr ""
 "{ph0}Baca FAQ{ph1}, {ph2}ngobrol dengan kami di Discord {ph3}, atau "
 "{ph4}buka masalah GitHub{ph5} untuk bug dan permintaan fitur."
-
-#: website/public/index.html:1188 website/public/index.html:1194
-msgctxt "page:index.html"
-msgid "Join the community"
-msgstr "Gabung komunitas"
-
-#: website/public/index.html:1189
-msgctxt "page:index.html"
-msgid ""
-"Share investigations and get help from other REA users on Discord. Follow "
-"REA on X for project updates."
-msgstr ""
-"Bagikan investigasi dan dapatkan bantuan dari pengguna REA lainnya di "
-"Discord . Ikuti REA di X untuk pembaruan proyek."
 
 #: website/public/index.html:6
 msgctxt "page:index.html"
@@ -6639,27 +6401,27 @@ msgstr ""
 "pengkodean Anda. Ikuti panduan yang jelas dan coba contoh interaktif dengan "
 "REA ."
 
-#: website/public/index.html:282
+#: website/public/index.html:245
 msgctxt "page:index.html"
 msgid "Copy REA installation prompt"
 msgstr "Salin prompt instalasi REA"
 
-#: website/public/index.html:306
+#: website/public/index.html:269
 msgctxt "page:index.html"
 msgid "Copy setup command"
 msgstr "Salin perintah pengaturan"
 
-#: website/public/index.html:368
+#: website/public/index.html:340
 msgctxt "page:index.html"
 msgid "Follow the manual Calculator analysis"
 msgstr "Ikuti analisis Kalkulator manual"
 
-#: website/public/index.html:531
+#: website/public/index.html:500
 msgctxt "page:index.html"
 msgid "Copy Calculator percentage question"
 msgstr "Salin pertanyaan persentase Kalkulator"
 
-#: website/public/index.html:638
+#: website/public/index.html:591
 msgctxt "page:index.html"
 msgid ""
 "Dinosaur mini-game. Use the Jump button or press Space while the game is "
@@ -6668,22 +6430,22 @@ msgstr ""
 "Mini-game dinosaurus. Gunakan tombol Lompat atau tekan Spasi saat permainan "
 "difokuskan."
 
-#: website/public/index.html:699
+#: website/public/index.html:651
 msgctxt "page:index.html"
 msgid "Copy dinosaur analysis prompt"
 msgstr "Salin prompt analisis dinosaurus"
 
-#: website/public/index.html:855
+#: website/public/index.html:788
 msgctxt "page:index.html"
 msgid "Choose the calculation"
 msgstr "Pilih perhitungan"
 
-#: website/public/index.html:935
+#: website/public/index.html:865
 msgctxt "page:index.html"
 msgid "Copy Calculator analysis prompt"
 msgstr "Salin prompt analisis Kalkulator"
 
-#: website/public/index.html:1219
+#: website/public/index.html:1124
 msgctxt "page:index.html"
 msgid "Back to top"
 msgstr "Kembali ke atas"
@@ -11222,7 +10984,7 @@ msgstr "Panduan"
 #: website/public/guides/browser/index.html:499
 #: website/public/guides/index.html:274
 #: website/public/guides/javascript/index.html:495
-#: website/public/guides/native/index.html:501 website/public/index.html:1211
+#: website/public/guides/native/index.html:501 website/public/index.html:1116
 #: website/public/showcase/aegis/index.html:800
 #: website/public/showcase/ctf/index.html:769
 #: website/public/showcase/dx-ball/index.html:777
@@ -11243,7 +11005,7 @@ msgstr "Kode sumber"
 #: website/public/guides/browser/index.html:500
 #: website/public/guides/index.html:275
 #: website/public/guides/javascript/index.html:496
-#: website/public/guides/native/index.html:502 website/public/index.html:1212
+#: website/public/guides/native/index.html:502 website/public/index.html:1117
 #: website/public/showcase/aegis/index.html:801
 #: website/public/showcase/ctf/index.html:770
 #: website/public/showcase/dx-ball/index.html:778
@@ -11264,7 +11026,7 @@ msgstr "Lisensi MIT"
 #: website/public/guides/browser/index.html:501
 #: website/public/guides/index.html:276
 #: website/public/guides/javascript/index.html:497
-#: website/public/guides/native/index.html:503 website/public/index.html:1213
+#: website/public/guides/native/index.html:503 website/public/index.html:1118
 #: website/public/showcase/aegis/index.html:802
 #: website/public/showcase/ctf/index.html:771
 #: website/public/showcase/dx-ball/index.html:779
@@ -11285,7 +11047,7 @@ msgstr "Gabung komunitas"
 #: website/public/guides/browser/index.html:502
 #: website/public/guides/index.html:277
 #: website/public/guides/javascript/index.html:498
-#: website/public/guides/native/index.html:504 website/public/index.html:1214
+#: website/public/guides/native/index.html:504 website/public/index.html:1119
 #: website/public/showcase/aegis/index.html:803
 #: website/public/showcase/ctf/index.html:772
 #: website/public/showcase/dx-ball/index.html:780
@@ -11391,40 +11153,30 @@ msgctxt "page:guides/native/index.html"
 msgid "Recovered C · excerpt"
 msgstr "Kutipan C · yang dipulihkan"
 
-#: website/public/index.html:231
-msgctxt "page:index.html"
-msgid "See how REA works ↓"
-msgstr "Lihat cara kerja REA ↓"
-
-#: website/public/index.html:238 website/public/index.html:1071
+#: website/public/index.html:1000
 msgctxt "page:index.html"
 msgid "Showcases →"
 msgstr "Menampilkan →"
 
-#: website/public/index.html:783
+#: website/public/index.html:734
 msgctxt "page:index.html"
 msgid "Selected settings from the inspected script"
 msgstr "Pengaturan yang dipilih dari skrip yang diinspeksi"
 
-#: website/public/index.html:955
+#: website/public/index.html:885
 msgctxt "page:index.html"
 msgid "Readable summary of the % handler"
 msgstr "Ringkasan yang dapat dibaca dari % handler"
 
-#: website/public/index.html:1019
+#: website/public/index.html:948
 msgctxt "page:index.html"
 msgid "REA · selected original instructions"
 msgstr "REA * instruksi asli yang dipilih"
 
-#: website/public/index.html:1030
+#: website/public/index.html:959
 msgctxt "page:index.html"
 msgid "Operator IDs · Microsoft’s source"
 msgstr "ID Operator * Sumber Microsoft"
-
-#: website/public/index.html:1197
-msgctxt "page:index.html"
-msgid "Follow @reatools on X"
-msgstr "Ikuti @ reatools di X"
 
 #: website/public/showcase/aegis/index.html:399
 #: website/public/showcase/aegis/index.html:431
@@ -11833,7 +11585,7 @@ msgstr ""
 #. {ph4}: </span >
 #. {ph5}: <span class="terminal-cursor" aria-hidden="true">
 #. {ph6}: </span>
-#: website/public/index.html:291
+#: website/public/index.html:254
 #, python-brace-format
 msgctxt "page:index.html"
 msgid ""
@@ -12056,7 +11808,7 @@ msgstr ""
 #. {ph0}: <span translate="no">Node.js</span>
 #. {ph1}: <a href="get-started/">
 #. {ph2}: </a>
-#: website/public/index.html:327
+#: website/public/index.html:290
 #, python-brace-format
 msgctxt "page:index.html"
 msgid ""
@@ -12066,15 +11818,6 @@ msgstr ""
 "Pertama kali, atau hilang {ph0} atau agen pengkodean? {ph1}Ikuti panduan "
 "penyiapan langkah demi langkah →{ph2}"
 
-#. {ph0}: <strong >
-#. {ph1}: <span translate="no">200 + 10%</span>
-#. {ph2}: </strong >
-#: website/public/index.html:352
-#, python-brace-format
-msgctxt "page:index.html"
-msgid "One question: {ph0}why does Calculator give 220 for {ph1}?{ph2}"
-msgstr "Contohnya: {ph0}mengapa Kalkulator menghasilkan 220 untuk {ph1}?{ph2}"
-
 #. {ph0}: <span class="prompt-symbol" aria-hidden="true">
 #. {ph1}: </span >
 #. {ph2}: <span id="home-analysis-prompt" >
@@ -12082,7 +11825,7 @@ msgstr "Contohnya: {ph0}mengapa Kalkulator menghasilkan 220 untuk {ph1}?{ph2}"
 #. {ph4}: </span >
 #. {ph5}: <span class="terminal-cursor" aria-hidden="true">
 #. {ph6}: </span>
-#: website/public/index.html:540
+#: website/public/index.html:509
 #, python-brace-format
 msgctxt "page:index.html"
 msgid ""
@@ -12093,24 +11836,11 @@ msgstr ""
 "{ph3} menghasilkan 220?{ph4}{ph5}{ph6}"
 
 #. {ph0}: <span translate="no">index.js</span>
-#: website/public/index.html:725
+#: website/public/index.html:677
 #, python-brace-format
 msgctxt "page:index.html"
 msgid "REA · loaded {ph0} · selected lines"
 msgstr "REA * dimuat {ph0} * baris yang dipilih"
-
-#. {ph0}: <strong>
-#. {ph1}: <span translate="no">200 + 10%</span>
-#. {ph2}: </strong>
-#: website/public/index.html:829
-#, python-brace-format
-msgctxt "page:index.html"
-msgid ""
-"We saw why {ph0}{ph1} gives 220.{ph2} Now let’s recover the rules for both +"
-" and ×, and try them."
-msgstr ""
-"Kami melihat alasannya {ph0}{ph1} memberi 220.{ph2} Sekarang mari kita "
-"pulihkan aturan untuk + dan × "
 
 #. {ph0}: <span class="flow-label" >
 #. {ph1}: <span translate="no">calc.exe</span>
@@ -12120,7 +11850,7 @@ msgstr ""
 #. {ph5}: <span class="flow-note" >
 #. {ph6}: <code>ms-calculator:</code>
 #. {ph7}: </span >
-#: website/public/index.html:986
+#: website/public/index.html:917
 #, python-brace-format
 msgctxt "page:index.html"
 msgid ""
@@ -12178,16 +11908,6 @@ msgstr "utama/{ph0} * pembantu penangan"
 msgctxt "page:showcase/notion/index.html"
 msgid "main/{ph0} · clipboard receiver"
 msgstr "utama/{ph0} * penerima papan klip"
-
-# Use the same label as the Get started navigation link. The arrow is
-# decorative.
-#. {ph0}: <span class="button-arrow" aria-hidden="true" data-i18n-skip
-#. >→</span >
-#: website/public/index.html:232
-#, python-brace-format
-msgctxt "page:index.html"
-msgid "Get started {ph0}"
-msgstr "Mulai {ph0}"
 
 #: website/public/assets/theme.js:52
 msgctxt "runtime"
@@ -13600,131 +13320,66 @@ msgstr ""
 
 #. {ph0}: <a href="#showcases">
 #. {ph1}: </a>
-#: website/public/index.html:213
+#: website/public/index.html:212
 #, python-brace-format
 msgctxt "page:index.html"
 msgid "{ph0}Showcases{ph1}"
 msgstr "{ph0}Studi kasus{ph1}"
 
-#: website/public/index.html:242
-msgctxt "page:index.html"
-msgid "One question:"
-msgstr "Satu pertanyaan:"
-
-#: website/public/index.html:1065
+#: website/public/index.html:994
 msgctxt "page:index.html"
 msgid "REA case studies."
 msgstr "Studi kasus REA."
 
-#: website/public/index.html:1066
-msgctxt "page:index.html"
-msgid ""
-"Android, games, Electron and a CTF challenge, with code, figures and checked"
-" results."
-msgstr ""
-"Android, game, Electron, dan tantangan KKP, dengan kode, angka, dan hasil "
-"yang dicentang."
-
-#: website/public/index.html:1075
+#: website/public/index.html:1004
 msgctxt "page:index.html"
 msgid "Android · APK analysis"
 msgstr "Android * Analisis APK"
 
-#: website/public/index.html:1076
+#: website/public/index.html:1005
 msgctxt "page:index.html"
 msgid "How an authenticator generates a login code"
 msgstr "Cara autentikator membuat kode masuk"
 
-#: website/public/index.html:1077
-msgctxt "page:index.html"
-msgid ""
-"Find Aegis's six-digit code calculation in its released APK. Trace the "
-"generating methods with REA, then move a demo clock to see why the code "
-"changes every 30 seconds."
-msgstr ""
-"Temukan perhitungan kode enam digit Aegis dalam APK yang dirilis . Lacak "
-"metode pembuatan dengan REA, lalu pindahkan jam demo untuk melihat mengapa "
-"kode berubah setiap 30 detik."
-
-#: website/public/index.html:1082
+#: website/public/index.html:1010
 msgctxt "page:index.html"
 msgid "Read the Android case study"
 msgstr "Baca studi kasus Android"
 
-#: website/public/index.html:1087
+#: website/public/index.html:1015
 msgctxt "page:index.html"
 msgid "Electron · Feature tracing"
 msgstr "Electron * Penelusuran fitur"
 
-#: website/public/index.html:1088
+#: website/public/index.html:1016
 msgctxt "page:index.html"
 msgid "How Notion copies text and HTML"
 msgstr "Bagaimana Notion menyalin teks dan HTML"
 
-#: website/public/index.html:1089
-msgctxt "page:index.html"
-msgid ""
-"Trace a page-facing API through Notion's packaged JavaScript. Follow its IPC"
-" wrappers to the system clipboard, then see how a small HTML marker keeps "
-"rich block data connected to a copy."
-msgstr ""
-"Lacak API yang menghadap ke halaman melalui Notion yang dikemas JavaScript ."
-" Ikuti pembungkus IPC-nya ke papan klip sistem, lalu lihat bagaimana penanda"
-" HTML kecil menyimpan data blok kaya yang terhubung ke salinan."
-
-#: website/public/index.html:1094
+#: website/public/index.html:1021
 msgctxt "page:index.html"
 msgid "Read the Notion case study"
 msgstr "Baca studi kasus Notion"
 
-#: website/public/index.html:1099
+#: website/public/index.html:1026
 msgctxt "page:index.html"
 msgid "Native · Reconstruction"
 msgstr "Asli * Rekonstruksi"
 
-#: website/public/index.html:1100
+#: website/public/index.html:1027
 msgctxt "page:index.html"
 msgid "DX-Ball's sound-pan calculation"
 msgstr "Perhitungan posisi suara kiri/kanan DX-Ball"
 
-#: website/public/index.html:1101
-msgctxt "page:index.html"
-msgid ""
-"Recover a sound-pan calculation from a 1996 Windows game. REA's "
-"instructions, caller references and numeric constants lead to a small C "
-"function, checked against the original behavior and all 63 compiled bytes."
-msgstr ""
-"Pulihkan perhitungan posisi suara kiri / kanan dari game Windows 1996.  "
-"Instruksi REA, referensi pemanggil, dan konstanta numerik mengarah ke fungsi"
-" C kecil, diperiksa terhadap perilaku asli dan semua 63 byte yang "
-"dikompilasi."
-
-#: website/public/index.html:1107
+#: website/public/index.html:1032
 msgctxt "page:index.html"
 msgid "Read the DX-Ball case study"
 msgstr "Baca studi kasus DX-Ball"
 
-#: website/public/index.html:318
+#: website/public/index.html:281
 msgctxt "page:index.html"
 msgid "Setup options"
 msgstr "Opsi pengaturan"
-
-#. {ph0}: <strong class="prose-highlight">
-#. {ph1}: </strong>
-#: website/public/index.html:364
-#, python-brace-format
-msgctxt "page:index.html"
-msgid "Before REA · You investigate it {ph0}yourself{ph1}"
-msgstr "Sebelum REA · Anda menyelidikinya {ph0}sendiri{ph1}"
-
-#. {ph0}: <span translate="no">200 + 10%</span>
-#: website/public/index.html:243
-#, python-brace-format
-msgctxt "page:index.html"
-msgid "Use REA to inspect Windows Calculator. Why does {ph0} give 220?"
-msgstr ""
-"Gunakan REA untuk memeriksa Windows Kalkulator. Mengapa {ph0} menghasilkan "
-"220?"
 
 #: website/public/get-started/index.html:196
 msgctxt "page:get-started/index.html"
@@ -14873,6 +14528,463 @@ msgctxt "page:get-started/index.html"
 msgid "Then check Ghidra and save its paths for your client:"
 msgstr ""
 
+#. {ph0}: <span translate="no">200 + 10%</span>
+#: website/public/index.html:328
+#, python-brace-format
+msgctxt "page:index.html"
+msgid "Why does Calculator give 220 for {ph0}?"
+msgstr "Mengapa {ph0} menghasilkan 220 di Kalkulator?"
+
+#. {ph0}: <a href="#what-is-re">
+#. {ph1}: </a>
+#: website/public/index.html:209
+#, python-brace-format
+msgctxt "page:index.html"
+msgid "{ph0}How it works{ph1}"
+msgstr "{ph0}Cara kerjanya{ph1}"
+
+#: website/public/index.html:225
+msgctxt "page:index.html"
+msgid ""
+"Ask your coding agent about an app, a game or a website. REA gives it the "
+"tools to inspect the code behind the answer."
+msgstr ""
+"Tanyakan kepada agen pemrograman Anda tentang aplikasi, game, atau situs "
+"web. REA menyediakan alat untuk memeriksa kode di balik jawabannya."
+
+#: website/public/index.html:230
+msgctxt "page:index.html"
+msgid "Get started"
+msgstr "Mulai"
+
+#: website/public/index.html:231
+msgctxt "page:index.html"
+msgid "See an example ↓"
+msgstr "Lihat contoh ↓"
+
+#: website/public/index.html:303
+msgctxt "page:index.html"
+msgid "How it works"
+msgstr "Cara kerjanya"
+
+#: website/public/index.html:304
+msgctxt "page:index.html"
+msgid ""
+"Reverse engineering means learning how software works by inspecting the "
+"program itself. With REA, your agent can follow the code, explain a feature "
+"and help you rebuild it."
+msgstr ""
+"Rekayasa balik berarti memahami cara kerja perangkat lunak dengan memeriksa "
+"program itu sendiri. Dengan REA, agen Anda dapat menelusuri kode, "
+"menjelaskan fitur, dan membantu membuatnya kembali."
+
+#: website/public/index.html:312
+msgctxt "page:index.html"
+msgid "Ask about one feature"
+msgstr "Tanyakan satu fitur"
+
+#: website/public/index.html:313
+msgctxt "page:index.html"
+msgid "Give your agent a program or page and a question."
+msgstr "Berikan program atau halaman beserta pertanyaan kepada agen Anda."
+
+#: website/public/index.html:316
+msgctxt "page:index.html"
+msgid "Inspect the program"
+msgstr "Periksa programnya"
+
+#: website/public/index.html:317
+msgctxt "page:index.html"
+msgid "REA returns code, references and runtime observations."
+msgstr ""
+"REA mengembalikan kode, referensi, dan hasil pengamatan saat program "
+"berjalan."
+
+#: website/public/index.html:320
+msgctxt "page:index.html"
+msgid "Explain it, then try a change"
+msgstr "Pahami, lalu coba perubahan"
+
+#: website/public/index.html:321
+msgctxt "page:index.html"
+msgid "Your agent uses the findings to explain or rebuild the feature."
+msgstr ""
+"Agen Anda menggunakan temuan untuk menjelaskan atau membuat ulang fitur "
+"tersebut."
+
+#: website/public/index.html:327
+msgctxt "page:index.html"
+msgid "See a code-level example with Calculator"
+msgstr "Lihat contoh analisis kode dengan Kalkulator"
+
+#: website/public/index.html:337
+msgctxt "page:index.html"
+msgid "Follow the instructions step by step"
+msgstr "Ikuti instruksi langkah demi langkah"
+
+#: website/public/index.html:492
+msgctxt "page:index.html"
+msgid "Ask your agent the same question"
+msgstr "Ajukan pertanyaan yang sama kepada agen Anda"
+
+#: website/public/index.html:563
+msgctxt "page:index.html"
+msgid ""
+"We inspected the game's speed rule, then rebuilt it with a slider. Play the "
+"result and choose your own pace."
+msgstr ""
+"Kami memeriksa aturan kecepatan game, lalu membuatnya kembali dengan "
+"penggeser. Mainkan dan pilih kecepatan Anda sendiri."
+
+#: website/public/index.html:639
+msgctxt "page:index.html"
+msgid ""
+"The running script contains the speed settings and update function. The "
+"agent uses them to recover the acceleration."
+msgstr ""
+"Skrip yang berjalan berisi pengaturan kecepatan dan fungsi pembaruan. Agen "
+"menggunakannya untuk menemukan aturan percepatan."
+
+#: website/public/index.html:686
+msgctxt "page:index.html"
+msgid ""
+"Start at 6. Add 0.001 each update without a collision, while speed is below "
+"13."
+msgstr ""
+"Mulai dari 6. Tambahkan 0.001 setiap pembaruan tanpa tabrakan, sementara "
+"kecepatan di bawah 13."
+
+#: website/public/index.html:780
+msgctxt "page:index.html"
+msgid ""
+"The % button behaves differently after + and ×. We inspected the installed "
+"app to recover both rules. Try them below."
+msgstr ""
+"Tombol % berperilaku berbeda setelah + dan ×. Kami memeriksa aplikasi yang "
+"terpasang untuk menemukan kedua aturan. Cobalah di bawah."
+
+#: website/public/index.html:849
+msgctxt "page:index.html"
+msgid ""
+"One branch divides by 100. The other also multiplies by the first number. "
+"The agent uses both to recreate the % button."
+msgstr ""
+"Satu cabang dibagi dengan 100. Yang lain juga dikalikan dengan angka "
+"pertama. Agen menggunakan keduanya untuk membuat ulang tombol%."
+
+#: website/public/index.html:995
+msgctxt "page:index.html"
+msgid ""
+"Explore a feature in a released app or game, with code and checked results."
+msgstr ""
+"Jelajahi fitur dalam aplikasi atau game yang telah dirilis, lengkap dengan "
+"kode dan hasil yang diperiksa."
+
+#: website/public/index.html:1006
+msgctxt "page:index.html"
+msgid ""
+"Trace Aegis's six-digit login code through its released APK, then move a "
+"demo clock to see why it changes every 30 seconds."
+msgstr ""
+"Telusuri kode login enam digit Aegis dalam APK yang dirilis, lalu gerakkan "
+"jam demo untuk melihat mengapa kodenya berubah setiap 30 detik."
+
+#: website/public/index.html:1017
+msgctxt "page:index.html"
+msgid ""
+"Follow Notion's packaged JavaScript to the system clipboard and see how a "
+"copy preserves rich block data."
+msgstr ""
+"Telusuri JavaScript dalam paket Notion hingga papan klip sistem dan lihat "
+"bagaimana penyalinan mempertahankan data blok yang kaya."
+
+#: website/public/index.html:1028
+msgctxt "page:index.html"
+msgid ""
+"Recover how a ball's position becomes left/right sound in a 1996 Windows "
+"game."
+msgstr ""
+"Temukan bagaimana posisi bola menjadi suara kiri atau kanan dalam game "
+"Windows tahun 1996."
+
+#: website/public/index.html:1059
+msgctxt "page:index.html"
+msgid "Choose your target."
+msgstr "Pilih target Anda."
+
+#: website/public/index.html:1060
+msgctxt "page:index.html"
+msgid ""
+"These guides cover setup and a first investigation for each kind of "
+"software."
+msgstr ""
+"Panduan ini membahas penyiapan dan penyelidikan pertama untuk setiap jenis "
+"perangkat lunak."
+
+#. {ph0}: <a href="#calculator">
+#. {ph1}: </a>
+#: website/public/index.html:547
+#, python-brace-format
+msgctxt "page:index.html"
+msgid ""
+"Selected assembly from the installed Calculator DLL. The thoughts and reply "
+"illustrate the findings. {ph0}Continue with the Calculator example ↓{ph1}"
+msgstr ""
+"Rakitan yang dipilih dari Kalkulator DLL yang diinstal. Pemikiran dan "
+"balasannya menggambarkan temuan tersebut. {ph0}Lanjutkan dengan contoh "
+"Kalkulator ↓{ph1}"
+
+#~ msgctxt "page:index.html"
+#~ msgid ""
+#~ "Selected assembly from the installed Calculator DLL. The thoughts and reply "
+#~ "illustrate the findings."
+#~ msgstr ""
+
+#, python-brace-format
+#~ msgctxt "page:index.html"
+#~ msgid "{ph0}What is RE?{ph1}"
+#~ msgstr "{ph0}Apa itu RE?{ph1}"
+
+#, python-brace-format
+#~ msgctxt "page:index.html"
+#~ msgid "{ph0}How REA helps{ph1}"
+#~ msgstr "{ph0}Bagaimana REA membantu{ph1}"
+
+#~ msgctxt "page:index.html"
+#~ msgid ""
+#~ "REA gives your agent the tools to inspect a program and explain what it "
+#~ "does."
+#~ msgstr ""
+#~ "REA menyediakan alat bagi agen pemrograman Anda untuk memeriksa program dan "
+#~ "menjelaskan cara kerjanya."
+
+#~ msgctxt "page:index.html"
+#~ msgid "What is reverse engineering?"
+#~ msgstr "Apa itu rekayasa balik?"
+
+#, python-brace-format
+#~ msgctxt "page:index.html"
+#~ msgid ""
+#~ "Finding out how software works by {ph0}examining the program itself.{ph1}"
+#~ msgstr ""
+#~ "Memahami cara kerja perangkat lunak dengan {ph0}memeriksa program itu "
+#~ "sendiri.{ph1}"
+
+#, python-brace-format
+#~ msgctxt "page:index.html"
+#~ msgid ""
+#~ "The goal: understand a feature well enough to {ph0}explain it{ph1}, "
+#~ "{ph2}change it{ph3} or {ph4}rebuild it.{ph5}"
+#~ msgstr ""
+#~ "Tujuannya: memahami fitur dengan cukup baik untuk {ph0}jelaskan{ph1}, "
+#~ "{ph2}ubahlah{ph3} atau {ph4}bangun kembali.{ph5}"
+
+#, python-brace-format
+#~ msgctxt "page:index.html"
+#~ msgid "With REA · You ask {ph0}your agent{ph1}"
+#~ msgstr "Dengan REA · Anda bertanya kepada {ph0}agen Anda{ph1}"
+
+#~ msgctxt "page:index.html"
+#~ msgid "One prompt."
+#~ msgstr "Cukup satu prompt."
+
+#, python-brace-format
+#~ msgctxt "page:index.html"
+#~ msgid "Ask your agent {ph0}in plain English.{ph1}"
+#~ msgstr "Tanyakan kepada agen Anda {ph0}dengan bahasa sehari-hari.{ph1}"
+
+#, python-brace-format
+#~ msgctxt "page:index.html"
+#~ msgid ""
+#~ "{ph0}Let's try two examples.{ph1} Change a game's speed, then return to "
+#~ "Calculator and rebuild its % button."
+#~ msgstr ""
+#~ "{ph0}Mari kita coba dua contoh.{ph1} Ubah kecepatan permainan, lalu kembali "
+#~ "ke Kalkulator dan buat kembali tombol % - nya."
+
+#~ msgctxt "page:index.html"
+#~ msgid "Goal"
+#~ msgstr "Tujuan"
+
+#, python-brace-format
+#~ msgctxt "page:index.html"
+#~ msgid "Rebuild the game with {ph0}adjustable speed.{ph1}"
+#~ msgstr ""
+#~ "Bangun kembali game dengan {ph0}kecepatan yang dapat disesuaikan.{ph1}"
+
+#~ msgctxt "page:index.html"
+#~ msgid "Why reverse engineer it?"
+#~ msgstr "Mengapa merekayasa baliknya?"
+
+#, python-brace-format
+#~ msgctxt "page:index.html"
+#~ msgid ""
+#~ "To reproduce its acceleration, we need {ph0}the rule in the running "
+#~ "game{ph1}: how fast it starts, how much it increases and when it stops."
+#~ msgstr ""
+#~ "Untuk mereproduksi percepatannya, kita membutuhkan {ph0}aturan dalam "
+#~ "permainan lari{ph1}: seberapa cepat dimulai, seberapa banyak meningkat dan "
+#~ "kapan berhenti."
+
+#, python-brace-format
+#~ msgctxt "page:index.html"
+#~ msgid ""
+#~ "{ph0}The script actually running in the page.{ph1} The agent reads its "
+#~ "update function and speed settings, then uses that rule in a new game."
+#~ msgstr ""
+#~ "{ph0}Skrip benar-benar berjalan di halaman.{ph1} Agen membaca fungsi "
+#~ "pembaruan dan pengaturan kecepatannya, lalu menggunakan aturan tersebut di "
+#~ "game baru."
+
+#, python-brace-format
+#~ msgctxt "page:index.html"
+#~ msgid ""
+#~ "{ph0}Start at 6.{ph1} Add {ph2}0.001{ph3} each update without a collision, "
+#~ "while speed is below {ph4}13{ph5}."
+#~ msgstr ""
+#~ "{ph0}Mulai dari 6.{ph1} Tambahkan {ph2}0.001{ph3} setiap pembaruan tanpa "
+#~ "tabrakan, sementara kecepatan di bawah {ph4}13{ph5}."
+
+#, python-brace-format
+#~ msgctxt "page:index.html"
+#~ msgid ""
+#~ "Build a small calculator that handles {ph0}both + and × correctly.{ph1}"
+#~ msgstr "Buat kalkulator kecil yang menangani {ph0}keduanya + dan × {ph1}"
+
+#, python-brace-format
+#~ msgctxt "page:index.html"
+#~ msgid ""
+#~ "The same button uses {ph0}different rules after + and ×.{ph1} We inspect the"
+#~ " installed app to find which number the percentage is applied to."
+#~ msgstr ""
+#~ "Tombol yang sama menggunakan {ph0}aturan berbeda setelah + dan ×{ph1} Kami "
+#~ "memeriksa aplikasi yang diinstal untuk menemukan angka persentase yang "
+#~ "diterapkan."
+
+#, python-brace-format
+#~ msgctxt "page:index.html"
+#~ msgid ""
+#~ "{ph0}One branch divides by 100. The other also multiplies by the first "
+#~ "number.{ph1} The agent uses both to recreate the % button."
+#~ msgstr ""
+#~ "{ph0}Satu cabang dibagi dengan 100. Yang lain juga dikalikan dengan angka "
+#~ "pertama.{ph1} Agen menggunakan keduanya untuk membuat ulang tombol%."
+
+#~ msgctxt "page:index.html"
+#~ msgid "Want to go deeper?"
+#~ msgstr "Ingin mempelajari lebih lanjut?"
+
+#, python-brace-format
+#~ msgctxt "page:index.html"
+#~ msgid ""
+#~ "Tell your agent what you want to understand or build. With REA, you can work"
+#~ " together on anything from {ph0}cloning this website{ph1} to "
+#~ "{ph2}reconstructing a game from its executable.{ph3}"
+#~ msgstr ""
+#~ "Beri tahu agen Anda apa yang ingin Anda pahami atau bangun. Dengan REA, Anda"
+#~ " dapat bekerja sama dalam segala hal mulai dari {ph0}mengkloning situs web "
+#~ "ini{ph1} untuk {ph2}merekonstruksi game dari executable-nya.{ph3}"
+
+#~ msgctxt "page:index.html"
+#~ msgid "For setup and analysis steps, choose your target:"
+#~ msgstr "Untuk langkah penyiapan dan analisis, pilih target Anda:"
+
+#~ msgctxt "page:index.html"
+#~ msgid "Join the community"
+#~ msgstr "Gabung komunitas"
+
+#~ msgctxt "page:index.html"
+#~ msgid ""
+#~ "Share investigations and get help from other REA users on Discord. Follow "
+#~ "REA on X for project updates."
+#~ msgstr ""
+#~ "Bagikan investigasi dan dapatkan bantuan dari pengguna REA lainnya di "
+#~ "Discord . Ikuti REA di X untuk pembaruan proyek."
+
+#~ msgctxt "page:index.html"
+#~ msgid "See how REA works ↓"
+#~ msgstr "Lihat cara kerja REA ↓"
+
+#~ msgctxt "page:index.html"
+#~ msgid "Follow @reatools on X"
+#~ msgstr "Ikuti @ reatools di X"
+
+#, python-brace-format
+#~ msgctxt "page:index.html"
+#~ msgid "One question: {ph0}why does Calculator give 220 for {ph1}?{ph2}"
+#~ msgstr "Contohnya: {ph0}mengapa Kalkulator menghasilkan 220 untuk {ph1}?{ph2}"
+
+#, python-brace-format
+#~ msgctxt "page:index.html"
+#~ msgid ""
+#~ "We saw why {ph0}{ph1} gives 220.{ph2} Now let’s recover the rules for both +"
+#~ " and ×, and try them."
+#~ msgstr ""
+#~ "Kami melihat alasannya {ph0}{ph1} memberi 220.{ph2} Sekarang mari kita "
+#~ "pulihkan aturan untuk + dan × "
+
+# Use the same label as the Get started navigation link. The arrow is
+# decorative.
+#, python-brace-format
+#~ msgctxt "page:index.html"
+#~ msgid "Get started {ph0}"
+#~ msgstr "Mulai {ph0}"
+
+#~ msgctxt "page:index.html"
+#~ msgid "One question:"
+#~ msgstr "Satu pertanyaan:"
+
+#~ msgctxt "page:index.html"
+#~ msgid ""
+#~ "Android, games, Electron and a CTF challenge, with code, figures and checked"
+#~ " results."
+#~ msgstr ""
+#~ "Android, game, Electron, dan tantangan KKP, dengan kode, angka, dan hasil "
+#~ "yang dicentang."
+
+#~ msgctxt "page:index.html"
+#~ msgid ""
+#~ "Find Aegis's six-digit code calculation in its released APK. Trace the "
+#~ "generating methods with REA, then move a demo clock to see why the code "
+#~ "changes every 30 seconds."
+#~ msgstr ""
+#~ "Temukan perhitungan kode enam digit Aegis dalam APK yang dirilis . Lacak "
+#~ "metode pembuatan dengan REA, lalu pindahkan jam demo untuk melihat mengapa "
+#~ "kode berubah setiap 30 detik."
+
+#~ msgctxt "page:index.html"
+#~ msgid ""
+#~ "Trace a page-facing API through Notion's packaged JavaScript. Follow its IPC"
+#~ " wrappers to the system clipboard, then see how a small HTML marker keeps "
+#~ "rich block data connected to a copy."
+#~ msgstr ""
+#~ "Lacak API yang menghadap ke halaman melalui Notion yang dikemas JavaScript ."
+#~ " Ikuti pembungkus IPC-nya ke papan klip sistem, lalu lihat bagaimana penanda"
+#~ " HTML kecil menyimpan data blok kaya yang terhubung ke salinan."
+
+#~ msgctxt "page:index.html"
+#~ msgid ""
+#~ "Recover a sound-pan calculation from a 1996 Windows game. REA's "
+#~ "instructions, caller references and numeric constants lead to a small C "
+#~ "function, checked against the original behavior and all 63 compiled bytes."
+#~ msgstr ""
+#~ "Pulihkan perhitungan posisi suara kiri / kanan dari game Windows 1996.  "
+#~ "Instruksi REA, referensi pemanggil, dan konstanta numerik mengarah ke fungsi"
+#~ " C kecil, diperiksa terhadap perilaku asli dan semua 63 byte yang "
+#~ "dikompilasi."
+
+#, python-brace-format
+#~ msgctxt "page:index.html"
+#~ msgid "Before REA · You investigate it {ph0}yourself{ph1}"
+#~ msgstr "Sebelum REA · Anda menyelidikinya {ph0}sendiri{ph1}"
+
+#, python-brace-format
+#~ msgctxt "page:index.html"
+#~ msgid "Use REA to inspect Windows Calculator. Why does {ph0} give 220?"
+#~ msgstr ""
+#~ "Gunakan REA untuk memeriksa Windows Kalkulator. Mengapa {ph0} menghasilkan "
+#~ "220?"
+
 #~ msgctxt "page:first-investigation/index.html"
 #~ msgid ""
 #~ "This command uses a shell with here-document support, such as Bash or Zsh. "
@@ -15289,11 +15401,6 @@ msgstr ""
 #, python-brace-format
 #~ msgctxt "page:index.html"
 #~ msgid "Windows (PowerShell){ph0}"
-#~ msgstr ""
-
-#, python-brace-format
-#~ msgctxt "page:index.html"
-#~ msgid "Why does Calculator give 220 for {ph0}?"
 #~ msgstr ""
 
 #, python-brace-format

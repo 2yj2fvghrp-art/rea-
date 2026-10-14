@@ -125,7 +125,7 @@ describe its recorded investigation; update them only when repeating that work.
 
 ## Pages
 
-- `public/index.html`: compact setup, reverse-engineering definition and purpose, manual/agent comparison, dinosaur and Calculator examples, and analysis-guide links.
+- `public/index.html`: introduction and compact setup, a three-step overview, dinosaur and Calculator examples, case studies and analysis-guide links. Code-level comparisons and checks are optional disclosures.
 - `public/examples/dino-lab/index.html`: adjustable-speed mini-game, recovered rule, original-game check and browser analysis steps.
 - `public/first-investigation/index.html`: a guided Notes export investigation, from setup to a checked CSV prediction.
 - `public/showcase/index.html`: the case-study index.
@@ -293,17 +293,16 @@ Evidence. [evidence/dx-ball-sound-pan.md](evidence/dx-ball-sound-pan.md) records
 their provenance and the scope of the validation claims. The original executable
 and complete private Evidence records are not website assets.
 
-The homepage starts with a short installation prompt and the ordinary setup
-command, then explains what reverse engineering is and why someone would use
-it. The manual/agent comparison introduces REA’s role before the examples.
-Its opening links directly to Showcases and lets experienced readers skip to
-the analysis guides. A Blog link below that shortcut leads to reconstruction
-methods and project notes. Case-study previews live on the Showcases page.
-The closing section offers copyable project prompts, from cloning `rea.tools`
-to reconstructing a game from its executable. The experienced-reader shortcut
-lands directly on the guide links below these prompts.
-“Any questions?” offers FAQ, Discord and issue-report links. The page ends
-with “Join the community”, which links Discord and REA's X account.
+The homepage pairs a short introduction with the installation prompt and
+ordinary setup command. Get started is the primary action; a second link goes
+straight to the first interactive example. The setup-guide link starts on its
+own line. A short definition and three steps explain the workflow before the
+dinosaur and Calculator cases. The detailed manual/agent comparison is folded,
+as are each example's investigation flow and verification details. Plain
+paragraphs introduce the cases without repeating goal and purpose panels.
+Three case-study previews lead to further investigations. The closing sections
+offer a guided first task, target-specific guides and FAQ, Discord and issue
+links.
 Every content page's header and footer link GitHub, Discord and X.
 A right-side table of contents stays visible at widths of 1440px and above.
 On narrower screens it becomes a sticky, native disclosure; selecting a link
@@ -312,17 +311,17 @@ the reading position and marks the current link. Without JavaScript, the
 menu stays open and its fragment links remain usable.
 The comparison uses the same Calculator question on both sides: three
 selectable manual steps pair original instructions with an analyst illustration
-and thought bubbles; the agent side begins with “One prompt.” and a copyable
-question. Thoughts illustrate the reasoning behind the findings. The shared
-code-step script selects the initial note on load, so all three notes remain
+and thought bubbles; the agent side pairs a copyable question with an
+illustrative answer. Thoughts illustrate the reasoning behind the findings. The
+shared code-step script selects the initial note on load, so all three notes remain
 readable when JavaScript is disabled.
-The original-instruction panel starts expanded on desktop. On narrow screens,
-the homepage script collapses it; a native disclosure keeps the code available
+Within the manual analysis, the original-instruction panel starts expanded on
+desktop. On narrow screens, the homepage script collapses it; a native disclosure keeps the code available
 while the thought bubble and agent prompt remain close together.
 Dinosaur is the first example; Calculator follows as the native example.
-Both name the goal and the reason to inspect the program before showing the
-demo. A labeled finding explains what REA returned, and the flow distinguishes
-REA’s inspection from the agent’s interpretation and implementation.
+Each introduces the inspected behavior before showing the demo. A labeled
+finding explains what REA returned, and the optional flow distinguishes REA’s
+inspection from the agent’s interpretation and implementation.
 Its game precedes the prompt and code on small screens. Calculator’s excerpt
 comes from an installed model DLL; Microsoft’s public implementation supplies
 names and a crosscheck. Its controls apply the percentage rule to generic inputs.
