@@ -1,13 +1,6 @@
 import { spawnSync } from "node:child_process";
 import { access, mkdir, readFile, writeFile } from "node:fs/promises";
-import {
-  dirname,
-  isAbsolute,
-  join,
-  relative,
-  sep,
-  toNamespacedPath,
-} from "node:path";
+import { dirname, join, sep } from "node:path";
 import { fileURLToPath } from "node:url";
 import { expect, it } from "vitest";
 import { z } from "zod";
@@ -237,15 +230,7 @@ it("preserves the duplication threshold and complete clone locations", async () 
     [
       report.duplicates[0]?.firstFile.name,
       report.duplicates[0]?.secondFile.name,
-    ]
-      .map((name) =>
-        name !== undefined && isAbsolute(name)
-          ? relative(toNamespacedPath(root), toNamespacedPath(name))
-              .split(sep)
-              .join("/")
-          : name,
-      )
-      .sort(),
+    ].sort(),
   ).toEqual(["src/same.ts", "tests/same.ts"]);
 });
 
