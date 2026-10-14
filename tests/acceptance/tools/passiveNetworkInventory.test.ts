@@ -33,6 +33,18 @@ cliTest.for(["CLI", "stdio MCP"] as const)(
       url: "wss://app.example.test/live",
       events: [],
     });
+    const unknownIdentity = structuredClone(before);
+    unknownIdentity.network.requests[0]!.resource_type = null;
+    const unknownIdentityAdded = structuredClone(after);
+    unknownIdentityAdded.network.requests[0]!.resource_type = null;
+    const unselectedUnknownIdentity = structuredClone(unknownIdentity);
+    unselectedUnknownIdentity.completeness.excluded.push({
+      section: "json_body_shapes",
+      reason: "not_approved",
+      count: null,
+    });
+    unselectedUnknownIdentity.network.requests[0]!.body_shapes.status =
+      "not_approved";
     const mcp =
       surface === "stdio MCP" ? await connectLocalToolsMcp() : undefined;
     for (const [name, left, right, change] of [
@@ -41,6 +53,20 @@ cliTest.for(["CLI", "stdio MCP"] as const)(
       ["equal unavailable", before, before, null],
       ["incomplete inventory", incomplete, after, null],
       ["limited WebSocket inventory", wsBefore, wsAfter, "added"],
+      ["unknown request identity", before, unknownIdentity, null],
+      ["unknown request identity reversed", unknownIdentity, before, null],
+      [
+        "unknown identity without selected shapes",
+        unselectedUnknownIdentity,
+        unselectedUnknownIdentity,
+        null,
+      ],
+      [
+        "different URL beside unknown identity",
+        before,
+        unknownIdentityAdded,
+        "added",
+      ],
     ] as const) {
       const input = {
         before: { inspection: left },
