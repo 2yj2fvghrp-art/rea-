@@ -108,10 +108,15 @@ export const nb10Payload = (
   return { type: 2, data };
 };
 
-/** IMAGE_DEBUG_TYPE_REPRO payload whose bytes are the deterministic hash. */
+/** IMAGE_DEBUG_TYPE_REPRO record: little-endian hash length, then hash bytes. */
 export const reproPayload = (
   hash = Buffer.from("0123456789abcdef0123456789abcdef", "hex"),
-): PeDebugPayloadSpec => ({ type: 16, data: hash });
+): PeDebugPayloadSpec => {
+  const data = Buffer.alloc(4 + hash.length);
+  data.writeUInt32LE(hash.length, 0);
+  hash.copy(data, 4);
+  return { type: 16, data };
+};
 
 /** IMAGE_DEBUG_TYPE_EX_DLLCHARACTERISTICS payload. */
 export const exDllCharacteristicsPayload = (

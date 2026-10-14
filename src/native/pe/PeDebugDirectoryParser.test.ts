@@ -64,6 +64,7 @@ describe("portable PE debug-directory parsing", () => {
     ];
     const { bytes } = peDebugDirectoryFixture(false, payloads);
     const result = peDebugDirectorySchema.parse(parse(bytes));
+    expect(payloads[1]!.data.readUInt32LE(0)).toBe(16);
     expect(result.entries.map((entry) => entry.payload.decoded)).toEqual([
       {
         kind: "codeview_nb10",
@@ -73,7 +74,7 @@ describe("portable PE debug-directory parsing", () => {
       },
       {
         kind: "repro",
-        hash_hex: payloads[1]!.data.toString("hex"),
+        hash_hex: payloads[1]!.data.subarray(4).toString("hex"),
       },
       { kind: "ex_dllcharacteristics", characteristics: 0x1000 },
     ]);
@@ -109,5 +110,83 @@ describe("portable PE debug-directory parsing", () => {
     const fixture = peDebugDirectoryFixture();
     fixture.bytes.writeUInt32LE(27, fixture.debugDirectoryAt + 4);
     expect(() => parse(fixture.bytes)).toThrow(/not a multiple of 28/u);
+  });
+});
+
+describe("PE debug payload bounds", () => {
+  it("reuses a repeated payload range and rejects unique ranges past the file", () => {
+    const shared = peDebugDirectoryFixture(false, [
+      reproPayload(),
+      reproPayload(),
+      reproPayload(),
+    ]);
+    const pointer = 1;
+    const span = shared.bytes.length - pointer;
+    for (const at of shared.entryOffsets) {
+      shared.bytes.writeUInt32LE(span, at + 16);
+      shared.bytes.writeUInt32LE(pointer, at + 24);
+    }
+    const reused = parse(shared.bytes);
+    expect(reused.entries).toHaveLength(3);
+    expect(reused.entries[0]?.payload.decoded).toBe(
+      reused.entries[2]?.payload.decoded,
+    );
+    expect(reused.entries[0]?.payload.sha256).toBe(
+      reused.entries[1]?.payload.sha256,
+    );
+    expect(reused.limitations.join("\n")).not.toContain("bounded");
+
+    const split = peDebugDirectoryFixture(false, [
+      reproPayload(),
+      reproPayload(),
+    ]);
+    const half = Math.floor(split.bytes.length / 2) + 8;
+    split.entryOffsets.forEach((at, index) => {
+      split.bytes.writeUInt32LE(half, at + 16);
+      split.bytes.writeUInt32LE(index + 1, at + 24);
+    });
+    expect(() => parse(split.bytes)).toThrow(ArtifactReaderFailure);
+    try {
+      parse(split.bytes);
+    } catch (cause) {
+      expect(cause).toMatchObject({
+        reason: "limit",
+        message: expect.stringContaining("payload budget"),
+      });
+    }
+  });
+
+  it("reports a bounded limitation instead of unbounded REPRO hex", () => {
+    const hashBytes = Buffer.alloc(128 * 1024 + 1, 0x22);
+    const { bytes } = peDebugDirectoryFixture(false, [reproPayload(hashBytes)]);
+    const result = peDebugDirectorySchema.parse(parse(bytes));
+    expect(result.entries[0]?.payload.decoded).toEqual({ kind: "opaque" });
+    expect(result.entries[0]?.payload.sha256).toHaveLength(64);
+    expect(result.limitations.join("\n")).toContain("bounded to 256 KiB");
+  });
+
+  it("reads a MISC length above 64 KiB and rejects one past the payload", () => {
+    const path = "C:\\symbols\\very-long-name.dbg";
+    const length = 0x10010;
+    const record = Buffer.alloc(length);
+    record.writeUInt32LE(1, 0);
+    record.writeUInt32LE(length, 4);
+    Buffer.from(`${path}\0`, "utf8").copy(record, 12);
+    const full = peDebugDirectorySchema.parse(
+      parse(peDebugDirectoryFixture(false, [{ type: 4, data: record }]).bytes),
+    );
+    expect(full.entries[0]?.payload.decoded).toEqual({
+      kind: "misc",
+      data_type: 1,
+      unicode: false,
+      path,
+    });
+    const truncated = Buffer.from(record.subarray(0, 32));
+    const over = peDebugDirectorySchema.parse(
+      parse(
+        peDebugDirectoryFixture(false, [{ type: 4, data: truncated }]).bytes,
+      ),
+    );
+    expect(over.entries[0]?.payload.decoded).toEqual({ kind: "opaque" });
   });
 });

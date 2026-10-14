@@ -15,6 +15,7 @@ import {
 
 const ENTRY_SIZE = 28;
 const DEBUG_DIRECTORY_INDEX = 6;
+const MAX_DECODED_OUTPUT_BYTES = 256 * 1024;
 
 const hash = (bytes: Buffer): string =>
   createHash("sha256").update(bytes).digest("hex");
@@ -30,7 +31,52 @@ const limit = (message: string): never => {
   throw new ArtifactReaderFailure("limit", message);
 };
 
-const decodePayload = (type: number, data: Buffer): PeDebugPayload => {
+const decodeRepro = (
+  data: Buffer,
+  take: (bytes: number) => boolean,
+): PeDebugPayload | undefined => {
+  if (data.length < 4) return undefined;
+  const hashLength = data.readUInt32LE(0);
+  if (hashLength === 0 || hashLength > data.length - 4) return undefined;
+  if (!take(hashLength * 2)) return { kind: "opaque" };
+  return {
+    kind: "repro",
+    hash_hex: data.subarray(4, 4 + hashLength).toString("hex"),
+  };
+};
+
+const decodeMisc = (
+  data: Buffer,
+  take: (bytes: number) => boolean,
+): PeDebugPayload | undefined => {
+  if (data.length < 12) return undefined;
+  const declared = data.readUInt32LE(4);
+  if (declared > data.length) return { kind: "opaque" };
+  const unicode = data[8] !== 0;
+  const content = data.subarray(12, declared === 0 ? data.length : declared);
+  const end = unicode ? utf16z(content) : content.indexOf(0);
+  const pathBytes =
+    end === -1 ? content : content.subarray(0, Math.max(0, end));
+  if (!take(pathBytes.length)) return { kind: "opaque" };
+  const path =
+    pathBytes.length === 0
+      ? null
+      : unicode
+        ? pathBytes.toString("utf16le")
+        : pathBytes.toString("utf8");
+  return {
+    kind: "misc",
+    data_type: data.readUInt32LE(0),
+    unicode,
+    path: path === "" ? null : path,
+  };
+};
+
+const decodePayload = (
+  type: number,
+  data: Buffer,
+  take: (bytes: number) => boolean,
+): PeDebugPayload => {
   if (type === 2) {
     const parsed = parseCodeViewData(data, data.length);
     if (parsed?.guid !== undefined && parsed.guid !== null)
@@ -53,41 +99,25 @@ const decodePayload = (type: number, data: Buffer): PeDebugPayload => {
       magic: data.length >= 4 ? data.subarray(0, 4).toString("binary") : "",
     };
   }
-  if (type === 16 && data.length > 0)
-    return { kind: "repro", hash_hex: data.toString("hex") };
+  if (type === 16) {
+    const repro = decodeRepro(data, take);
+    if (repro !== undefined) return repro;
+  }
   if (type === 20 && data.length === 4)
     return {
       kind: "ex_dllcharacteristics",
       characteristics: data.readUInt32LE(0),
     };
-  if (type === 4 && data.length >= 12) {
-    const unicode = data[8] !== 0;
-    const declared = data.readUInt16LE(4);
-    const content = data.subarray(
-      12,
-      Math.min(data.length, declared === 0 ? data.length : declared),
-    );
-    const end = unicode ? utf16z(content) : content.indexOf(0);
-    const pathBytes =
-      end === -1 ? content : content.subarray(0, Math.max(0, end));
-    const path =
-      pathBytes.length === 0
-        ? null
-        : unicode
-          ? pathBytes.toString("utf16le")
-          : pathBytes.toString("utf8");
-    return {
-      kind: "misc",
-      data_type: data.readUInt32LE(0),
-      unicode,
-      path: path === "" ? null : path,
-    };
+  if (type === 4) {
+    const misc = decodeMisc(data, take);
+    if (misc !== undefined) return misc;
   }
   return { kind: "opaque" };
 };
 
 const limitationsFor = (
   report: Omit<PeDebugDirectory, "limitations">,
+  decodedOutputBounded = false,
 ): string[] => {
   const limitations = [
     "Static PE32/PE32+ IMAGE_DEBUG_DIRECTORY inventory; payloads are not loaded as symbols and no PDB is fetched.",
@@ -102,17 +132,83 @@ const limitationsFor = (
     limitations.push(
       "At least one CodeView payload was not RSDS or NB10 with a terminating PDB path, so its decoded path remains unparsed.",
     );
-  if (
-    report.entries.some(
-      (entry) =>
-        entry.pointer_to_raw_data !== entry.payload.location.offset &&
-        entry.pointer_to_raw_data !== 0,
-    )
-  )
+  if (decodedOutputBounded)
     limitations.push(
-      "A debug entry PointerToRawData disagreed with the admitted payload file range; the payload range is the mapped file bytes.",
+      `Decoded payload text is bounded to ${String(MAX_DECODED_OUTPUT_BYTES / 1024)} KiB; payloads that would exceed it stay opaque instead of unbounded output.`,
     );
   return limitations;
+};
+
+const readDebugEntries = (
+  bytes: Buffer,
+  map: (rva: number, size: number) => number,
+  fileOffset: number,
+  count: number,
+) => {
+  const entries: PeDebugDirectory["entries"] = [];
+  const shaByRange = new Map<string, string>();
+  const decodedByKey = new Map<string, PeDebugPayload>();
+  let payloadBytes = 0;
+  let decodedOutputBytes = 0;
+  let decodedOutputBounded = false;
+  const take = (needed: number): boolean => {
+    if (needed > MAX_DECODED_OUTPUT_BYTES - decodedOutputBytes) {
+      decodedOutputBounded = true;
+      return false;
+    }
+    decodedOutputBytes += needed;
+    return true;
+  };
+  for (let index = 0; index < count; index++) {
+    const at = fileOffset + index * ENTRY_SIZE;
+    const type = bytes.readUInt32LE(at + 12);
+    const sizeOfData = bytes.readUInt32LE(at + 16);
+    const addressOfRawData = bytes.readUInt32LE(at + 20);
+    const pointerToRawData = bytes.readUInt32LE(at + 24);
+    let payloadOffset = pointerToRawData;
+    if (payloadOffset === 0 && sizeOfData > 0)
+      payloadOffset = map(addressOfRawData, sizeOfData);
+    else if (sizeOfData > 0) requirePeRange(bytes, payloadOffset, sizeOfData);
+    const rangeKey = `${String(payloadOffset)}:${String(sizeOfData)}`;
+    let sha256 = shaByRange.get(rangeKey);
+    if (sha256 === undefined) {
+      if (sizeOfData > bytes.length - payloadBytes)
+        limit(
+          "PE debug directory decoded payload budget exceeded; no partial inventory was returned.",
+        );
+      payloadBytes += sizeOfData;
+      sha256 = hash(bytes.subarray(payloadOffset, payloadOffset + sizeOfData));
+      shaByRange.set(rangeKey, sha256);
+    }
+    const decodeKey = `${String(type)}:${rangeKey}`;
+    let decoded = decodedByKey.get(decodeKey);
+    if (decoded === undefined) {
+      decoded = decodePayload(
+        type,
+        bytes.subarray(payloadOffset, payloadOffset + sizeOfData),
+        take,
+      );
+      decodedByKey.set(decodeKey, decoded);
+    }
+    entries.push({
+      index,
+      type,
+      type_name: peDebugTypeName(type),
+      characteristics: bytes.readUInt32LE(at),
+      timestamp: bytes.readUInt32LE(at + 4),
+      major_version: bytes.readUInt16LE(at + 8),
+      minor_version: bytes.readUInt16LE(at + 10),
+      directory_location: { offset: at, bytes: ENTRY_SIZE },
+      address_of_raw_data: addressOfRawData,
+      pointer_to_raw_data: pointerToRawData,
+      payload: {
+        location: { offset: payloadOffset, bytes: sizeOfData },
+        sha256,
+        decoded,
+      },
+    });
+  }
+  return { entries, decodedOutputBounded };
 };
 
 /** Decode the debug directory and each payload; never fetch symbols or execute the image. */
@@ -149,37 +245,12 @@ export const parsePeDebugDirectory = (
     directory ?? peFailure("PE debug directory header is missing.");
   const fileOffset = image.map(rva, size);
   requirePeRange(bytes, fileOffset, size);
-  const entries: PeDebugDirectory["entries"] = [];
-  for (let index = 0; index < count; index++) {
-    const at = fileOffset + index * ENTRY_SIZE;
-    const type = bytes.readUInt32LE(at + 12);
-    const sizeOfData = bytes.readUInt32LE(at + 16);
-    const addressOfRawData = bytes.readUInt32LE(at + 20);
-    const pointerToRawData = bytes.readUInt32LE(at + 24);
-    let payloadOffset = pointerToRawData;
-    if (payloadOffset === 0 && sizeOfData > 0)
-      payloadOffset = image.map(addressOfRawData, sizeOfData);
-    else if (sizeOfData > 0) requirePeRange(bytes, payloadOffset, sizeOfData);
-    else payloadOffset = pointerToRawData;
-    const payload = bytes.subarray(payloadOffset, payloadOffset + sizeOfData);
-    entries.push({
-      index,
-      type,
-      type_name: peDebugTypeName(type),
-      characteristics: bytes.readUInt32LE(at),
-      timestamp: bytes.readUInt32LE(at + 4),
-      major_version: bytes.readUInt16LE(at + 8),
-      minor_version: bytes.readUInt16LE(at + 10),
-      directory_location: { offset: at, bytes: ENTRY_SIZE },
-      address_of_raw_data: addressOfRawData,
-      pointer_to_raw_data: pointerToRawData,
-      payload: {
-        location: { offset: payloadOffset, bytes: sizeOfData },
-        sha256: hash(payload),
-        decoded: decodePayload(type, payload),
-      },
-    });
-  }
+  const { entries, decodedOutputBounded } = readDebugEntries(
+    bytes,
+    image.map,
+    fileOffset,
+    count,
+  );
   const report = {
     artifact,
     format: image.format,
@@ -192,5 +263,8 @@ export const parsePeDebugDirectory = (
     entries,
     coverage: { status: "complete" as const, entries: entries.length },
   };
-  return { ...report, limitations: limitationsFor(report) };
+  return {
+    ...report,
+    limitations: limitationsFor(report, decodedOutputBounded),
+  };
 };
