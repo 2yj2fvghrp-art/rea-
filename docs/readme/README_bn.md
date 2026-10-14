@@ -1,6 +1,6 @@
 <div align="center">
 
-[English](../../README.md) · [简体中文](README_zh.md) · [繁體中文](README_zh-TW.md) · [日本語](README_ja.md) · [한국어](README_ko.md) · [Türkçe](README_tr.md) · [Русский](README_ru.md) · [Tiếng Việt](README_vi.md) · [ไทย](README_th.md) · [Deutsch](README_de.md) · [Español](README_es.md) · [Français](README_fr.md) · [Українська](README_uk.md) · [Polski](README_pl.md) · [Português (Brasil)](README_pt-BR.md) · [العربية](README_ar.md) · [فارسی](README_fa.md) · [Bahasa Indonesia](README_id.md) · [Italiano](README_it.md) · **বাংলা**
+[English](../../README.md) · [简体中文](README_zh.md) · [繁體中文](README_zh-TW.md) · [日本語](README_ja.md) · [한국어](README_ko.md) · [Türkçe](README_tr.md) · [Русский](README_ru.md) · [Tiếng Việt](README_vi.md) · [ไทย](README_th.md) · [Deutsch](README_de.md) · [Español](README_es.md) · [Français](README_fr.md) · [Українська](README_uk.md) · [Polski](README_pl.md) · [Português (Brasil)](README_pt-BR.md) · [العربية](README_ar.md) · [فارسی](README_fa.md) · [Bahasa Indonesia](README_id.md) · [Italiano](README_it.md) · [Ελληνικά](README_el.md) · **বাংলা**
 
 # REA: Reverse Engineer Anything
 
@@ -19,9 +19,13 @@
 
 **[ওয়েবসাইট](https://rea.tools/bn/) · [গাইড](https://rea.tools/bn/guides/) · [শোকেস](https://rea.tools/bn/showcase/)**
 
-[দ্রুত শুরু](#দ্রুত-শুরু) · [REA কীভাবে কাজ করে](#rea-কীভাবে-কাজ-করে) · [কী কী বিশ্লেষণ করা যায়](#কী-কী-বিশ্লেষণ-করা-যায়) · [শোকেস](#শোকেস) · [সাধারণ প্রশ্নোত্তর](#সাধারণ-প্রশ্নোত্তর-faq) · [ডকুমেন্টেশন](#ডকুমেন্টেশন)
+[দ্রুত শুরু](#দ্রুত-শুরু) · [REA কীভাবে কাজ করে](#rea-কীভাবে-কাজ-করে) · [কী কী বিশ্লেষণ করা যায়](#কী-কী-বিশ্লেষণ-করা-যায়) · [শোকেস](#শোকেস) · [সাধারণ প্রশ্নোত্তর](#সাধারণ-প্রশ্নোত্তর-faq) · [GNU objdump ও Rizin টুল](../reverse-engineering-tools.md) · [ডকুমেন্টেশন](#ডকুমেন্টেশন)
 
 <code>npx rea-agents setup</code>
+
+> [!IMPORTANT]
+> REA-এর অফিসিয়াল উৎস: [morluto/rea](https://github.com/morluto/rea), [rea.tools](https://rea.tools/), [rea-agents](https://www.npmjs.com/package/rea-agents) (npm)।
+> ইনস্টলেশন ও release লিংকের জন্য এই অফিসিয়াল উৎসগুলোই অনুসরণ করুন। একই রকম repository নাম বা কপি করা README দেখে কোনো download অফিসিয়াল বলে ধরে নেওয়া যায় না।
 
 <br />
 
@@ -150,7 +154,7 @@ REA-এর জন্য লাগবে Node.js 22.x (>=22.19), 24.x (>=24.11) �
 
 | টার্গেট                   | REA কী ফেরত দেয়                                                                 | প্রয়োজনীয়তা ও গাইড                                                                                                            |
 | ----------------------- | ------------------------------------------------------------------------------- | -------------------------------------------------------------------------------------------------------------------------- |
-| Native বাইনারি            | Pseudocode, assembly, string, symbol, call ও reference                          | Hopper, Ghidra বা IDA; [native বিশ্লেষণ](https://rea.tools/bn/guides/native/)                                                |
+| Native বাইনারি            | Pseudocode, assembly, string, symbol, call ও reference                          | Hopper, Ghidra বা IDA; [native বিশ্লেষণ](../native-investigation.md)                                                         |
 | Offline ELF layout      | Section, segment, মূল symbol/relocation এবং static mitigation-এর সম্ভাব্য তালিকা      | Linux x64-এ caller-এর দেওয়া pwntools; [binary diagnostics](../binary-diagnostics.md)                                        |
 | Go বাইনারি                | Embedded compiler সংস্করণ, module, replacement ও build setting                   | বিল্ট-ইন static ELF/PE/thin Mach-O পরীক্ষা; Go ইনস্টল করার দরকার নেই                                                             |
 | Rust বাইনারি              | এমবেড করা cargo-auditable crate-এর নাম, সংস্করণ, উৎস ও dependency সম্পর্ক            | বিল্ট-ইন static ELF/PE/thin Mach-O পরীক্ষা; [Rust বাইনারি](../rust-binaries.md)                                                 |
@@ -158,8 +162,8 @@ REA-এর জন্য লাগবে Node.js 22.x (>=22.19), 24.x (>=24.11) �
 | EVM bytecode            | Dispatch selector, byte offset, অনুমিত argument ও mutability                     | Linux x64-এ local raw/hex carrier; [offline EVM গাইড](../evm-bytecode.md)                                                   |
 | SQLite ডেটাবেস           | Table, column, index, view, trigger এবং নির্বাচিত সাধারণ table-এর row               | Local database/WAL snapshot; native SQLite সীমাসহ Node.js 24.x >=24.15 বা 26+                                                |
 | রেকর্ড করা Linux crash    | Raw note, রেকর্ড করা প্রতিটি thread-এর register/signal এবং ঐচ্ছিক mapping candidate | Linux x64-এ caller-এর দেওয়া pwntools; ঐচ্ছিক GDB/pwndbg; [রেকর্ড করা crash](../recorded-crashes.md)                            |
-| JavaScript / Electron   | Module, import, source map, route, IPC এবং native add-on-এর সম্পর্ক               | Node.js ও npm; [অ্যাপ্লিকেশন বিশ্লেষণ](https://rea.tools/bn/guides/javascript/)                                                |
-| ওয়েবসাইট                 | পেজের গঠন, script, network পর্যবেক্ষণ এবং অনুরোধ করা screenshot                     | একটি Chrome-ঘরানার ব্রাউজার; [ব্রাউজার বিশ্লেষণ](https://rea.tools/bn/guides/browser/)                                              |
+| JavaScript / Electron   | Module, import, source map, route, IPC এবং native add-on-এর সম্পর্ক               | Node.js ও npm; Linux: procps-সামঞ্জস্যপূর্ণ `ps`; [অ্যাপ্লিকেশন বিশ্লেষণ](../javascript-application-workflows.md)                   |
+| ওয়েবসাইট                 | পেজের গঠন, script, network পর্যবেক্ষণ এবং অনুরোধ করা screenshot                     | একটি Chrome-ঘরানার ব্রাউজার; [ব্রাউজার বিশ্লেষণ](../browser-observation.md)                                                         |
 | সংরক্ষিত network capture | Request, response, উন্মুক্ত payload ও source location                              | HAR বা Fiddler Everywhere SAZ; native mitmproxy capture-এর জন্য Linux-এ mitmdump; [capture গাইড](../web-network-captures.md)  |
 | .NET assembly           | Metadata, CIL instruction, ঘোষিত native dependency এবং build তুলনা                | কিছু লাগে না (শুধু static); [managed-code গাইড](../managed-code-analysis.md)                                                     |
 | Android APK             | Manifest ঘোষণা, class, decompile করা method ও reference                           | Linux/macOS/Windows x64-এ headless JADX ও পূর্ণ JDK; [Android গাইড](../android-analysis.md)                                   |
@@ -321,7 +325,7 @@ Agent ব্যবহার করলে [setup রিফ্রেশ](#rea-আ�
 
 ## Star-এর ইতিহাস
 
-🎉 **170,000 GitHub star — সবাইকে ধন্যবাদ!**
+🎉 **200,000 GitHub star — সবাইকে ধন্যবাদ!**
 
 যাঁরা REA ব্যবহার করছেন, bug রিপোর্ট করছেন, ফিচারের অনুরোধ জানাচ্ছেন, build test করছেন এবং fix দিয়ে অবদান রাখছেন — সবাইকে ধন্যবাদ।
 
