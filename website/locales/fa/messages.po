@@ -70,7 +70,7 @@ msgstr "توسط N0zoM1z0 * 10 اکتبر 2026"
 #: website/public/examples/dino-lab/index.html:477
 #: website/public/faq/index.html:575
 #: website/public/first-investigation/index.html:536
-#: website/public/get-started/index.html:1798
+#: website/public/get-started/index.html:1814
 #: website/public/guides/browser/index.html:509
 #: website/public/guides/index.html:284
 #: website/public/guides/javascript/index.html:505
@@ -3015,8 +3015,9 @@ msgid ""
 "and writes {ph1} in the user’s Downloads folder. The columns are {ph2} and "
 "{ph3}."
 msgstr ""
-"دکمه یک {ph0} پیام. فرآیند اصلی یادداشت ها را به عنوان CSV فرمت می کند و می "
-"نویسد {ph1} در پوشه Downloads کاربر. ستون ها عبارتند از {ph2} و {ph3}."
+"دکمه پیام {ph0} را می‌فرستد. فرایند اصلی یادداشت‌ها را به CSV تبدیل می‌کند و"
+" فایل {ph1} را در پوشهٔ دانلودهای کاربر ذخیره می‌کند. ستون‌ها {ph2} و {ph3} "
+"هستند."
 
 #: website/public/first-investigation/index.html:339
 msgctxt "page:first-investigation/index.html"
@@ -3253,16 +3254,16 @@ msgstr "ترمینال"
 #: website/public/get-started/index.html:1129
 #: website/public/get-started/index.html:1153
 #: website/public/get-started/index.html:1201
-#: website/public/get-started/index.html:1261
-#: website/public/get-started/index.html:1287
-#: website/public/get-started/index.html:1304
-#: website/public/get-started/index.html:1547
-#: website/public/get-started/index.html:1606
-#: website/public/get-started/index.html:1625
-#: website/public/get-started/index.html:1647
-#: website/public/get-started/index.html:1685
-#: website/public/get-started/index.html:1715
-#: website/public/get-started/index.html:1736
+#: website/public/get-started/index.html:1276
+#: website/public/get-started/index.html:1302
+#: website/public/get-started/index.html:1319
+#: website/public/get-started/index.html:1562
+#: website/public/get-started/index.html:1621
+#: website/public/get-started/index.html:1640
+#: website/public/get-started/index.html:1662
+#: website/public/get-started/index.html:1700
+#: website/public/get-started/index.html:1730
+#: website/public/get-started/index.html:1751
 msgctxt "page:get-started/index.html"
 msgid "Copy"
 msgstr "کپی"
@@ -3493,13 +3494,13 @@ msgstr ""
 "{ph0}هر سیستم:{ph1} پوشه را به یک پنجره ترمینال بکشید و مسیر آن ظاهر می شود."
 
 #: website/public/get-started/index.html:970
-#: website/public/get-started/index.html:1708
+#: website/public/get-started/index.html:1723
 msgctxt "page:get-started/index.html"
 msgid "In a terminal, put quotes around a path that contains spaces."
 msgstr ""
 "در یک ترمینال ، نقل قول ها را در اطراف مسیری قرار دهید که شامل فضاها است."
 
-#: website/public/get-started/index.html:1540
+#: website/public/get-started/index.html:1555
 msgctxt "page:get-started/index.html"
 msgid ""
 "Analyze a JavaScript or Electron application folder or ASAR archive without "
@@ -3508,14 +3509,14 @@ msgstr ""
 "یک پوشه برنامه JavaScript یا Electron یا آرشیو ASAR را بدون اجرای برنامه "
 "تجزیه و تحلیل کنید:"
 
-#: website/public/get-started/index.html:1546
+#: website/public/get-started/index.html:1561
 msgctxt "page:get-started/index.html"
 msgid "Static application analysis"
 msgstr "تجزیه و تحلیل کاربرد استاتیک"
 
 #. {ph0}: <code>.asar</code>
 #. {ph1}: <code>"D:/apps/example"</code>
-#: website/public/get-started/index.html:1558
+#: website/public/get-started/index.html:1573
 #, python-brace-format
 msgctxt "page:get-started/index.html"
 msgid ""
@@ -3525,13 +3526,13 @@ msgstr ""
 "مسیر را با دایرکتوری برنامه استخراج شده خود جایگزین کنید یا {ph0} فایل. در "
 "Windows ، مسیری مانند {ph1} اینجا کار میکنه"
 
-#: website/public/get-started/index.html:1564
+#: website/public/get-started/index.html:1579
 msgctxt "page:get-started/index.html"
 msgid "Where do I find an app's .asar file?"
 msgstr "فایل .asar برنامه را کجا پیدا کنم؟"
 
 #. {ph0}: <code>resources</code>
-#: website/public/get-started/index.html:1565
+#: website/public/get-started/index.html:1580
 #, python-brace-format
 msgctxt "page:get-started/index.html"
 msgid "Electron apps usually keep it in a {ph0} folder:"
@@ -3542,7 +3543,7 @@ msgstr "برنامه های Electron معمولا آن را در یک {ph0} پو
 #. {ph2}: <code
 #. >C:\Users\&lt;you&gt;\AppData\Local\Programs\&lt;App&gt;\resources\app.asar</code
 #. >
-#: website/public/get-started/index.html:1570
+#: website/public/get-started/index.html:1585
 #, python-brace-format
 msgctxt "page:get-started/index.html"
 msgid "{ph0}Windows:{ph1} {ph2}"
@@ -3554,7 +3555,7 @@ msgstr "{ph0} Windows :{ph1} {ph2}"
 #. >/Applications/&lt;App&gt;.app/Contents/Resources/app.asar</code >
 #. {ph3}: <em>
 #. {ph4}: </em>
-#: website/public/get-started/index.html:1576
+#: website/public/get-started/index.html:1591
 #, python-brace-format
 msgctxt "page:get-started/index.html"
 msgid ""
@@ -3567,21 +3568,21 @@ msgstr ""
 #. {ph0}: <strong>
 #. {ph1}: </strong>
 #. {ph2}: <code>/opt/&lt;App&gt;/resources/app.asar</code>
-#: website/public/get-started/index.html:1584
+#: website/public/get-started/index.html:1599
 #, python-brace-format
 msgctxt "page:get-started/index.html"
 msgid "{ph0}Linux:{ph1} often {ph2}"
 msgstr "{ph0} Linux :{ph1} اغلب {ph2}"
 
 #. {ph0}: <code>app.asar</code>
-#: website/public/get-started/index.html:1589
+#: website/public/get-started/index.html:1604
 #, python-brace-format
 msgctxt "page:get-started/index.html"
 msgid "Some apps install elsewhere. Search the app's folder for {ph0}."
 msgstr ""
 "برخی از برنامه ها در جای دیگری نصب می شوند. پوشه برنامه را جستجو کنید {ph0}."
 
-#: website/public/get-started/index.html:1594
+#: website/public/get-started/index.html:1609
 msgctxt "page:get-started/index.html"
 msgid ""
 "The result identifies the app, shows connections between modules and gives "
@@ -3592,20 +3593,20 @@ msgstr ""
 "منبع آنها را می دهد. اتصالات REA نمی تواند حل شود در نتیجه مشخص شده است."
 
 #. {ph0}: <code>rea</code>
-#: website/public/get-started/index.html:1599
+#: website/public/get-started/index.html:1614
 #, python-brace-format
 msgctxt "page:get-started/index.html"
 msgid "If you'd like a permanent {ph0} command in your shell:"
 msgstr "اگر می‌خواهید فرمان {ph0} همیشه در پوستهٔ شما در دسترس باشد:"
 
-#: website/public/get-started/index.html:1605
+#: website/public/get-started/index.html:1620
 msgctxt "page:get-started/index.html"
 msgid "Install the CLI"
 msgstr "CLI را نصب کنید"
 
 #. {ph0}: <a href="../guides/javascript/" >
 #. {ph1}: </a >
-#: website/public/get-started/index.html:1617
+#: website/public/get-started/index.html:1632
 #, python-brace-format
 msgctxt "page:get-started/index.html"
 msgid "{ph0}Continue with the JavaScript application guide{ph1}"
@@ -3650,18 +3651,18 @@ msgstr ""
 "این دستور یک نصب موجود را تشخیص می دهد یا یک برنامه نصب برای تأیید شما ارائه"
 " می دهد."
 
-#: website/public/get-started/index.html:1666
+#: website/public/get-started/index.html:1681
 msgctxt "page:get-started/index.html"
 msgid "Getting help"
 msgstr "کمک گرفتن"
 
-#: website/public/get-started/index.html:1668
+#: website/public/get-started/index.html:1683
 msgctxt "page:get-started/index.html"
 msgid "If your agent doesn't see REA"
 msgstr "اگر نماینده شما REA را نمی بیند"
 
 #. {ph0}: <code>doctor</code>
-#: website/public/get-started/index.html:1669
+#: website/public/get-started/index.html:1684
 #, python-brace-format
 msgctxt "page:get-started/index.html"
 msgid ""
@@ -3671,22 +3672,22 @@ msgstr ""
 "پس از راه‌اندازی، برنامهٔ دستیار را دوباره اجرا یا متصل کنید. اتصال REA آن "
 "را با {ph0} بررسی کنید؛ برای Codex:"
 
-#: website/public/get-started/index.html:1680
+#: website/public/get-started/index.html:1695
 msgctxt "page:get-started/index.html"
 msgid "If a provider needs attention"
 msgstr "اگر یک ارائه دهنده نیاز به توجه داشته باشد"
 
-#: website/public/get-started/index.html:1681
+#: website/public/get-started/index.html:1696
 msgctxt "page:get-started/index.html"
 msgid "Check the provider you're using. For Ghidra:"
 msgstr "ارائه دهنده ای که استفاده می کنید را بررسی کنید. برای Ghidra :"
 
-#: website/public/get-started/index.html:1684
+#: website/public/get-started/index.html:1699
 msgctxt "page:get-started/index.html"
 msgid "Check one provider"
 msgstr "یک ارائه دهنده را بررسی کنید"
 
-#: website/public/get-started/index.html:1696
+#: website/public/get-started/index.html:1711
 msgctxt "page:get-started/index.html"
 msgid "The report gives the failed check and a suggested next step."
 msgstr "گزارش چک شکست خورده و گام بعدی پیشنهاد شده را ارائه می دهد."
@@ -3695,7 +3696,7 @@ msgstr "گزارش چک شکست خورده و گام بعدی پیشنهاد ش
 #. {ph1}: </a >
 #. {ph2}: <span>
 #. {ph3}: </span>
-#: website/public/get-started/index.html:1760
+#: website/public/get-started/index.html:1776
 #, python-brace-format
 msgctxt "page:get-started/index.html"
 msgid ""
@@ -3708,7 +3709,7 @@ msgstr ""
 #. {ph1}: </a >
 #. {ph2}: <span >
 #. {ph3}: </span >
-#: website/public/get-started/index.html:1764
+#: website/public/get-started/index.html:1780
 #, python-brace-format
 msgctxt "page:get-started/index.html"
 msgid ""
@@ -3722,7 +3723,7 @@ msgstr ""
 #. {ph1}: </a >
 #. {ph2}: <span>
 #. {ph3}: </span>
-#: website/public/get-started/index.html:1771
+#: website/public/get-started/index.html:1787
 #, python-brace-format
 msgctxt "page:get-started/index.html"
 msgid ""
@@ -3734,7 +3735,7 @@ msgstr "{ph0} مسائل GitHub{ph1}{ph2}گزارش یک مشکل با دستو�
 #. {ph1}: </a >
 #. {ph2}: <span>
 #. {ph3}: </span>
-#: website/public/get-started/index.html:1775
+#: website/public/get-started/index.html:1791
 #, python-brace-format
 msgctxt "page:get-started/index.html"
 msgid ""
@@ -3799,22 +3800,22 @@ msgctxt "page:get-started/index.html"
 msgid "Copy REA installation prompt"
 msgstr "کپی REA نصب و راه اندازی prompt"
 
-#: website/public/get-started/index.html:1547
+#: website/public/get-started/index.html:1562
 msgctxt "page:get-started/index.html"
 msgid "Copy JavaScript analysis command"
 msgstr "دستور تجزیه و تحلیل JavaScript را کپی کنید"
 
-#: website/public/get-started/index.html:1606
+#: website/public/get-started/index.html:1621
 msgctxt "page:get-started/index.html"
 msgid "Copy CLI installation command"
 msgstr "دستور نصب CLI را کپی کنید"
 
-#: website/public/get-started/index.html:1685
+#: website/public/get-started/index.html:1700
 msgctxt "page:get-started/index.html"
 msgid "Copy provider diagnosis command"
 msgstr "کپی فرمان تشخیص ابزار تحلیل"
 
-#: website/public/get-started/index.html:1798
+#: website/public/get-started/index.html:1814
 msgctxt "page:get-started/index.html"
 msgid "Back to top"
 msgstr "بازگشت به بالا"
@@ -10752,7 +10753,7 @@ msgstr "راهنماها"
 #: website/public/examples/dino-lab/index.html:469
 #: website/public/faq/index.html:567
 #: website/public/first-investigation/index.html:528
-#: website/public/get-started/index.html:1790
+#: website/public/get-started/index.html:1806
 #: website/public/guides/browser/index.html:501
 #: website/public/guides/index.html:276
 #: website/public/guides/javascript/index.html:497
@@ -10773,7 +10774,7 @@ msgstr "کد منبع"
 #: website/public/examples/dino-lab/index.html:470
 #: website/public/faq/index.html:568
 #: website/public/first-investigation/index.html:529
-#: website/public/get-started/index.html:1791
+#: website/public/get-started/index.html:1807
 #: website/public/guides/browser/index.html:502
 #: website/public/guides/index.html:277
 #: website/public/guides/javascript/index.html:498
@@ -10794,7 +10795,7 @@ msgstr "مجوز MIT"
 #: website/public/examples/dino-lab/index.html:471
 #: website/public/faq/index.html:569
 #: website/public/first-investigation/index.html:530
-#: website/public/get-started/index.html:1792
+#: website/public/get-started/index.html:1808
 #: website/public/guides/browser/index.html:503
 #: website/public/guides/index.html:278
 #: website/public/guides/javascript/index.html:499
@@ -10815,7 +10816,7 @@ msgstr "به جامعه بپیوندید"
 #: website/public/examples/dino-lab/index.html:472
 #: website/public/faq/index.html:570
 #: website/public/first-investigation/index.html:531
-#: website/public/get-started/index.html:1793
+#: website/public/get-started/index.html:1809
 #: website/public/guides/browser/index.html:504
 #: website/public/guides/index.html:279
 #: website/public/guides/javascript/index.html:500
@@ -13553,8 +13554,9 @@ msgid ""
 "and writes {ph1} in the user’s Downloads folder. The columns are {ph2} and "
 "{ph3}."
 msgstr ""
-"دکمه یک {ph0} پیام. فرآیند اصلی یادداشت ها را به عنوان CSV فرمت می کند و می "
-"نویسد {ph1} در پوشه Downloads کاربر. ستون ها عبارتند از {ph2} و {ph3}."
+"دکمه پیام {ph0} را می‌فرستد. فرایند اصلی یادداشت‌ها را به CSV تبدیل می‌کند و"
+" فایل {ph1} را در پوشهٔ دانلودهای کاربر ذخیره می‌کند. ستون‌ها {ph2} و {ph3} "
+"هستند."
 
 #. {ph0}: <a href="../first-investigation/#check" >
 #. {ph1}: </a >
@@ -13827,7 +13829,7 @@ msgstr ""
 "Windows، و ناظر بدون رابط گرافیکی macOS arm64 با IDA Professional 9.1 هستند."
 " پل اختیاری رابط گرافیکی بومی، نیازهای نسخه و پلتفرم خودش را دارد."
 
-#: website/public/get-started/index.html:1318
+#: website/public/get-started/index.html:1333
 msgctxt "page:get-started/index.html"
 msgid ""
 "Use the JSON registration file you prepared with the provider guide, then "
@@ -13839,13 +13841,13 @@ msgstr ""
 #. {ph0}: <a href="https://github.com/morluto/rea/blob/main/docs/ida-
 #. provider.md" >
 #. {ph1}: </a >
-#: website/public/get-started/index.html:1322
+#: website/public/get-started/index.html:1337
 #, python-brace-format
 msgctxt "page:get-started/index.html"
 msgid "{ph0}IDA profiles, registration examples and verified platforms{ph1}"
 msgstr "{ph0}پروفایل‌های IDA، نمونه‌های ثبت و پلتفرم‌های بررسی‌شده{ph1}"
 
-#: website/public/get-started/index.html:1330
+#: website/public/get-started/index.html:1345
 msgctxt "page:get-started/index.html"
 msgid ""
 "Once connected, give your agent the original executable's full path and name"
@@ -13855,7 +13857,7 @@ msgstr ""
 "مشخص کنید:"
 
 #. {ph0}: <code>/absolute/path/to/program</code>
-#: website/public/get-started/index.html:1335
+#: website/public/get-started/index.html:1350
 #, python-brace-format
 msgctxt "page:get-started/index.html"
 msgid ""
@@ -13867,18 +13869,18 @@ msgstr ""
 
 #. {ph0}: <a href="../guides/native/">
 #. {ph1}: </a>
-#: website/public/get-started/index.html:1342
+#: website/public/get-started/index.html:1357
 #, python-brace-format
 msgctxt "page:get-started/index.html"
 msgid "{ph0}Follow a native analysis example{ph1}"
 msgstr "{ph0}یک نمونهٔ تحلیل بومی را دنبال کنید{ph1}"
 
-#: website/public/get-started/index.html:1347
+#: website/public/get-started/index.html:1362
 msgctxt "page:get-started/index.html"
 msgid "Websites, Android, .NET, firmware and other targets"
 msgstr "وب‌سایت‌ها، Android، ‏.NET، میان‌افزار و هدف‌های دیگر"
 
-#: website/public/get-started/index.html:1350
+#: website/public/get-started/index.html:1365
 msgctxt "page:get-started/index.html"
 msgid ""
 "Open the guide for the target you have. Each guide gives the additional "
@@ -13887,110 +13889,110 @@ msgstr ""
 "راهنمای هدف خود را باز کنید. هر راهنما ابزارهای اضافی، میزبان‌های "
 "پشتیبانی‌شده و فرمان اول را مشخص می‌کند."
 
-#: website/public/get-started/index.html:1358
+#: website/public/get-started/index.html:1373
 msgctxt "page:get-started/index.html"
 msgid "Target"
 msgstr "هدف"
 
-#: website/public/get-started/index.html:1359
+#: website/public/get-started/index.html:1374
 msgctxt "page:get-started/index.html"
 msgid "Tools to prepare"
 msgstr "ابزارهای لازم برای آماده‌سازی"
 
-#: website/public/get-started/index.html:1360
+#: website/public/get-started/index.html:1375
 msgctxt "page:get-started/index.html"
 msgid "Guide"
 msgstr "راهنما"
 
-#: website/public/get-started/index.html:1365
+#: website/public/get-started/index.html:1380
 msgctxt "page:get-started/index.html"
 msgid "JavaScript / Electron"
 msgstr "JavaScript / Electron"
 
 #. {ph0}: <a href="../guides/javascript/">
 #. {ph1}: </a>
-#: website/public/get-started/index.html:1367
-#: website/public/get-started/index.html:1372
-#: website/public/get-started/index.html:1377
+#: website/public/get-started/index.html:1382
 #: website/public/get-started/index.html:1387
-#: website/public/get-started/index.html:1397
-#: website/public/get-started/index.html:1407
-#: website/public/get-started/index.html:1417
-#: website/public/get-started/index.html:1427
-#: website/public/get-started/index.html:1437
-#: website/public/get-started/index.html:1447
-#: website/public/get-started/index.html:1457
-#: website/public/get-started/index.html:1467
-#: website/public/get-started/index.html:1477
-#: website/public/get-started/index.html:1487
-#: website/public/get-started/index.html:1497
-#: website/public/get-started/index.html:1507
+#: website/public/get-started/index.html:1392
+#: website/public/get-started/index.html:1402
+#: website/public/get-started/index.html:1412
+#: website/public/get-started/index.html:1422
+#: website/public/get-started/index.html:1432
+#: website/public/get-started/index.html:1442
+#: website/public/get-started/index.html:1452
+#: website/public/get-started/index.html:1462
+#: website/public/get-started/index.html:1472
+#: website/public/get-started/index.html:1482
+#: website/public/get-started/index.html:1492
+#: website/public/get-started/index.html:1502
+#: website/public/get-started/index.html:1512
+#: website/public/get-started/index.html:1522
 #, python-brace-format
 msgctxt "page:get-started/index.html"
 msgid "{ph0}Open guide{ph1}"
 msgstr "{ph0}باز کردن راهنما{ph1}"
 
-#: website/public/get-started/index.html:1370
+#: website/public/get-started/index.html:1385
 msgctxt "page:get-started/index.html"
 msgid "Website"
 msgstr "وب‌سایت"
 
-#: website/public/get-started/index.html:1375
+#: website/public/get-started/index.html:1390
 msgctxt "page:get-started/index.html"
 msgid ".NET / Flutter / packages"
 msgstr ".NET / Flutter / بسته‌ها"
 
-#: website/public/get-started/index.html:1385
+#: website/public/get-started/index.html:1400
 msgctxt "page:get-started/index.html"
 msgid "Android APK"
 msgstr "Android APK"
 
-#: website/public/get-started/index.html:1395
+#: website/public/get-started/index.html:1410
 msgctxt "page:get-started/index.html"
 msgid "Android device"
 msgstr "دستگاه Android"
 
-#: website/public/get-started/index.html:1405
+#: website/public/get-started/index.html:1420
 msgctxt "page:get-started/index.html"
 msgid "Android resources"
 msgstr "منابع Android"
 
-#: website/public/get-started/index.html:1415
+#: website/public/get-started/index.html:1430
 msgctxt "page:get-started/index.html"
 msgid "JEB project"
 msgstr "پروژهٔ JEB"
 
-#: website/public/get-started/index.html:1425
+#: website/public/get-started/index.html:1440
 msgctxt "page:get-started/index.html"
 msgid "Firmware"
 msgstr "میان‌افزار"
 
-#: website/public/get-started/index.html:1435
+#: website/public/get-started/index.html:1450
 msgctxt "page:get-started/index.html"
 msgid "WASM"
 msgstr "WASM"
 
-#: website/public/get-started/index.html:1465
+#: website/public/get-started/index.html:1480
 msgctxt "page:get-started/index.html"
 msgid "ELF / Linux crash"
 msgstr "ELF / از کار افتادن Linux"
 
-#: website/public/get-started/index.html:1475
+#: website/public/get-started/index.html:1490
 msgctxt "page:get-started/index.html"
 msgid "HAR / SAZ / mitmproxy"
 msgstr "HAR / SAZ / mitmproxy"
 
-#: website/public/get-started/index.html:1485
+#: website/public/get-started/index.html:1500
 msgctxt "page:get-started/index.html"
 msgid "PCAP / PCAPNG"
 msgstr "PCAP / PCAPNG"
 
-#: website/public/get-started/index.html:1495
+#: website/public/get-started/index.html:1510
 msgctxt "page:get-started/index.html"
 msgid "Logic signals"
 msgstr "سیگنال‌های منطقی"
 
-#: website/public/get-started/index.html:1505
+#: website/public/get-started/index.html:1520
 msgctxt "page:get-started/index.html"
 msgid "Process behavior"
 msgstr "رفتار فرایند"
@@ -14006,7 +14008,7 @@ msgstr "رفتار فرایند"
 #. {ph5}: </a >
 #. {ph6}: <a href="../guides/">
 #. {ph7}: </a>
-#: website/public/get-started/index.html:1517
+#: website/public/get-started/index.html:1532
 #, python-brace-format
 msgctxt "page:get-started/index.html"
 msgid ""
@@ -14016,18 +14018,18 @@ msgstr ""
 "{ph0}راهنمای Flutter{ph1} · {ph2}بسته‌ها و منابع{ph3} · {ph4}بایت‌کد "
 "EVM{ph5} · {ph6}همهٔ راهنماهای بررسی{ph7}"
 
-#: website/public/get-started/index.html:1537
+#: website/public/get-started/index.html:1552
 msgctxt "page:get-started/index.html"
 msgid "Use REA from a terminal"
 msgstr "REA را از ترمینال استفاده کنید"
 
-#: website/public/get-started/index.html:1539
+#: website/public/get-started/index.html:1554
 msgctxt "page:get-started/index.html"
 msgid "CLI commands, global installation and curl"
 msgstr "فرمان‌های CLI، نصب سراسری و curl"
 
 #. {ph0}: <code>main</code>
-#: website/public/get-started/index.html:1636
+#: website/public/get-started/index.html:1651
 #, python-brace-format
 msgctxt "page:get-started/index.html"
 msgid ""
@@ -14037,7 +14039,7 @@ msgstr ""
 "به‌جای {ph0} نام یا نشانی تابع را از فهرست توابع هدف قرار دهید. Ghidra باید "
 "از قبل پیکربندی شده باشد."
 
-#: website/public/get-started/index.html:1640
+#: website/public/get-started/index.html:1655
 msgctxt "page:get-started/index.html"
 msgid ""
 "On macOS or Linux, you can also use the curl installer after preparing "
@@ -14046,7 +14048,7 @@ msgstr ""
 "در macOS یا Linux می‌توانید پس از آماده‌سازی Node.js از نصب‌کنندهٔ curl هم "
 "استفاده کنید:"
 
-#: website/public/get-started/index.html:1673
+#: website/public/get-started/index.html:1688
 msgctxt "page:get-started/index.html"
 msgid ""
 "Use the client check in step 3 with your setup ID. In editor clients, enable"
@@ -14056,12 +14058,12 @@ msgstr ""
 "ویرایشگرها، REA را در تنظیمات MCP فعال کنید و در گفت‌وگوی دستیار به "
 "ابزارهایش اجازه بدهید."
 
-#: website/public/get-started/index.html:1701
+#: website/public/get-started/index.html:1716
 msgctxt "page:get-started/index.html"
 msgid "Windows, WSL and paths with spaces"
 msgstr "Windows، ‏WSL و مسیرهای دارای فاصله"
 
-#: website/public/get-started/index.html:1702
+#: website/public/get-started/index.html:1717
 msgctxt "page:get-started/index.html"
 msgid ""
 "Use Windows PowerShell for Windows clients and analysis tools. If your agent"
@@ -14073,17 +14075,17 @@ msgstr ""
 "و از مسیرهای Linux استفاده کنید. ارائه‌دهنده‌های بدون رابط گرافیکی روی همان "
 "میزبان REA اجرا می‌شوند."
 
-#: website/public/get-started/index.html:1711
+#: website/public/get-started/index.html:1726
 msgctxt "page:get-started/index.html"
 msgid "Windows setup command:"
 msgstr "فرمان راه‌اندازی Windows:"
 
-#: website/public/get-started/index.html:1728
+#: website/public/get-started/index.html:1743
 msgctxt "page:get-started/index.html"
 msgid "Update or remove REA"
 msgstr "به‌روزرسانی یا حذف REA"
 
-#: website/public/get-started/index.html:1729
+#: website/public/get-started/index.html:1744
 msgctxt "page:get-started/index.html"
 msgid ""
 "To refresh your agent connection, run the latest setup command again, review"
@@ -14093,8 +14095,8 @@ msgstr ""
 "کنید، طرح آن را بررسی کنید و برنامهٔ دستیار را دوباره اجرا کنید."
 
 #. {ph0}: <code>rea update</code>
-#. {ph1}: <code>rea uninstall</code>
-#: website/public/get-started/index.html:1747
+#. {ph1}: <code>npx rea-agents@latest uninstall</code>
+#: website/public/get-started/index.html:1762
 #, python-brace-format
 msgctxt "page:get-started/index.html"
 msgid ""
@@ -14108,7 +14110,7 @@ msgstr ""
 #. href="https://github.com/morluto/rea/blob/main/docs/installation.md#diagnose-
 #. update-and-remove" >
 #. {ph1}: </a >
-#: website/public/get-started/index.html:1752
+#: website/public/get-started/index.html:1768
 #, python-brace-format
 msgctxt "page:get-started/index.html"
 msgid "{ph0}Update and uninstall details{ph1}"
@@ -14136,13 +14138,13 @@ msgstr "کپی فرمان راه‌اندازی REA در Windows"
 #: website/public/get-started/index.html:1129
 #: website/public/get-started/index.html:1153
 #: website/public/get-started/index.html:1201
-#: website/public/get-started/index.html:1261
-#: website/public/get-started/index.html:1287
-#: website/public/get-started/index.html:1304
-#: website/public/get-started/index.html:1625
-#: website/public/get-started/index.html:1647
-#: website/public/get-started/index.html:1715
-#: website/public/get-started/index.html:1736
+#: website/public/get-started/index.html:1276
+#: website/public/get-started/index.html:1302
+#: website/public/get-started/index.html:1319
+#: website/public/get-started/index.html:1640
+#: website/public/get-started/index.html:1662
+#: website/public/get-started/index.html:1730
+#: website/public/get-started/index.html:1751
 msgctxt "page:get-started/index.html"
 msgid "Copy command"
 msgstr "کپی فرمان"
@@ -14199,14 +14201,14 @@ msgctxt "page:get-started/index.html"
 msgid "OpenCode · choose an AI model"
 msgstr "OpenCode · یک مدل هوش مصنوعی انتخاب کنید"
 
-#: website/public/get-started/index.html:1245
+#: website/public/get-started/index.html:1260
 msgctxt "page:get-started/index.html"
 msgid "Prepare the IDA registration file"
 msgstr "فایل ثبت IDA را آماده کنید"
 
 #. {ph0}: <code>ida-mcp.json</code>
 #. {ph1}: <code>.txt</code>
-#: website/public/get-started/index.html:1246
+#: website/public/get-started/index.html:1261
 #, python-brace-format
 msgctxt "page:get-started/index.html"
 msgid ""
@@ -14221,7 +14223,7 @@ msgstr ""
 #. {ph0}: <code>idb_open</code>
 #. {ph1}: <code>idb_list</code>
 #. {ph2}: <code>idb_close</code>
-#: website/public/get-started/index.html:1253
+#: website/public/get-started/index.html:1268
 #, python-brace-format
 msgctxt "page:get-started/index.html"
 msgid ""
@@ -14234,7 +14236,7 @@ msgstr ""
 #. {ph0}: <code>command</code>
 #. {ph1}: <code>args</code>
 #. {ph2}: <code>env</code>
-#: website/public/get-started/index.html:1276
+#: website/public/get-started/index.html:1291
 #, python-brace-format
 msgctxt "page:get-started/index.html"
 msgid ""
@@ -14246,12 +14248,12 @@ msgstr ""
 "و در صورت وجود {ph2} را در فایل کپی کنید. فایل باینری اصلی را در IDA باز "
 "کنید و پیش از درخواست بررسی از REA، افزونهٔ بالادستی را اجرا کنید."
 
-#: website/public/get-started/index.html:1445
+#: website/public/get-started/index.html:1460
 msgctxt "page:get-started/index.html"
 msgid "SQLite database"
 msgstr "پایگاه دادهٔ SQLite"
 
-#: website/public/get-started/index.html:1455
+#: website/public/get-started/index.html:1470
 msgctxt "page:get-started/index.html"
 msgid "EVM bytecode"
 msgstr "بایت‌کد EVM"
@@ -14811,7 +14813,7 @@ msgid "Other install options: {ph0}{ph1} →{ph2}"
 msgstr "روش‌های دیگر نصب: {ph0}{ph1} ←{ph2}"
 
 #. {ph0}: <code>rea setup</code>
-#: website/public/get-started/index.html:1658
+#: website/public/get-started/index.html:1673
 #, python-brace-format
 msgctxt "page:get-started/index.html"
 msgid ""
@@ -14820,6 +14822,36 @@ msgid ""
 msgstr ""
 "برای اتصال عامل، مراحل راه‌اندازی را دنبال کنید. اگر نمایش داده نشدند، {ph0}"
 " را اجرا کنید."
+
+#. {ph0}: <a
+#. href="https://github.com/morluto/rea/blob/main/CONTRIBUTING.md#development-
+#. setup" >
+#. {ph1}: </a >
+#. {ph2}: <code>6.4.0</code>
+#: website/public/get-started/index.html:1244
+#, python-brace-format
+msgctxt "page:get-started/index.html"
+msgid ""
+"The macOS headless profile and native GUI bridge require a {ph0}REA source "
+"build{ph1} or a release containing those changes. npm {ph2} does not include"
+" them."
+msgstr ""
+"پیکربندی بدون رابط macOS و پل بومی GUI به {ph0}نسخهٔ REA ساخته‌شده از کد "
+"منبع{ph1} یا نسخه‌ای شامل این تغییرات نیاز دارند. نسخهٔ npm {ph2} این "
+"تغییرات را ندارد."
+
+#. {ph0}: <code>node scripts/rea.mjs doctor --provider ida --json</code>
+#. {ph1}: <code>node scripts/rea.mjs setup</code>
+#. {ph2}: <code>npx</code>
+#: website/public/get-started/index.html:1253
+#, python-brace-format
+msgctxt "page:get-started/index.html"
+msgid ""
+"From the built checkout, run {ph0} and {ph1} instead of the {ph2} commands "
+"below."
+msgstr ""
+"در پوشهٔ کد منبع پس از ساخت، به‌جای فرمان‌های {ph2} زیر، {ph0} و {ph1} را "
+"اجرا کنید."
 
 #~ msgctxt "page:index.html"
 #~ msgid "Play the reconstruction"
