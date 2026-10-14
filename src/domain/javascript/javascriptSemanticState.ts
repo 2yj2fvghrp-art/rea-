@@ -94,6 +94,11 @@ export interface JavaScriptSemanticAnalysisState {
     JavaScriptSemanticModuleLink,
     JavaScriptSemanticBindingState
   >;
+  /** Default expressions capture their value at the export statement. */
+  readonly defaultExportExpressions: WeakMap<
+    JavaScriptSemanticModuleLink,
+    t.Node
+  >;
   /** Initializer expressions whose write can be skipped by enclosing control flow. */
   readonly conditionallySkippedExpressions: WeakSet<t.Node>;
   /** Unbound identifier writes retain their source sites for capture ordering. */
@@ -253,5 +258,30 @@ export const isUnshadowedGlobal = (
   name: string,
 ): boolean =>
   t.isIdentifier(node, { name }) &&
-  resolveSemanticBindingState(state, node, name) === undefined &&
-  !semanticResolutionBlocked(state, node, name);
+  (resolveSemanticBindingState(state, node, name) === undefined
+    ? !semanticResolutionBlocked(state, node, name)
+    : isUnmodifiedCommonJsWrapperBinding(node, name, state));
+
+/** A program-level `var` redeclaration still denotes its untouched CJS wrapper parameter. */
+export const isUnmodifiedCommonJsWrapperBinding = (
+  node: t.Node,
+  name: string,
+  state: JavaScriptSemanticAnalysisState,
+): boolean => {
+  // Parser sourceType separates explicit modules from script/CommonJS source;
+  // specifier resolution mode does not establish that distinction.
+  if (
+    state.program.sourceType !== "script" ||
+    !["module", "exports", "require"].includes(name) ||
+    !t.isIdentifier(node, { name })
+  )
+    return false;
+  const binding = resolveSemanticBindingState(state, node, name);
+  if (binding === undefined || binding.initializers.length !== 0) return false;
+  const scope = state.scopesById.get(binding.scopeId);
+  return (
+    scope?.kind === "program" &&
+    binding.declarationKinds.size > 0 &&
+    [...binding.declarationKinds].every((kind) => kind === "var")
+  );
+};

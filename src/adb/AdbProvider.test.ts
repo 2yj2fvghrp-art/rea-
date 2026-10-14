@@ -91,6 +91,36 @@ it("inspects the adb client without contacting the server", async () => {
   expect(result.contacted_adb_server).toBe(false);
 });
 
+it("fails closed when adb exits successfully without a recognized version", async () => {
+  const stdout = `unexpected adb output ${"x".repeat(700)}\n`;
+  const stderr = `probe stderr ${"y".repeat(700)}\n`;
+  const { binary } = await writeAdbStub(
+    () => `printf '%s' '${stdout}'; printf '%s' '${stderr}' >&2; exit 0`,
+  );
+  await expect(
+    providerOver(binary).inspectAvailability(),
+  ).resolves.toMatchObject({
+    status: "unavailable",
+    code: "version_unresolved",
+    diagnostics: {
+      version_probe: "unrecognized_output",
+      stdout,
+      stderr,
+    },
+  });
+});
+
+it("accepts adb's recognized protocol version when the build version is absent", async () => {
+  const { binary } = await writeAdbStub(
+    () => `printf 'Android Debug Bridge version 1.0.41\\n'`,
+  );
+  await expect(
+    providerOver(binary).inspectAvailability(),
+  ).resolves.toMatchObject({
+    status: "available",
+  });
+});
+
 it("lists devices with inferred kinds and observed daemon startup", async () => {
   const { binary } = await writeAdbStub(
     () => `if [ "$1" = "version" ]; then ${VERSION_BLOCK}; exit 0; fi
@@ -1192,15 +1222,21 @@ exit 1`,
   const apk = join(root, "app.apk");
   await writeFile(apk, "apk");
   const digest = createHash("sha256").update("apk").digest("hex");
-  const installed = await evidenceResult(providerOver(binary), {
+  const execution = await providerOver(binary).execute({
     operation: "install_adb_package",
     input: { serial: "emulator-5554", apk_path: apk, replace: false },
   });
-  expect(installed).toMatchObject({
+  expect(execution.ok).toBe(true);
+  if (!execution.ok) throw execution.error;
+  expect(execution.value.result).toMatchObject({
     bytes: 3,
     sha256: digest,
-    replaced: false,
+    replace_requested: false,
+    replaced: null,
   });
+  expect(execution.value.limitations).toContain(
+    "Whether an existing package was replaced is unknown; replace_requested records only the adb install mode",
+  );
 
   const { binary: failing } = await writeAdbStub(
     () => `if [ "$1" = "version" ]; then ${VERSION_BLOCK}; exit 0; fi
