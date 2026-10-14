@@ -97,6 +97,23 @@ export const compareBundles = (
   const changes = [...recordResult.changes, ...unknownResult.changes].sort(
     compareChanges,
   );
+  if (leftDigest !== rightDigest && changes.length === 0) {
+    // The canonical bytes differ outside compared record membership (e.g.
+    // display-only subject metadata, excluded from Evidence identity): a
+    // `changed` with no entry explains nothing, so the digest pair goes
+    // inline (#3216).
+    changes.push({
+      entity: "evidence",
+      key: "bundle:digest",
+      classification: "changed",
+      conclusion_kind: "observed_change",
+      left_evidence_ids: [],
+      right_evidence_ids: [],
+      left_digest: leftDigest,
+      right_digest: rightDigest,
+      limitations: [],
+    });
+  }
   const unresolved = changes.filter(
     ({ conclusion_kind: kind }) => kind !== "observed_change",
   ).length;

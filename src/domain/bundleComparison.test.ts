@@ -76,6 +76,36 @@ describe("bundle comparison explicit cross-pairs", () => {
 });
 
 describe("bundle comparison", () => {
+  it("explains display-only differences inline instead of an empty changed (#3216)", () => {
+    const observation = {
+      operation: "observe",
+      parameters: {},
+      result: true,
+    } as const;
+    const target = (path: string) => ({
+      path,
+      sha256: "a".repeat(64),
+      format: "elf" as const,
+      architecture: "x86_64" as const,
+    });
+    const left = createEvidenceBundle([
+      createEvidence(target("/left/app"), PROVIDER, observation),
+    ]);
+    const right = createEvidenceBundle([
+      createEvidence(target("/right/app"), PROVIDER, observation),
+    ]);
+    const result = compareBundles(left, right);
+    expect(result.left_bundle_sha256).not.toBe(result.right_bundle_sha256);
+    expect(result.status).toBe("changed");
+    expect(result.changes).toHaveLength(1);
+    expect(result.changes[0]).toMatchObject({
+      classification: "changed",
+      conclusion_kind: "observed_change",
+      left_digest: result.left_bundle_sha256,
+      right_digest: result.right_bundle_sha256,
+    });
+  });
+
   it("accepts long caller-selected bundle paths", () => {
     const path = `/${"deep/".repeat(1_000)}bundle.json`;
     expect(
