@@ -33,7 +33,15 @@ Check the native provider:
 docker run --rm rea doctor --provider ghidra
 ```
 
-`rea doctor` checks only native providers. To confirm Android analysis, run an
+Check the JADX installation:
+
+```bash
+docker run --rm rea doctor --provider jadx
+```
+
+This validates the JADX JAR and the Java runtime REA would launch. It does not
+check whether the JADX heap is large enough for a given APK (see
+[Memory](#memory)). To test Android analysis end to end, run an
 [Android command](android-analysis.md) against an APK.
 
 ## Register with an agent
