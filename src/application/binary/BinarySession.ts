@@ -76,7 +76,8 @@ export class BinarySession
   implements BinarySessionPort
 {
   #active: SessionBinding | undefined;
-  #externalMutationCleanupFailure: AnalysisError | undefined;
+  /** Unresolved external-mutation cleanup owners; each is retained until it resolves itself. */
+  readonly #externalMutationCleanupFailures = new Set<AnalysisError>();
   #pendingCleanup:
     | {
         readonly client: AnalysisClient;
@@ -263,8 +264,8 @@ export class BinarySession
     resolve: () => Promise<Result<ResolvedSessionOpen, AnalysisError>>,
     options: Pick<BinarySessionOpenOptions, "signal" | "snapshot">,
   ): Promise<Result<BinaryTarget, AnalysisError>> {
-    if (this.#externalMutationCleanupFailure?.cleanupIncomplete === true)
-      return err(this.#externalMutationCleanupFailure);
+    const retainedFailure = this.#retainedExternalMutationFailure();
+    if (retainedFailure !== undefined) return err(retainedFailure);
     if (isAborted(options.signal))
       return err(new AnalysisCancelledError("open_binary"));
     const resolved = await resolve();
@@ -380,11 +381,9 @@ export class BinarySession
     operationName = "execute_rizin_command",
   ): Promise<Result<Result<Value, AnalysisError>, AnalysisError>> {
     return this.#serialize(async (admittedThrough) => {
-      if (
-        this.#externalMutationCleanupFailure?.cleanupIncomplete === true &&
-        operationName !== "close_gdb_session"
-      )
-        return err(this.#externalMutationCleanupFailure);
+      const retained = this.#retainedExternalMutationFailure();
+      if (retained !== undefined && operationName !== "close_gdb_session")
+        return err(retained);
       if (isAborted(signal))
         return err(new AnalysisCancelledError(operationName));
       await this.#drainCalls(admittedThrough);
@@ -405,13 +404,16 @@ export class BinarySession
       // file identity with an uncancellable path lookup.
       this.invalidateSnapshot();
       const value = await operation();
-      this.#externalMutationCleanupFailure =
-        !value.ok && value.error.cleanupIncomplete ? value.error : undefined;
+      // An unrelated close must not release another owner's unresolved cleanup:
+      // only that owner's own resolution clears its failure.
+      if (!value.ok && value.error.cleanupIncomplete)
+        this.#externalMutationCleanupFailures.add(value.error);
       if (activeAtDispatch === undefined) return ok(value);
 
       const retired = await this.#closeActive({}, false);
       if (!retired.ok) return err(rebindFailure(value, retired.error));
-      if (this.#externalMutationCleanupFailure !== undefined) return ok(value);
+      if (this.#retainedExternalMutationFailure() !== undefined)
+        return ok(value);
 
       const target = activeAtDispatch.target;
       const reopenOptions: BinarySessionOpenOptions = {
@@ -868,6 +870,13 @@ export class BinarySession
 
   #currentRoute(): SessionProviderRoute {
     return this.#active?.route ?? this.#providerRouter.initialRoute();
+  }
+
+  #retainedExternalMutationFailure(): AnalysisError | undefined {
+    for (const failure of this.#externalMutationCleanupFailures)
+      if (failure.cleanupIncomplete) return failure;
+      else this.#externalMutationCleanupFailures.delete(failure);
+    return undefined;
   }
 
   #serialize<T>(

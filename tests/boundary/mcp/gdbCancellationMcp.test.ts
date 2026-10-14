@@ -443,7 +443,9 @@ it("rebinds the active binary after an unrestricted GDB console command", async 
   );
   vi.spyOn(manager, "execute").mockImplementation(async () => {
     await writeFile(target, "updated by debugger shell");
-    return ok({ result, evidence });
+    return ok({ result, evidence }) as Awaited<
+      ReturnType<GdbSessionManager["execute"]>
+    >;
   });
   const server = new McpServer({ name: "gdb-mutation", version: "1" });
   registerGdbTools(

@@ -105,7 +105,13 @@ const createFakeSpawner = (
       child.stdin?.on("data", (chunk: string | Buffer) => {
         for (const line of String(chunk).split("\n")) {
           const match = /^(\d+)(.*)$/u.exec(line);
-          if (match !== null) respond(child, match[1] ?? "", match[2] ?? "");
+          if (match === null) continue;
+          const token = match[1] ?? "";
+          const command = match[2] ?? "";
+          // The run-ID restoration is startup plumbing, not a fixture subject.
+          if (command.includes("REA_PROCESS_RUN_ID"))
+            child.stdout.write(`${token}^done\n`);
+          else respond(child, token, command);
         }
       });
       if (options.exitAfterPrompt) queueMicrotask(() => child.exit(0, null));

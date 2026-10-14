@@ -229,7 +229,9 @@ const verifyGdbInferiorOutputSink = async (
   }
   const after = parseLinuxProcessStartTime(await readFile(statPath, "utf8"));
   if (after !== before)
-    throw new Error("The GDB inferior identity changed during descriptor readback.");
+    throw new Error(
+      "The GDB inferior identity changed during descriptor readback.",
+    );
 };
 
 class GdbCommandProcessExitError extends Error {
@@ -270,7 +272,9 @@ interface GdbSession {
   noInferiorVerified: boolean;
   stopAttempt: ReturnType<typeof stopOwnedDebuggerProcess> | undefined;
   detachBarrier: Promise<void> | undefined;
-  readonly retainPendingDetach: (pending: Promise<OwnedDebuggerDetachResult>) => void;
+  readonly retainPendingDetach: (
+    pending: Promise<OwnedDebuggerDetachResult>,
+  ) => void;
   readonly pending: Map<number, PendingCommand>;
   readonly cleanupFailures: Set<AnalysisError>;
   readonly lines: string[];
@@ -623,7 +627,7 @@ export class GdbSessionManager {
       const restoreRunId = await this.#request(
         session,
         callerRunId === undefined
-          ? "-gdb-unset environment REA_PROCESS_RUN_ID"
+          ? '-interpreter-exec console "unset environment REA_PROCESS_RUN_ID"'
           : `-gdb-set environment REA_PROCESS_RUN_ID ${miQuote(callerRunId)}`,
         signal,
         "start_gdb_session",
@@ -1102,7 +1106,10 @@ export class GdbSessionManager {
                   "close_gdb_session",
                   stopped.reason,
                   {
-                    cleanup: { reason: stopped.reason, resources: [session.id] },
+                    cleanup: {
+                      reason: stopped.reason,
+                      resources: [session.id],
+                    },
                   },
                 ),
               );
@@ -1161,7 +1168,9 @@ export class GdbSessionManager {
                 "gdb",
                 "close_gdb_session",
                 stopped.reason,
-                { cleanup: { reason: stopped.reason, resources: [session.id] } },
+                {
+                  cleanup: { reason: stopped.reason, resources: [session.id] },
+                },
               ),
             );
           this.#sessions.delete(sessionId);
@@ -1258,7 +1267,10 @@ export class GdbSessionManager {
       }
       session.promptTail = prompt.slice(-4);
     }
-    const lines: Array<{ readonly text: string; readonly invalidUtf8: boolean }> = [];
+    const lines: Array<{
+      readonly text: string;
+      readonly invalidUtf8: boolean;
+    }> = [];
     let offset = 0;
     while (offset < data.length) {
       const newline = data.indexOf(0x0a, offset);
@@ -1338,8 +1350,12 @@ export class GdbSessionManager {
             command: "",
             mi: pending.terminalRecord ?? "",
             records,
-            console: records.filter((record) => record.startsWith("~")).join("\n"),
-            target: records.filter((record) => record.startsWith("@")).join("\n"),
+            console: records
+              .filter((record) => record.startsWith("~"))
+              .join("\n"),
+            target: records
+              .filter((record) => record.startsWith("@"))
+              .join("\n"),
             log: records.filter((record) => record.startsWith("&")).join("\n"),
             output_truncated: pending.outputTruncated,
             output_invalid_utf8: pending.outputInvalidUtf8,
@@ -1939,7 +1955,7 @@ export const gdbOneShotCommandMayInvalidateDetachProof = (
   const firstToken = /^\s*([^\s;]+)/u.exec(command)?.[1]?.toLowerCase();
   if (
     firstToken !== undefined &&
-    ([
+    [
       "source",
       "define",
       "run",
@@ -1963,13 +1979,14 @@ export const gdbOneShotCommandMayInvalidateDetachProof = (
       "signal",
       "py",
       "python",
-    ].some((name) => name.startsWith(firstToken)))
+    ].some((name) => name.startsWith(firstToken))
   )
     return true;
   // One-shot execution cannot establish which shell/GDB context interprets
   // redirections, nor safely track multiline command definitions.
   return (
-    commandMayChangeInferiorOutput(command) || /[<>]{1,2}|&>|[\r\n;]/u.test(command)
+    commandMayChangeInferiorOutput(command) ||
+    /[<>]{1,2}|&>|[\r\n;]/u.test(command)
   );
 };
 

@@ -29,6 +29,8 @@ it.each(["start_adb_app", "start_adb_activity"] as const)(
     vi.mocked(execFileOutput).mockResolvedValue({
       stdout: "Android Debug Bridge version 1.0.41\nVersion 34.0.5-stub\n",
       stderr: "",
+      stdoutBytes: 56,
+      stderrBytes: 0,
     });
     const calls: string[][] = [];
     vi.mocked(execFileBytes).mockImplementation(async (_binary, args) => {
