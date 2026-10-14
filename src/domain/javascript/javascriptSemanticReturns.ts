@@ -28,7 +28,10 @@ import { evaluateSemanticExpression } from "./javascriptSemanticValues.js";
 import { range } from "./javascriptStaticAnalysisHelpers.js";
 import { semanticReturnCoverage } from "./javascriptSemanticCoverage.js";
 import { semanticCallableResultExpressions } from "./javascriptSemanticCallableResults.js";
-import { semanticInitializerAvailableAtRead } from "./javascriptSemanticMutationInitializers.js";
+import {
+  semanticInitializerAvailableAtRead,
+  semanticReadInitializers,
+} from "./javascriptSemanticMutationInitializers.js";
 
 interface ReturnExpression {
   readonly node: t.Node | null;
@@ -149,16 +152,23 @@ const callableIdsForBinding = (
   // the unknown incoming value of a parameter/catch binding.
   if (
     seen.has(binding.bindingId) ||
-    binding.initializers.length !== 1 ||
+    (read === undefined && binding.initializers.length !== 1) ||
     binding.definitions.some(
       ({ kind }) =>
-        kind === "assignment" || kind === "parameter" || kind === "catch",
+        (read === undefined && kind === "assignment") ||
+        kind === "parameter" ||
+        kind === "catch",
     )
   )
     return [];
-  const initializer = binding.initializers[0];
+  const selected =
+    read === undefined
+      ? binding
+      : semanticReadInitializers(binding, read, state.parentsByNode);
+  const initializer = selected.initializers[0];
   if (
     initializer === undefined ||
+    selected.initializers.length !== 1 ||
     initializer.projection.length > 0 ||
     state.conditionallySkippedExpressions.has(initializer.node) ||
     (read !== undefined &&
