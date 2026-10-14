@@ -7,9 +7,13 @@ import { artifactComparisonResultSchema } from "./artifactComparison.js";
 import { artifactInventoryResultSchema } from "./artifactGraph.js";
 import { uniqueSorted } from "./canonicalOrdering.js";
 import { compareUnicodeCodePoints } from "./unicodeCodePointOrder.js";
-import { comparisonSourceEvidenceSides } from "./comparisonSourceEvidence.js";
+import {
+  comparisonSourceEvidenceSides,
+  assertComparisonFindingLinks,
+} from "./comparisonSourceEvidence.js";
 import { parseEvidence, type Evidence } from "./evidence.js";
 import { parseEvidenceBundle } from "./evidenceBundle.js";
+import { functionComparisonFindingLinks } from "./functionComparisonResults.js";
 import {
   functionComparisonResultSchema,
   isNormalizedViewDimension,
@@ -266,12 +270,19 @@ const observedStatus = (
     const result = functionComparisonResultSchema.parse(
       evidence.normalized_result,
     );
+    assertComparisonFindingLinks(
+      evidence,
+      functionComparisonFindingLinks(result),
+    );
     if (claim.dimension === "overall")
       return {
         status: result.status,
-        limitations: [],
-        // Overall changes may come only from incomplete call sets. Keep
-        // main's call-coverage rule while normalized views are added below.
+        limitations: result.dimensions.flatMap(
+          ({ limitations }) => limitations,
+        ),
+        // Historical overall changes can be caused only by incomplete call
+        // sets. Ignore that aggregate change when independently checking the
+        // source call-coverage limitations.
         hasIndependentFunctionChange:
           result.function_match.status === "mismatched" ||
           (result.function_match.status === "matched" &&
@@ -293,23 +304,15 @@ const observedStatus = (
           ? "Function comparison normalized view was not requested"
           : "Function comparison dimension missing",
       );
-    if (view.evidence_links.some((id) => !evidence.evidence_links.includes(id)))
-      throw new TypeError(
-        "Function dimension cites Evidence outside comparison closure",
-      );
     return { status: view.status, limitations: view.limitations };
   }
   const result = artifactComparisonResultSchema.parse(
     evidence.normalized_result,
   );
-  if (
-    result.changes.some((item) =>
-      item.evidence_links.some((id) => !evidence.evidence_links.includes(id)),
-    )
-  )
-    throw new TypeError(
-      "Artifact change cites Evidence outside comparison closure",
-    );
+  assertComparisonFindingLinks(
+    evidence,
+    result.changes.flatMap(({ evidence_links }) => evidence_links),
+  );
   return { status: result.status, limitations: [] };
 };
 
@@ -356,13 +359,15 @@ const authorityLimitations = (
   )
     limitations.push("Structural source artifact identity is unavailable.");
   if (claim.kind === "behavioral") {
-    const byId = new Map(sources.map((source) => [source.evidence_id, source]));
-    const left = byId.get(sides.left[0] ?? "");
-    const right = byId.get(sides.right[0] ?? "");
+    const referenceEnvironment = sources[0]?.environment;
     if (
-      left?.environment === null ||
-      right?.environment === null ||
-      JSON.stringify(left?.environment) !== JSON.stringify(right?.environment)
+      referenceEnvironment === null ||
+      referenceEnvironment === undefined ||
+      sources.some(
+        ({ environment }) =>
+          environment === null ||
+          JSON.stringify(environment) !== JSON.stringify(referenceEnvironment),
+      )
     )
       limitations.push(
         "Controlled replay environments are unavailable or incompatible.",

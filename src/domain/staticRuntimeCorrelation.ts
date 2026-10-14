@@ -6,8 +6,12 @@ import { z } from "zod";
 import { artifactComparisonResultSchema } from "./artifactComparison.js";
 import { uniqueSorted } from "./canonicalOrdering.js";
 import { compareUnicodeCodePoints } from "./unicodeCodePointOrder.js";
-import { comparisonSourceEvidenceIds } from "./comparisonSourceEvidence.js";
+import {
+  comparisonSourceEvidenceIds,
+  assertComparisonFindingLinks,
+} from "./comparisonSourceEvidence.js";
 import { evidenceSchema, parseEvidence, type Evidence } from "./evidence.js";
+import { functionComparisonFindingLinks } from "./functionComparisonResults.js";
 import {
   functionComparisonResultSchema,
   FUNCTION_DIMENSION_NAMES,
@@ -235,7 +239,10 @@ const correlate = (
     mapping.runtime.comparison_evidence_id,
     "runtime comparison",
   );
-  const selectedStatic = selectStatic(staticEvidence, mapping.static.selector);
+  const { limitations: selectedLimitations, ...selectedStatic } = selectStatic(
+    staticEvidence,
+    mapping.static.selector,
+  );
   const process = processCaptureComparisonSchema.parse(
     runtimeEvidence.normalized_result,
   );
@@ -247,8 +254,6 @@ const correlate = (
       : pattern === mapping.hypothesis.expected_pattern
         ? "hypothesis"
         : "contradiction";
-  const { limitations: selectedStaticLimitations, ...staticSelection } =
-    selectedStatic;
   const projection = {
     static: mapping.static,
     runtime: mapping.runtime,
@@ -257,7 +262,7 @@ const correlate = (
   } satisfies JsonValue;
   return correlationItemSchema.parse({
     correlation_id: `cor_${sha256(canonicalJson(projection))}`,
-    static: { ...mapping.static, ...staticSelection },
+    static: { ...mapping.static, ...selectedStatic },
     runtime: { ...mapping.runtime, status: runtimeStatus },
     side_alignment: mapping.side_alignment,
     hypothesis: mapping.hypothesis,
@@ -271,7 +276,7 @@ const correlate = (
     ]),
     limitations: uniqueSorted([
       ...staticEvidence.limitations,
-      ...selectedStaticLimitations,
+      ...selectedLimitations,
       ...runtimeEvidence.limitations,
       ...process.limitations,
       "This correlation tests an explicit hypothesis and does not establish causality.",
@@ -333,13 +338,13 @@ const selectStatic = (
   const status = match.classification;
   return {
     status,
+    limitations: [],
     conclusion_kind:
       status === "contradiction"
         ? "contradiction"
         : status === "unknown"
           ? "unresolved_branch"
           : "derived_relationship",
-    limitations: [],
   };
 };
 
@@ -357,7 +362,7 @@ const parseStatic = (input: unknown): Evidence => {
     const result = artifactComparisonResultSchema.parse(
       evidence.normalized_result,
     );
-    assertNestedLinks(
+    assertComparisonFindingLinks(
       evidence,
       result.changes.flatMap(({ evidence_links: links }) => links),
     );
@@ -365,25 +370,12 @@ const parseStatic = (input: unknown): Evidence => {
     const result = functionComparisonResultSchema.parse(
       evidence.normalized_result,
     );
-    assertNestedLinks(evidence, [
-      ...result.dimensions.flatMap(({ evidence_links: links }) => links),
-      ...(result.normalized_views?.views.flatMap(
-        ({ evidence_links: links }) => links,
-      ) ?? []),
-    ]);
+    assertComparisonFindingLinks(
+      evidence,
+      functionComparisonFindingLinks(result),
+    );
   }
   return evidence;
-};
-
-const assertNestedLinks = (
-  evidence: Evidence,
-  nestedLinks: readonly string[],
-): void => {
-  const closure = new Set(evidence.evidence_links);
-  if (nestedLinks.some((evidenceId) => !closure.has(evidenceId)))
-    throw new TypeError(
-      "Comparison finding cites Evidence outside its top-level closure",
-    );
 };
 
 const parseRuntime = (input: unknown): Evidence => {
