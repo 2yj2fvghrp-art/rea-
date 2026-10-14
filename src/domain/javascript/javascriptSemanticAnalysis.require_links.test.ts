@@ -62,6 +62,22 @@ describe("TypeScript import-equals links", () => {
 });
 
 describe("CommonJS wrapper parameter redeclarations", () => {
+  it("keeps a top-level wrapper require redeclaration", () => {
+    const path = "app/main.cjs";
+    const parsed = parseJavaScriptSource(
+      'var require; require("./wrapper.cjs");',
+      path,
+    );
+    expect(parsed).not.toBeNull();
+    const ir = analyzeParsedJavaScriptSemantics(
+      parsed!,
+      moduleResolutionModeForJavaScriptReference(path, "static-import"),
+    );
+    expect(ir.moduleLinks).toContainEqual(
+      expect.objectContaining({ kind: "require", specifier: "./wrapper.cjs" }),
+    );
+  });
+
   it("retains ambient exports and require through uninitialized top-level vars", () => {
     const path = "app/main.cjs";
     const parsed = parseJavaScriptSource(
