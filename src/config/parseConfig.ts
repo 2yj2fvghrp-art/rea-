@@ -1,5 +1,4 @@
 import { accessSync, constants } from "node:fs";
-import { join } from "node:path";
 
 import { ConfigurationError } from "../domain/configurationErrors.js";
 import { err, ok, type Result } from "../domain/result.js";
@@ -11,13 +10,15 @@ import {
   defaultGhidraProjectCacheDirectory,
   type GhidraProjectCacheConfig,
 } from "./ghidraProjectCache.js";
-import { parseStringArray, parseLoaderArgs } from "./parsers.js";
 import type { AppConfig } from "./types.js";
-
-const DEFAULT_HOPPER_LAUNCHER_PATH =
-  "/Applications/Hopper Disassembler.app/Contents/MacOS/hopper";
-const SYSTEM_LINUX_HOPPER = "/opt/hopper/bin/Hopper";
-
+import {
+  linuxHopperLauncherCandidates,
+  REA_MANAGED_LINUX_HOPPER_LAUNCHER,
+} from "../application/LinuxHopper.js";
+import {
+  MAC_HOPPER_SYSTEM_LAUNCHER,
+  macHopperLauncherCandidates,
+} from "../application/MacHopperPaths.js";
 const executableAvailable = (path: string): boolean => {
   try {
     accessSync(path, constants.X_OK);
@@ -27,15 +28,21 @@ const executableAvailable = (path: string): boolean => {
   }
 };
 
-const defaultHopperLauncherPath = (
+export const defaultHopperLauncherPath = (
   platform: NodeJS.Platform,
   homeDirectory: string,
   executable: (path: string) => boolean = executableAvailable,
 ): string => {
-  if (platform !== "linux") return DEFAULT_HOPPER_LAUNCHER_PATH;
-  if (executable(SYSTEM_LINUX_HOPPER)) return SYSTEM_LINUX_HOPPER;
-  const userLocal = join(homeDirectory, ".local/share/rea/hopper/bin/Hopper");
-  return executable(userLocal) ? userLocal : SYSTEM_LINUX_HOPPER;
+  if (platform === "darwin") {
+    for (const candidate of macHopperLauncherCandidates(homeDirectory))
+      if (executable(candidate)) return candidate;
+    return MAC_HOPPER_SYSTEM_LAUNCHER;
+  }
+  if (platform !== "linux") return MAC_HOPPER_SYSTEM_LAUNCHER;
+  return (
+    linuxHopperLauncherCandidates(homeDirectory).find(executable) ??
+    REA_MANAGED_LINUX_HOPPER_LAUNCHER
+  );
 };
 
 const ghidraProjectCacheConfig = (
@@ -61,28 +68,6 @@ export const parseConfig = (
   const parsed = parseEnvironment(environment);
   if (!parsed.ok) return parsed;
   const env = parsed.value;
-  const loaderArgs = parseLoaderArgs(env.HOPPER_LOADER_ARGS_JSON);
-  if (!loaderArgs.ok) return loaderArgs;
-  const secretPatterns = parseStringArray(
-    env.REA_REFERENCE_SECRET_PATTERNS_JSON,
-    "REA_REFERENCE_SECRET_PATTERNS_JSON",
-  );
-  if (!secretPatterns.ok) return secretPatterns;
-  // Ghidra's analyzeHeadless accepts -cspec only together with -processor.
-  if (
-    env.REA_GHIDRA_COMPILER_SPEC_ID !== undefined &&
-    env.REA_GHIDRA_LANGUAGE_ID === undefined
-  )
-    return err(
-      new ConfigurationError("Invalid REA environment configuration", {
-        settings: [
-          {
-            setting: "REA_GHIDRA_COMPILER_SPEC_ID",
-            constraint: "requires REA_GHIDRA_LANGUAGE_ID",
-          },
-        ],
-      }),
-    );
   // An existing Ghidra project is opened with -process and already carries its
   // analysis, so import-time selections cannot be combined with it.
   const existingProjectPath = env.REA_GHIDRA_EXISTING_PROJECT;
@@ -187,13 +172,13 @@ export const parseConfig = (
             programName: existingProgramName,
           },
         }),
+    ghidraProjectCache: ghidraProjectCacheConfig(env, homeDirectory),
     ...(env.REA_GHIDRA_DISABLED_ANALYZERS === undefined
       ? {}
       : { ghidraDisabledAnalyzers: env.REA_GHIDRA_DISABLED_ANALYZERS }),
     ...(env.REA_GHIDRA_NATIVEAOT_JAR === undefined
       ? {}
       : { ghidraNativeAotJar: env.REA_GHIDRA_NATIVEAOT_JAR }),
-    ghidraProjectCache: ghidraProjectCacheConfig(env, homeDirectory),
     ilspyCmdPath: env.REA_ILSPY_CMD_PATH,
     hopperLauncherPath:
       env.HOPPER_LAUNCHER_PATH ??
@@ -201,8 +186,10 @@ export const parseConfig = (
     hopperStartupTimeoutMs: env.REA_HOPPER_STARTUP_TIMEOUT_MS,
     hopperTargetPath: env.HOPPER_TARGET_PATH,
     hopperTargetKind: env.HOPPER_TARGET_KIND,
-    hopperLoaderArgs: loaderArgs.value,
+    hopperLoaderArgs: env.loaderArgs,
     logLevel: env.REA_LOG_LEVEL,
-    referenceSourcePolicy: { secretPatterns: secretPatterns.value },
+    referenceSourcePolicy: {
+      secretPatterns: env.referenceSecretPatterns,
+    },
   });
 };

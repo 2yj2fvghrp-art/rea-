@@ -1,6 +1,9 @@
 import { describe, expect, it } from "vitest";
 
-import { parseConfig } from "./config/parseConfig.js";
+import {
+  defaultHopperLauncherPath,
+  parseConfig,
+} from "./config/parseConfig.js";
 import {
   DEFAULT_GHIDRA_PROJECT_CACHE_MAX_BYTES,
   defaultGhidraProjectCacheDirectory,
@@ -329,6 +332,83 @@ describe("configuration failure diagnostics", () => {
   });
 });
 
+// Hopper candidate paths are asserted with POSIX join semantics.
+describe.skipIf(process.platform === "win32")(
+  "default Linux Hopper launcher",
+  () => {
+    const home = "/fixture/home";
+    const withExecutables =
+      (paths: readonly string[]) =>
+      (path: string): boolean =>
+        paths.includes(path);
+
+    it.each([["/opt/hopper-v4/bin/hopper"], ["/usr/bin/hopper"]])(
+      "selects an existing system launcher %s",
+      (path) => {
+        expect(
+          defaultHopperLauncherPath("linux", home, withExecutables([path])),
+        ).toBe(path);
+      },
+    );
+
+    it("prefers REA-managed and user-local launchers over system paths", () => {
+      expect(
+        defaultHopperLauncherPath(
+          "linux",
+          home,
+          withExecutables([
+            "/opt/hopper/bin/Hopper",
+            "/opt/hopper-v4/bin/hopper",
+            "/usr/bin/hopper",
+          ]),
+        ),
+      ).toBe("/opt/hopper/bin/Hopper");
+      expect(
+        defaultHopperLauncherPath(
+          "linux",
+          home,
+          withExecutables([
+            `${home}/.local/share/rea/hopper/bin/Hopper`,
+            "/usr/bin/hopper",
+          ]),
+        ),
+      ).toBe(`${home}/.local/share/rea/hopper/bin/Hopper`);
+    });
+  },
+);
+
+// macOS candidate paths are asserted with POSIX join semantics.
+describe.skipIf(process.platform === "win32")(
+  "default macOS Hopper launcher",
+  () => {
+    it("selects the system path before the installer user path", () => {
+      const home = "/fixture/home";
+      const system =
+        "/Applications/Hopper Disassembler.app/Contents/MacOS/hopper";
+      const user =
+        "/fixture/home/Applications/Hopper Disassembler.app/Contents/MacOS/hopper";
+      const executable = (path: string): boolean =>
+        path === system || path === user;
+
+      expect(defaultHopperLauncherPath("darwin", home, executable)).toBe(
+        system,
+      );
+      expect(
+        defaultHopperLauncherPath("darwin", home, (path) => path === user),
+      ).toBe(user);
+    });
+
+    it("keeps an explicit launcher path unchanged", () => {
+      const configured = "/custom/../Hopper launcher";
+      const parsed = parseConfig({ HOPPER_LAUNCHER_PATH: configured });
+      expect(parsed).toMatchObject({
+        ok: true,
+        value: { hopperLauncherPath: configured },
+      });
+    });
+  },
+);
+
 describe("Ghidra existing project configuration", () => {
   it("binds a paired existing Ghidra project and program", () => {
     const result = parseConfig({
@@ -444,7 +524,7 @@ describe("Ghidra project cache configuration", () => {
     });
   });
 
-  it("resolves an explicit mode, directory and byte ceiling", () => {
+  it("resolves an explicit mode, directory, byte ceiling and max age", () => {
     const result = parseConfig({
       HOME: home,
       REA_GHIDRA_PROJECT_CACHE: "on",
