@@ -125,6 +125,9 @@ describe("IDA provider composition", () => {
     await session.close();
     expect(producer.closes).toBe(1);
   });
+});
+
+describe("IDA provider rejects incompatible targets", () => {
   it("rejects unsupported target kinds and reports incomplete upstream profiles on first analysis", async () => {
     const { root, target } = await createIdaTarget();
     roots.push(root);
