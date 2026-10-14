@@ -45,10 +45,14 @@ export const registerCutterCommands = (
         .refine((value) => !/[\r\n]/u.test(value)),
     }),
     options: z.object({
-      json: z
+      // Incur reserves bare --json for the result format, so this control
+      // needs its own name to reach the command.
+      commandJson: z
         .boolean()
         .default(false)
-        .describe("Return command-specific JSON output when available."),
+        .describe(
+          "Parse the Rizin command's JSON output when available (cmdj).",
+        ),
     }),
     run: ({ args, options }) =>
       withCommandCancellation((signal) =>
@@ -58,7 +62,7 @@ export const registerCutterCommands = (
               session_id: args.sessionId,
               expected_generation: args.expectedGeneration,
               command: args.command,
-              json: options.json,
+              json: options.commandJson,
             },
             { signal },
           );
