@@ -57,7 +57,7 @@ export function* classifyParsedJavaScriptViteDependencySpecifiersSteps(
   });
   const calls = new Map<ViteDependencyCall, ViteDependencyTable>();
   if (candidates.length === 0) return calls;
-  const tables = viteBindingTables(candidates, state);
+  const tables = yield* viteBindingTablesSteps(candidates, state);
   const initializations = new Set(
     candidates.map(({ table }) => state.parentsByNode.get(table)),
   );
@@ -67,6 +67,7 @@ export function* classifyParsedJavaScriptViteDependencySpecifiersSteps(
     initializations,
     state,
   );
+  const selectedCalls: ViteDependencyCall[] = [];
   yield* traverseJavaScriptAstSteps(file.program, {
     enter: (node) => {
       if (
@@ -74,29 +75,33 @@ export function* classifyParsedJavaScriptViteDependencySpecifiersSteps(
         !t.isIdentifier(node.callee, { name: "__vite__mapDeps" })
       )
         return;
-      const binding = resolveSemanticBindingState(
-        state,
-        node.callee,
-        node.callee.name,
-      );
-      if (binding !== undefined && tables.has(binding.bindingId))
-        calls.set(
-          node,
-          selectedDependencySpecifiers(
-            node,
-            tables.get(binding.bindingId),
-            state,
-          ),
-        );
+      selectedCalls.push(node);
     },
   });
+  for (const node of selectedCalls) {
+    yield;
+    const binding = resolveSemanticBindingState(
+      state,
+      node.callee,
+      "__vite__mapDeps",
+    );
+    if (binding !== undefined && tables.has(binding.bindingId))
+      calls.set(
+        node,
+        yield* selectedDependencySpecifiersSteps(
+          node,
+          tables.get(binding.bindingId),
+          state,
+        ),
+      );
+  }
   return calls;
 }
 
-const viteBindingTables = (
+function* viteBindingTablesSteps(
   candidates: readonly ViteHelperCandidate[],
   state: JavaScriptSemanticAnalysisState,
-): Map<string, ViteDependencyTable | null> => {
+): Generator<void, Map<string, ViteDependencyTable | null>> {
   const tables = new Map<string, ViteDependencyTable | null>();
   for (const { name, helper, table, uncertain } of candidates) {
     const binding = resolveSemanticBindingState(state, name, name.name);
@@ -107,20 +112,27 @@ const viteBindingTables = (
       initializer !== undefined &&
       unwrapJavaScriptExpression(initializer.node).node === helper &&
       initializer.projection.length === 0;
-    tables.set(binding.bindingId, unchanged ? exactTableSlots(table) : null);
+    yield;
+    tables.set(
+      binding.bindingId,
+      unchanged ? yield* exactTableSlotsSteps(table) : null,
+    );
   }
   return tables;
-};
+}
 
-const exactTableSlots = (table: t.ArrayExpression): ViteDependencyTable => {
-  const spread = table.elements.findIndex((element) =>
-    t.isSpreadElement(element),
-  );
-  const entries = spread < 0 ? table.elements : table.elements.slice(0, spread);
-  return entries.map((element) =>
-    t.isStringLiteral(element) ? element.value : undefined,
-  );
-};
+function* exactTableSlotsSteps(
+  table: t.ArrayExpression,
+): Generator<void, ViteDependencyTable> {
+  const slots: (string | undefined)[] = [];
+  for (let index = 0; index < table.elements.length; index++) {
+    if (index % 1024 === 0) yield;
+    const element = table.elements[index];
+    if (t.isSpreadElement(element)) break;
+    slots.push(t.isStringLiteral(element) ? element.value : undefined);
+  }
+  return slots;
+}
 
 const viteHelperCandidate = (
   node: t.Node,
@@ -162,7 +174,9 @@ const viteHelperCandidate = (
     table: cache.right.right,
     uncertain:
       defaults.uncertain ||
-      state.ambientWrites.covers(["global", "Array", "prototype", "map"]),
+      state.ambientWrites.covers(["global", "Array", "prototype", "map"]) ||
+      state.ambientWrites.covers(["global", "Function", "prototype", "f"]) ||
+      state.ambientWrites.covers(["global", "Object", "prototype", "f"]),
   };
 };
 
@@ -226,12 +240,21 @@ const assignmentGuardedDefaults = (
     !t.isIdentifier(helper.params[0]) ||
     !t.isIdentifier(helper.params[1]) ||
     !t.isIdentifier(helper.params[2]) ||
-    !t.isBlockStatement(helper.body) ||
-    helper.body.body.length !== 3
+    !t.isBlockStatement(helper.body)
   )
     return undefined;
   const [indexes, map, dependencies] = helper.params;
-  const [mapGuard, dependenciesGuard, returnedStatement] = helper.body.body;
+  const returnedStatement = helper.body.body.at(-1);
+  const returned = t.isReturnStatement(returnedStatement)
+    ? returnedStatement.argument
+    : undefined;
+  if (returned == null) return undefined;
+  const expressions = [
+    ...helper.body.body.slice(0, -1),
+    ...(t.isSequenceExpression(returned) ? returned.expressions : [returned]),
+  ];
+  if (expressions.length !== 3) return undefined;
+  const [mapGuard, dependenciesGuard, projection] = expressions;
   if (
     indexes === undefined ||
     map === undefined ||
@@ -262,7 +285,7 @@ const assignmentGuardedDefaults = (
     map: map.name,
     dependencies: dependencies.name,
     cache: dependenciesDefault.fallback,
-    returned: returnedStatement.argument,
+    returned: projection ?? returnedStatement.argument,
     uncertain: mapDefault.uncertain || dependenciesDefault.uncertain,
   };
 };
@@ -275,10 +298,12 @@ const assignmentGuardedParameterDefault = (
   const test =
     t.isIfStatement(statement) && statement.alternate === null
       ? statement.test
-      : t.isExpressionStatement(statement) &&
-          t.isLogicalExpression(statement.expression, { operator: "&&" })
-        ? statement.expression.left
-        : undefined;
+      : t.isLogicalExpression(statement, { operator: "&&" })
+        ? statement.left
+        : t.isExpressionStatement(statement) &&
+            t.isLogicalExpression(statement.expression, { operator: "&&" })
+          ? statement.expression.left
+          : undefined;
   if (test === undefined || !t.isBinaryExpression(test, { operator: "===" }))
     return undefined;
   const undefinedValue = t.isIdentifier(test.left, { name })
@@ -292,10 +317,12 @@ const assignmentGuardedParameterDefault = (
     return undefined;
   const consequent = t.isIfStatement(statement)
     ? statement.consequent
-    : t.isExpressionStatement(statement) &&
-        t.isLogicalExpression(statement.expression, { operator: "&&" })
-      ? statement.expression.right
-      : undefined;
+    : t.isLogicalExpression(statement, { operator: "&&" })
+      ? statement.right
+      : t.isExpressionStatement(statement) &&
+          t.isLogicalExpression(statement.expression, { operator: "&&" })
+        ? statement.expression.right
+        : undefined;
   const assignment = t.isExpressionStatement(consequent)
     ? consequent.expression
     : t.isBlockStatement(consequent) &&
@@ -470,41 +497,40 @@ const mapsDependencyIndexes = (
   );
 };
 
-const selectedDependencySpecifiers = (
+function* selectedDependencySpecifiersSteps(
   node: ViteDependencyCall,
   table: ViteDependencyTable | null | undefined,
   state: JavaScriptSemanticAnalysisState,
-): ViteDependencyTable => {
-  if (table == null || !usesDefaultTable(node, state)) return [undefined];
+): Generator<void, ViteDependencyTable> {
+  if (table == null || !(yield* usesDefaultTableSteps(node, state)))
+    return [undefined];
   const argument = node.arguments[0];
   if (argument === undefined) return [undefined];
   const indexes = unwrapJavaScriptExpression(argument).node;
   if (!t.isArrayExpression(indexes)) return [undefined];
-  if (
-    indexes.elements.some((element) => {
-      if (element === null) return false;
-      const value = unwrapJavaScriptExpression(element).node;
-      return !t.isIdentifier(value) && !readExactJavaScriptLiteral(value).found;
-    })
-  )
-    return [undefined];
-  return indexes.elements.flatMap((index) => {
-    if (index === null) return [];
-    const value = unwrapJavaScriptExpression(index).node;
-    return [
+  const selected: (string | undefined)[] = [];
+  for (let index = 0; index < indexes.elements.length; index++) {
+    if (index % 1024 === 0) yield;
+    const element = indexes.elements[index];
+    if (element == null) continue;
+    const value = unwrapJavaScriptExpression(element).node;
+    if (!t.isIdentifier(value) && !readExactJavaScriptLiteral(value).found)
+      return [undefined];
+    selected.push(
       t.isNumericLiteral(value) &&
-      Number.isSafeInteger(value.value) &&
-      value.value >= 0
+        Number.isSafeInteger(value.value) &&
+        value.value >= 0
         ? table[value.value]
         : undefined,
-    ];
-  });
-};
+    );
+  }
+  return selected;
+}
 
-const usesDefaultTable = (
+function* usesDefaultTableSteps(
   node: ViteDependencyCall,
   state: JavaScriptSemanticAnalysisState,
-): boolean => {
+): Generator<void, boolean> {
   for (const argument of node.arguments.slice(0, 3))
     if (t.isSpreadElement(argument)) return false;
   for (const index of [1, 2]) {
@@ -512,11 +538,15 @@ const usesDefaultTable = (
     if (argument !== undefined && !defaultUndefined(argument, state))
       return false;
   }
-  for (const argument of node.arguments.slice(3))
+  for (let index = 3; index < node.arguments.length; index++) {
+    if (index % 1024 === 0) yield;
+    const argument = node.arguments[index];
     if (
-      !readExactJavaScriptLiteral(argument).found &&
-      !defaultUndefined(argument, state)
+      argument === undefined ||
+      (!readExactJavaScriptLiteral(argument).found &&
+        !defaultUndefined(argument, state))
     )
       return false;
+  }
   return true;
-};
+}

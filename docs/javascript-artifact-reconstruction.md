@@ -252,7 +252,13 @@ are distinguished from overrides; visible or unproven argument effects remain
 unknown. writes through helper/cache aliases and in-place cache mutations make
 dependencies unknown, including mutations of shared cache values in shallow
 copies. replacing a copied container's property leaves the original cache intact.
-chained calls keep the helper invocation's exact source range.
+ordinary calls receiving the helper, cache, or a shared container keep possible
+mutation explicit. inherited `f` overrides on `Function.prototype` or
+`Object.prototype` also leave the table unknown. a proven fresh replacement in
+the same straight-line block detaches a copied cache; conditional replacements
+and aliases captured before the replacement retain possible sharing. compressed
+return sequences preserve equivalent TypeScript default guards. chained calls
+keep the helper invocation's exact source range.
 
 RPC client syntax also contributes network endpoint candidates, in both
 `analyze_javascript_application` and `analyze_web_bundle`, distinguished by

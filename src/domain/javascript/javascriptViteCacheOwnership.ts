@@ -2,16 +2,21 @@ import * as t from "@babel/types";
 
 import {
   semanticStaticPropertyKey,
+  semanticWriteSiteTarget,
+  semanticWriteTargets,
   unwrapJavaScriptExpression,
 } from "./javascriptAstValues.js";
 import {
   collectJavaScriptIdentityWritesSteps,
   electronMemberPath,
 } from "./javascriptElectronMemberWrites.js";
+import { traverseJavaScriptAstSteps } from "./javascriptSemanticTraversal.js";
 import { createSemanticModuleInterop } from "./javascriptModuleInterop.js";
-import { semanticPropertyPathKeyMatches } from "./javascriptSemanticPropertyPaths.js";
 import {
-  isUnshadowedGlobal,
+  semanticArrayIndex,
+  semanticPropertyPathKeyMatches,
+} from "./javascriptSemanticPropertyPaths.js";
+import {
   resolveSemanticBindingState,
   semanticStableInitializer,
   type JavaScriptSemanticAnalysisState,
@@ -41,6 +46,13 @@ interface CacheAlias {
   readonly first: CacheKey;
   /** undefined is an alias; a boolean retains the object-rest copied selection. */
   readonly copyKeepsCache?: boolean;
+  readonly read?: t.Node;
+  /** A newly allocated container shares this value, but is not the value itself. */
+  readonly container?: boolean;
+}
+
+interface CacheAliasInput extends Pick<CacheAlias, "first" | "copyKeepsCache"> {
+  readonly source: AliasVertex;
 }
 
 const ARRAY_MUTATORS = new Set([
@@ -69,6 +81,14 @@ export function* invalidateJavaScriptViteCachesSteps(
     const owner = path[0];
     if (initializations.has(node) || owner === undefined || allOwners) return;
     if (path.length !== 1 && path[1] !== null && path[1] !== "f") return;
+    const slot = path[2];
+    if (
+      slot !== undefined &&
+      slot !== null &&
+      slot !== "length" &&
+      semanticArrayIndex(slot) === null
+    )
+      return;
     if (owner === null) allOwners = true;
     else if (tables.has(owner)) tables.set(owner, null);
   };
@@ -85,7 +105,11 @@ export function* invalidateJavaScriptViteCachesSteps(
           callee.property,
           callee.computed,
         );
-        if (method === null || ARRAY_MUTATORS.has(method))
+        if (
+          method === null ||
+          ARRAY_MUTATORS.has(method) ||
+          state.ambientWrites.covers(["global", "Array", "prototype", method])
+        )
           for (const path of origins(callee.object))
             if (path[1] === null || path[1] === "f") retain(node, path);
       }
@@ -98,6 +122,26 @@ export function* invalidateJavaScriptViteCachesSteps(
       )
         for (const path of origins(invocation.receiver))
           if (path[1] === null || path[1] === "f") retain(node, path);
+      // Ordinary calls can mutate any cache value passed to them. Intrinsic
+      // producers and known array reads retain their own ownership semantics.
+      const intrinsicMethod = invocation?.path.at(-1);
+      const knownObjectOperation =
+        invocation?.kind === "known" &&
+        invocation.path[1] === "Object" &&
+        [
+          "assign",
+          "create",
+          "defineProperty",
+          "defineProperties",
+          "setPrototypeOf",
+        ].includes(intrinsicMethod ?? "");
+      if (!knownObjectOperation && invocation?.kind !== "known")
+        for (const argument of node.arguments)
+          for (const path of origins(
+            t.isSpreadElement(argument) ? argument.argument : argument,
+            true,
+          ))
+            retain(node, path);
       return invocation;
     },
     interop.staticString,
@@ -116,7 +160,8 @@ export function* invalidateJavaScriptViteCachesSteps(
 function* createViteCacheOriginsSteps(
   tables: ReadonlyMap<string, CacheTable | null>,
   state: JavaScriptSemanticAnalysisState,
-): Generator<void, (node: t.Node) => readonly CachePath[]> {
+): Generator<void, (node: t.Node, escape?: boolean) => readonly CachePath[]> {
+  const detachments = yield* indexViteCacheDetachmentsSteps(state);
   const aliases = yield* indexViteAliasesSteps(state);
   const facts = new Map<AliasVertex, CacheOwnership>();
   const pending: { binding: AliasVertex; ownership: CacheOwnership }[] = [];
@@ -131,15 +176,27 @@ function* createViteCacheOriginsSteps(
   };
   for (const owner of tables.keys())
     retain(owner, { owner, first: undefined, direct: true, shared: true });
+  let examinedAliases = 0;
   for (let cursor = 0; cursor < pending.length; cursor++) {
     if (cursor % 1024 === 0) yield;
     const fact = pending[cursor];
     if (fact === undefined) break;
     for (const alias of aliases.get(fact.binding) ?? []) {
+      if (examinedAliases++ % 1024 === 0) yield;
       const source = selectOwnership(fact.ownership, alias.sourceFirst);
       if (source === undefined) continue;
-      const copied =
-        alias.copyKeepsCache === undefined
+      if (
+        typeof fact.binding === "string" &&
+        alias.first === "f" &&
+        !source.direct &&
+        source.first === undefined &&
+        alias.read !== undefined &&
+        detachedCacheAt(fact.binding, alias.read, detachments, state)
+      )
+        continue;
+      const copied = alias.container
+        ? { ...source, direct: false }
+        : alias.copyKeepsCache === undefined
           ? source
           : {
               ...source,
@@ -152,24 +209,36 @@ function* createViteCacheOriginsSteps(
     }
   }
   const cached = new WeakMap<t.Node, readonly CachePath[]>();
-  return (node) => {
-    const previous = cached.get(node);
+  return (node, escape = false) => {
+    const previous = escape ? undefined : cached.get(node);
     if (previous !== undefined) return previous;
     let ownership: CacheOwnership | undefined;
     for (const [source, suffix] of viteAliasSources(node, state, facts))
       if (facts.has(source)) {
+        const fact = facts.get(source);
+        if (
+          suffix === "f" &&
+          fact !== undefined &&
+          fact.first === undefined &&
+          !fact.direct &&
+          detachedCacheAt(source, node, detachments, state)
+        )
+          continue;
         const selected = selectOwnership(facts.get(source), suffix);
         if (selected !== undefined)
           ownership = joinOwnership(ownership, selected);
       }
-    const paths: readonly CachePath[] = ownership?.direct
-      ? [
-          ownership.first === undefined
-            ? [ownership.owner]
-            : [ownership.owner, ownership.first],
-        ]
-      : [];
-    cached.set(node, paths);
+    const paths: readonly CachePath[] =
+      ownership?.direct || (escape && ownership?.shared)
+        ? [
+            ownership.first === undefined
+              ? escape && !ownership.direct
+                ? [ownership.owner, "f"]
+                : [ownership.owner]
+              : [ownership.owner, ownership.first],
+          ]
+        : [];
+    if (!escape) cached.set(node, paths);
     return paths;
   };
 }
@@ -181,6 +250,7 @@ function* indexViteAliasesSteps(
   const producers: t.Node[] = [];
   const spreadFacts = new WeakMap<t.Node, SpreadCacheFact>();
   const freshFacts = new WeakMap<t.Node, boolean>();
+  const interop = createSemanticModuleInterop(state);
   const enqueued = new WeakSet<t.Node>();
   const normalize = (node: t.Node): void => {
     if (enqueued.has(node)) return;
@@ -237,31 +307,78 @@ function* indexViteAliasesSteps(
       const expression = unwrapJavaScriptExpression(initializer.node).node;
       if (
         initializer.projection.length === 0 &&
-        t.isObjectExpression(expression) &&
-        expression.properties.every(
-          (property) =>
-            t.isObjectProperty(property) &&
-            semanticStaticPropertyKey(property.key, property.computed) !== null,
-        )
+        (t.isObjectExpression(expression) || t.isArrayExpression(expression))
       ) {
         const properties = new Map<string, t.Node>();
-        for (const property of expression.properties.toReversed())
-          if (t.isObjectProperty(property)) {
+        const seenKeys = new Set<string>();
+        if (t.isObjectExpression(expression))
+          for (
+            let index = expression.properties.length - 1;
+            index >= 0;
+            index--
+          ) {
+            if (examined++ % 1024 === 0) yield;
+            const property = expression.properties[index];
+            if (property === undefined || t.isSpreadElement(property)) continue;
             const key = semanticStaticPropertyKey(
               property.key,
               property.computed,
             );
-            if (key !== null && !properties.has(key))
-              properties.set(key, property.value);
+            if (key !== null && !seenKeys.has(key)) {
+              seenKeys.add(key);
+              if (t.isObjectProperty(property))
+                properties.set(key, property.value);
+            }
           }
-        for (const [key, value] of properties)
+        else
+          for (let index = 0; index < expression.elements.length; index++) {
+            if (examined++ % 1024 === 0) yield;
+            const element = expression.elements[index];
+            if (t.isSpreadElement(element)) break;
+            if (element != null) properties.set(String(index), element);
+          }
+        for (const [key, value] of properties) {
+          if (examined++ % 1024 === 0) yield;
+          normalize(value);
           connect(value, {
             target: viteCacheMemberVertex(binding.bindingId, key),
             first: undefined,
           });
+          connect(value, {
+            target: binding.bindingId,
+            first: undefined,
+            container: true,
+          });
+        }
       }
     }
   }
+  // Member assignments can introduce sharing after an initially fresh literal.
+  yield* traverseJavaScriptAstSteps(state.program, {
+    enter: (node) => {
+      if (
+        !t.isAssignmentExpression(node, { operator: "=" }) ||
+        !t.isMemberExpression(node.left)
+      )
+        return;
+      const { root, members } = electronMemberPath(node.left);
+      if (!t.isIdentifier(root)) return;
+      const binding = resolveSemanticBindingState(state, root, root.name);
+      if (binding === undefined) return;
+      normalize(node.right);
+      connect(node.right, {
+        target: binding.bindingId,
+        first: undefined,
+        container: true,
+      });
+      const key = members[0];
+      if (members.length === 1 && key != null)
+        connect(node.right, {
+          target: viteCacheMemberVertex(binding.bindingId, key),
+          first: undefined,
+        });
+    },
+  });
   // shared initializer expressions are vertices, rather than duplicating all
   // branch sources for every destructured binding that reads that expression.
   for (let cursor = 0; cursor < producers.length; cursor++) {
@@ -273,11 +390,13 @@ function* indexViteAliasesSteps(
       state,
       spreadFacts,
       freshFacts,
+      interop,
     )) {
       if (typeof input.source !== "string") normalize(input.source);
       connect(input.source, {
         target: node,
         first: input.first,
+        read: node,
         ...(input.copyKeepsCache === undefined
           ? {}
           : { copyKeepsCache: input.copyKeepsCache }),
@@ -292,14 +411,8 @@ function* aliasProducerInputsSteps(
   state: JavaScriptSemanticAnalysisState,
   spreadFacts: WeakMap<t.Node, SpreadCacheFact>,
   freshFacts: WeakMap<t.Node, boolean>,
-): Generator<
-  void,
-  readonly {
-    source: AliasVertex;
-    first: CacheKey;
-    copyKeepsCache?: boolean;
-  }[]
-> {
+  interop: ReturnType<typeof createSemanticModuleInterop>,
+): Generator<void, readonly CacheAliasInput[]> {
   const { root, members } = electronMemberPath(node);
   const first = members[0];
   if (t.isIdentifier(root)) {
@@ -307,11 +420,7 @@ function* aliasProducerInputsSteps(
     return binding === undefined ? [] : [{ source: binding.bindingId, first }];
   }
   if (t.isObjectExpression(root)) {
-    const inputs: {
-      source: AliasVertex;
-      first: CacheKey;
-      copyKeepsCache?: boolean;
-    }[] = [];
+    const inputs: CacheAliasInput[] = [];
     let overwritten = false;
     let examined = 0;
     for (let index = root.properties.length - 1; index >= 0; index--) {
@@ -354,23 +463,20 @@ function* aliasProducerInputsSteps(
     }
     return inputs;
   }
+  const invocation = t.isCallExpression(root)
+    ? interop.intrinsicInvocation(root)
+    : undefined;
   if (
-    t.isCallExpression(root) &&
-    t.isMemberExpression(root.callee) &&
-    isUnshadowedGlobal(root.callee.object, state, "Object") &&
-    semanticStaticPropertyKey(root.callee.property, root.callee.computed) ===
-      "assign"
+    invocation?.kind === "known" &&
+    invocation.path.join(".") === "intrinsic.Object.assign"
   ) {
-    const inputs: {
-      source: AliasVertex;
-      first: CacheKey;
-      copyKeepsCache?: boolean;
-    }[] = [];
+    const inputs: CacheAliasInput[] = [];
     let overwritten = false;
     let examined = 0;
-    for (let index = root.arguments.length - 1; index >= 1; index--) {
+    const arguments_ = invocation.arguments ?? [];
+    for (let index = arguments_.length - 1; index >= 1; index--) {
       if (examined++ % 1024 === 0) yield;
-      const source = root.arguments[index];
+      const source = arguments_[index];
       if (source === undefined || t.isSpreadElement(source)) continue;
       inputs.push({ source, first, copyKeepsCache: !overwritten });
       if (
@@ -384,6 +490,16 @@ function* aliasProducerInputsSteps(
         overwritten = true;
     }
     return inputs;
+  }
+  if (t.isCallExpression(root)) {
+    if (
+      invocation?.kind === "known" &&
+      invocation.path.join(".") === "intrinsic.Object.create"
+    ) {
+      const prototype = invocation.arguments?.[0];
+      if (prototype !== undefined && !t.isSpreadElement(prototype))
+        return [{ source: prototype, first, copyKeepsCache: true }];
+    }
   }
   if (t.isConditionalExpression(root))
     return [
@@ -418,6 +534,7 @@ function* freshCacheReplacementSteps(
     children?: Generator<t.Node>;
     expression?: t.ArrayExpression | t.ObjectExpression;
     fresh?: boolean;
+    pendingChild?: t.Node;
   }[] = [{ node, phase: "visit" }];
   const activeBindings = new Set<string>();
   let examined = 0;
@@ -437,6 +554,10 @@ function* freshCacheReplacementSteps(
       continue;
     }
     if (current.phase === "container") {
+      if (current.pendingChild !== undefined) {
+        if (facts.get(current.pendingChild) !== true) current.fresh = false;
+        delete current.pendingChild;
+      }
       const child = current.children?.next();
       if (child === undefined || child.done) {
         const fresh = current.fresh === true;
@@ -447,6 +568,7 @@ function* freshCacheReplacementSteps(
       } else if (facts.get(child.value) === false) {
         current.fresh = false;
       } else if (!facts.has(child.value)) {
+        current.pendingChild = child.value;
         pending.push({ node: child.value, phase: "visit" });
       }
       continue;
@@ -477,7 +599,8 @@ function* freshCacheReplacementSteps(
       if (
         binding === undefined ||
         initializer === undefined ||
-        binding.mutatedPaths.length > 0 ||
+        (initializer.node.end ?? Infinity) >= (expression.start ?? -1) ||
+        binding.memberWrites.length > 0 ||
         binding.escapedPaths.length > 0 ||
         activeBindings.has(binding.bindingId)
       ) {
@@ -669,10 +792,19 @@ const viteAliasSources = (
         key === undefined || key === null
           ? undefined
           : viteCacheMemberVertex(binding.bindingId, key);
-      const source =
-        member !== undefined && facts.has(member) ? member : binding.bindingId;
-      const previous = sources.get(source);
-      sources.set(source, sources.has(source) && previous !== key ? null : key);
+      const candidates =
+        member !== undefined && facts.has(member)
+          ? semanticStableInitializer(binding, state) === undefined
+            ? [member, binding.bindingId]
+            : [member]
+          : [binding.bindingId];
+      for (const source of candidates) {
+        const previous = sources.get(source);
+        sources.set(
+          source,
+          sources.has(source) && previous !== key ? null : key,
+        );
+      }
     } else if (t.isConditionalExpression(root))
       pending.push(
         { node: root.consequent, first: key },
@@ -693,4 +825,104 @@ const viteAliasSources = (
 };
 
 const viteCacheMemberVertex = (binding: string, key: string): string =>
-  `${binding}:vite-member:${encodeURIComponent(key)}`;
+  `${binding}:vite-member:${JSON.stringify(key)}`;
+
+interface CacheReplacement {
+  readonly node: t.Node;
+  readonly fresh: boolean;
+  readonly block: t.Program | t.BlockStatement | undefined;
+}
+type CacheDetachments = ReadonlyMap<string, readonly CacheReplacement[]>;
+
+/** Keep every property replacement: the general mutation index deduplicates paths. */
+function* indexViteCacheDetachmentsSteps(
+  state: JavaScriptSemanticAnalysisState,
+): Generator<void, CacheDetachments> {
+  const candidates: { binding: string; node: t.Node }[] = [];
+  yield* traverseJavaScriptAstSteps(state.program, {
+    enter: (node) => {
+      const target = semanticWriteSiteTarget(node);
+      if (target === null) return;
+      for (const leaf of semanticWriteTargets(target)) {
+        if (!t.isMemberExpression(leaf) || !t.isIdentifier(leaf.object))
+          continue;
+        const key = semanticStaticPropertyKey(leaf.property, leaf.computed);
+        if (key !== null && key !== "f") continue;
+        const binding = resolveSemanticBindingState(
+          state,
+          leaf.object,
+          leaf.object.name,
+        );
+        if (
+          binding !== undefined &&
+          semanticStableInitializer(binding, state) !== undefined
+        )
+          candidates.push({ binding: binding.bindingId, node });
+      }
+    },
+  });
+  const replacements = new Map<string, CacheReplacement[]>();
+  const freshFacts = new WeakMap<t.Node, boolean>();
+  for (const { binding, node } of candidates) {
+    yield;
+    const block = straightLineBlock(node, state);
+    const fresh =
+      block !== undefined &&
+      t.isAssignmentExpression(node, { operator: "=" }) &&
+      t.isMemberExpression(node.left) &&
+      semanticStaticPropertyKey(node.left.property, node.left.computed) ===
+        "f" &&
+      (yield* freshCacheReplacementSteps(node.right, freshFacts, state));
+    const writes = replacements.get(binding) ?? [];
+    writes.push({ node, fresh, block });
+    replacements.set(binding, writes);
+  }
+  for (const writes of replacements.values()) {
+    yield;
+    writes.sort((a, b) => (a.node.end ?? Infinity) - (b.node.end ?? Infinity));
+  }
+  return replacements;
+}
+
+const straightLineBlock = (
+  node: t.Node,
+  state: JavaScriptSemanticAnalysisState,
+): t.Program | t.BlockStatement | undefined => {
+  let current: t.Node | undefined = node;
+  while (current !== undefined && !t.isStatement(current)) {
+    const parent = state.parentsByNode.get(current);
+    if (
+      t.isConditionalExpression(parent) ||
+      t.isLogicalExpression(parent) ||
+      t.isSequenceExpression(parent) ||
+      t.isFunction(parent)
+    )
+      return undefined;
+    current = parent;
+  }
+  if (!t.isExpressionStatement(current) && !t.isVariableDeclaration(current))
+    return undefined;
+  const block = state.parentsByNode.get(current);
+  return t.isProgram(block) || t.isBlockStatement(block) ? block : undefined;
+};
+
+const detachedCacheAt = (
+  binding: string,
+  node: t.Node,
+  replacements: CacheDetachments,
+  state: JavaScriptSemanticAnalysisState,
+): boolean => {
+  const block = straightLineBlock(node, state);
+  if (block === undefined) return false;
+  const writes = replacements.get(binding) ?? [];
+  let low = 0;
+  let high = writes.length;
+  while (low < high) {
+    const middle = Math.floor((low + high) / 2);
+    if ((writes[middle]?.node.end ?? Infinity) < (node.start ?? -1))
+      low = middle + 1;
+    else high = middle;
+  }
+  const replacement = writes[low - 1];
+  return replacement?.fresh === true && replacement.block === block;
+};

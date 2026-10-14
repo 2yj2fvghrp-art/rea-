@@ -65,7 +65,7 @@ const typescriptEs5ReversedGuard = typescriptEs5Minified
     "void 0 === d && (d = m.f || (m.f =",
   );
 
-const scenarios = [
+const allScenarios = [
   {
     file: "escaped.js",
     source: mapDependencies(
@@ -90,6 +90,15 @@ const scenarios = [
   {
     file: "typescript-es5-reversed-guards.js",
     source: typescriptEs5ReversedGuard,
+    resolved: ["café.js", "nested/dep.js", "bracket].js"],
+    unknown: false,
+  },
+  {
+    file: "typescript-return-sequence.js",
+    source: typescriptEs5ReversedGuard.replace(
+      /void 0 === m && \(m = __vite__mapDeps\);\s*void 0 === d && \(d = ([\s\S]*?)\);\s*return ([^;]+);/u,
+      "return void 0 === m && (m = __vite__mapDeps), void 0 === d && (d = $1), $2;",
+    ),
     resolved: ["café.js", "nested/dep.js", "bracket].js"],
     unknown: false,
   },
@@ -322,6 +331,98 @@ const scenarios = [
   },
   ...[
     {
+      file: "detached-copy-write.js",
+      mutation:
+        '__vite__mapDeps([0]); const copy = {...__vite__mapDeps}; copy.f = []; copy.f[0] = "./last.js";',
+      kept: true,
+    },
+    {
+      file: "detached-copy-captured-write.js",
+      mutation:
+        '__vite__mapDeps([0]); const copy = {...__vite__mapDeps}; copy.f = []; const cache = copy.f; cache[0] = "./last.js";',
+      kept: true,
+    },
+    {
+      file: "captured-before-detach.js",
+      mutation:
+        '__vite__mapDeps([0]); const copy = {...__vite__mapDeps}; const cache = copy.f; copy.f = []; cache[0] = "./last.js";',
+    },
+    {
+      file: "conditional-detach.js",
+      mutation:
+        '__vite__mapDeps([0]); const copy = {...__vite__mapDeps}; if (runtimeCondition) copy.f = []; copy.f[0] = "./last.js";',
+    },
+    {
+      file: "object-create-cache.js",
+      mutation:
+        '__vite__mapDeps([0]); const view = Object.create(__vite__mapDeps); view.f[0] = "./last.js";',
+    },
+    {
+      file: "ordinary-cache-escape.js",
+      mutation:
+        '__vite__mapDeps([0]); function mutate(cache) { cache[0] = "./last.js"; } mutate(__vite__mapDeps.f);',
+    },
+    {
+      file: "non-index-cache-property.js",
+      mutation:
+        '__vite__mapDeps([0]); Object.defineProperty(__vite__mapDeps.f, "metadata", {value: true});',
+      kept: true,
+    },
+    {
+      file: "array-cache-container.js",
+      mutation:
+        '__vite__mapDeps([0]); const box = [__vite__mapDeps.f]; box[0][0] = "./last.js";',
+    },
+    {
+      file: "static-cache-property-with-method.js",
+      mutation:
+        '__vite__mapDeps([0]); const box = {cache: __vite__mapDeps.f, noop() {}}; box.cache[0] = "./last.js";',
+    },
+    {
+      file: "cache-surrogate-key.js",
+      mutation: 'const unrelated = {"\\uD800": 0};',
+      kept: true,
+    },
+    {
+      file: "mutated-spread-replacement.js",
+      mutation:
+        '__vite__mapDeps([0]); const replacement = []; replacement[0] = __vite__mapDeps.f; const copy = {...__vite__mapDeps, f: replacement}; copy.f[0][0] = "./last.js";',
+    },
+    {
+      file: "function-prototype-cache.js",
+      mutation: 'Function.prototype.f = ["./last.js"];',
+    },
+    {
+      file: "object-prototype-cache.js",
+      mutation: 'Object.prototype.f = ["./last.js"];',
+    },
+    {
+      file: "restored-copy-cache.js",
+      mutation:
+        '__vite__mapDeps([0]); const copy = {...__vite__mapDeps}; copy.f = []; copy.f = __vite__mapDeps.f; copy.f[0] = "./last.js";',
+    },
+    {
+      file: "conditional-restored-copy.js",
+      mutation:
+        '__vite__mapDeps([0]); const copy = {...__vite__mapDeps}; copy.f = []; if (runtimeCondition) copy.f = __vite__mapDeps.f; copy.f[0] = "./last.js";',
+    },
+    {
+      file: "copied-container-escape.js",
+      mutation:
+        "__vite__mapDeps([0]); const copy = {...__vite__mapDeps}; mutate(copy);",
+    },
+    {
+      file: "array-container-escape.js",
+      mutation:
+        "__vite__mapDeps([0]); const box = [__vite__mapDeps.f]; mutate(box);",
+    },
+    {
+      file: "overridden-cache-property-with-method.js",
+      mutation:
+        '__vite__mapDeps([0]); const box = {cache: __vite__mapDeps.f, cache() {}}; box.cache[0] = "./last.js";',
+      kept: true,
+    },
+    {
       file: "helper-alias.js",
       mutation: 'const alias = __vite__mapDeps; alias.f = ["./last.js"];',
     },
@@ -404,7 +505,7 @@ const scenarios = [
     {
       file: "mutated-replacement-alias.js",
       mutation:
-        '__vite__mapDeps([0]); const replacement = []; replacement[0] = __vite__mapDeps.f; const copy = {f: replacement}; copy.f[0] = "./last.js";',
+        '__vite__mapDeps([0]); const replacement = []; replacement[0] = __vite__mapDeps.f; const copy = {f: replacement}; copy.f[0][0] = "./last.js";',
     },
     {
       file: "spread-overridden-child.js",
@@ -460,7 +561,12 @@ const scenarios = [
       "__vite__mapDeps([0]);",
       mutation + "\n__vite__mapDeps([0]);",
     ),
-    resolved: kept ? ["first.js"] : [],
+    resolved: kept
+      ? Array.from(
+          mutation.matchAll(/__vite__mapDeps\(\[0\]\)/gu),
+          () => "first.js",
+        ).concat("first.js")
+      : [],
     unknown: !kept,
   })),
   {
@@ -518,6 +624,18 @@ const scenarios = [
     unknown: false,
   },
   {
+    file: "reassigned-cache-container.js",
+    source:
+      "let leftHelper, rightHelper;\n{\n" +
+      mapDependencies('["./left.js"]', "[0]") +
+      "\nleftHelper = __vite__mapDeps;\n}\n{\n" +
+      mapDependencies('["./right.js"]', "[0]") +
+      "\nrightHelper = __vite__mapDeps;\n}\n" +
+      'let box = {f: leftHelper.f}; box = rightHelper; box.f[0] = "./last.js";',
+    resolved: [],
+    unknown: true,
+  },
+  {
     file: "ambiguous-helper-alias.js",
     source: mapDependencies('["./first.js"]', "[0]").replace(
       "__vite__mapDeps([0]);",
@@ -533,10 +651,18 @@ const scenarios = [
   },
 ] as const;
 
-cliTest.for(["CLI", "stdio MCP"] as const)(
-  "resolves Vite dependency values without inventing paths through %s",
+const batches = Array.from(
+  { length: Math.ceil(allScenarios.length / 16) },
+  (_, index) => allScenarios.slice(index * 16, (index + 1) * 16),
+);
+cliTest.for(
+  (["CLI", "stdio MCP"] as const).flatMap((surface) =>
+    batches.map((scenarios, batch) => [surface, batch + 1, scenarios] as const),
+  ),
+)(
+  "resolves Vite dependency values without inventing paths through %s (batch %i)",
   { timeout: 120_000 },
-  async (surface, { cli }) => {
+  async ([surface, , scenarios], { cli }) => {
     const root = await createTestTempDirectory("rea-vite-dependencies-");
     const sources = Object.fromEntries(
       scenarios.map(({ file, source }) => [
@@ -631,27 +757,18 @@ cliTest.for(["CLI", "stdio MCP"] as const)(
           const source = sources[scenario.file] ?? "";
           const lines = source.split("\n");
           const line = lines[location.value.start.line - 1] ?? "";
-          const callSource =
-            "callSource" in scenario && typeof scenario.callSource === "string"
-              ? scenario.callSource
-              : line.slice(0, -1);
-          expect.soft(location.value, scenario.file).toMatchObject({
-            start: { column: 0 },
-            end: {
-              line: location.value.start.line,
-              column: callSource.length,
-            },
-          });
+          const callSource = line.slice(
+            location.value.start.column,
+            location.value.end.column,
+          );
           expect
-            .soft(
-              line.slice(
-                location.value.start.column,
-                location.value.end.column,
-              ),
-              scenario.file,
-            )
-            .toBe(callSource);
-          expect.soft(line, scenario.file).toMatch(/^__vite__mapDeps\(/u);
+            .soft(location.value.end.line, scenario.file)
+            .toBe(location.value.start.line);
+          expect
+            .soft(callSource, scenario.file)
+            .toMatch(/^__vite__mapDeps\(.*\)$/u);
+          if ("callSource" in scenario)
+            expect.soft(callSource, scenario.file).toBe(scenario.callSource);
           if (!scenario.unknown)
             expect
               .soft(edge.evidence.coverage.status, scenario.file)
