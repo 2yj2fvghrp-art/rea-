@@ -36,7 +36,6 @@ import type {
 import {
   resolveSemanticBindingState,
   semanticResolutionBlocked,
-  semanticStableInitializer,
   type JavaScriptSemanticAnalysisState,
   type JavaScriptSemanticBindingState,
 } from "./javascriptSemanticState.js";
@@ -304,7 +303,15 @@ const isLoaderRetainingParameterBinding = (
         kind === "parameter" ||
         kind === "assignment" ||
         (kind === "variable" && declarationKind === "var"),
-    ) && binding.initializers.length === assignmentCount
+    ) &&
+    binding.initializers.length === assignmentCount &&
+    // A rest-element declaration (`var {...require} = {}`) copies an object
+    // or array into the binding through a reference initializer instead of a
+    // value initializer, so the binding no longer holds the loader
+    // parameter — mirroring the top-level loader path's rest-copy check.
+    !binding.referenceInitializers.some(
+      (initializer) => initializer.copyKind !== undefined,
+    )
   );
 };
 
@@ -313,7 +320,7 @@ const isRetainedRequireLoader = (
   node: JavaScriptCallLike,
   state: JavaScriptSemanticAnalysisState,
 ): boolean =>
-  isDirectCreateRequireBinding(binding, state) ||
+  isDirectCreateRequireBinding(binding, state, node) ||
   isUninitializedTopLevelVarRequire(binding, state, node);
 
 /**
@@ -323,18 +330,31 @@ const isRetainedRequireLoader = (
  * `fileURLToPath(import.meta.url)` spellings qualify too. Erased TypeScript
  * syntax around the initializer (e.g. `as NodeRequire`) is unwrapped before
  * matching, mirroring the reference-source classifier.
+ *
+ * The alias holds from its establishing write — the first declaration
+ * initializer or assignment — so a later write (`require = localLoader`)
+ * only shadows calls at or after it instead of rejecting the binding for
+ * the whole file.
  */
 const isDirectCreateRequireBinding = (
   binding: JavaScriptSemanticBindingState,
   state: JavaScriptSemanticAnalysisState,
+  node: JavaScriptCallLike,
 ): boolean => {
-  const initializer = semanticStableInitializer(binding, state);
-  if (initializer === undefined) return false;
+  if (
+    !binding.definitions.every(
+      ({ kind }) => kind === "variable" || kind === "assignment",
+    )
+  )
+    return false;
+  const [establishing] = binding.initializers;
+  if (establishing === undefined) return false;
+  if (state.conditionalInitializers.has(establishing.node)) return false;
   // Only a direct alias holds the loader: a destructured property of the
   // created require (e.g. `const { missing: require } = createRequire(...)`)
   // keeps a non-empty projection and is not the loader itself.
-  if (initializer.projection.length > 0) return false;
-  const init = unwrapJavaScriptExpression(initializer.node).node;
+  if (establishing.projection.length > 0) return false;
+  const init = unwrapJavaScriptExpression(establishing.node).node;
   if (!t.isCallExpression(init)) return false;
   const createRequireArgument = init.arguments[0];
   if (
@@ -342,10 +362,16 @@ const isDirectCreateRequireBinding = (
     !isFileIdentity(unwrapJavaScriptExpression(createRequireArgument).node)
   )
     return false;
-  return isCreateRequireCallee(
-    unwrapJavaScriptExpression(init.callee).node,
-    state,
-  );
+  if (
+    !isCreateRequireCallee(unwrapJavaScriptExpression(init.callee).node, state)
+  )
+    return false;
+  // The establishing write installs the loader; only later writes replace
+  // it, so calls before them still see the loader.
+  const laterWrites = binding.initializers
+    .filter((initializer) => initializer !== establishing)
+    .map((initializer) => requireWriteFact(initializer.node, state));
+  return !requireWriteShadowsCall(laterWrites, node, state);
 };
 
 /**
@@ -464,9 +490,6 @@ const computeRetainedRequireFacts = (
   binding: JavaScriptSemanticBindingState,
   state: JavaScriptSemanticAnalysisState,
 ): RetainedRequireFacts => {
-  const assignmentCount = binding.definitions.filter(
-    ({ kind }) => kind === "assignment",
-  ).length;
   const declarationsOk =
     binding.kind === "variable" &&
     binding.definitions.every(
@@ -474,8 +497,6 @@ const computeRetainedRequireFacts = (
         kind === "assignment" ||
         (kind === "variable" && declarationKind === "var"),
     ) &&
-    // A declaration initializer means the loader was replaced at declaration.
-    binding.initializers.length === assignmentCount &&
     // A rest-element declaration (`var {...require} = {}`) copies an object
     // or array into the binding through a reference initializer instead of a
     // value initializer, so the binding never holds the wrapper loader.
@@ -488,41 +509,41 @@ const computeRetainedRequireFacts = (
 };
 
 /**
- * Positional write facts for a binding whose value flows only through plain
- * assignments. Each assignment pushes exactly one initializer (the
- * right-hand side for plain `=`, the full expression otherwise), in
- * definition order, so the i-th assignment pairs with initializers[i].
- * Callers must ensure no declaration initializer is present
- * (initializers.length === assignment count) before calling.
+ * Positional write facts for every value write to the binding: plain
+ * assignments and variable-declaration initializers alike. Each write takes
+ * effect where its expression finishes evaluating, so a declaration
+ * initializer is a write at its own position — a call before
+ * `var require = localLoader` still sees the loader.
  */
 const requireWriteFacts = (
   binding: JavaScriptSemanticBindingState,
   state: JavaScriptSemanticAnalysisState,
-): readonly RequireWriteFact[] => {
-  let assignmentIndex = 0;
-  const writes: RequireWriteFact[] = [];
-  for (const definition of binding.definitions) {
-    if (definition.kind !== "assignment") continue;
-    const initializer = binding.initializers[assignmentIndex];
-    assignmentIndex += 1;
-    if (initializer === undefined) continue;
-    // A `for...of`/`for...in` write assigns the loop variable before each
-    // body execution, so model the write at body entry: the statement end
-    // would place a call inside the body before the write and invent a false
-    // dependency. The iterable expression still evaluates before the write.
-    const writeNode = initializer.node;
-    const writePosition =
-      t.isForOfStatement(writeNode) || t.isForInStatement(writeNode)
-        ? range(writeNode.body).start
-        : range(writeNode).end;
-    const { line, column } = writePosition;
-    writes.push({
-      endLine: line,
-      endColumn: column,
-      functionNode: nearestFunctionNode(initializer.node, state),
-    });
-  }
-  return writes;
+): readonly RequireWriteFact[] =>
+  binding.initializers.map((initializer) =>
+    requireWriteFact(initializer.node, state),
+  );
+
+/**
+ * One positional write fact. A `for...of`/`for...in` write assigns the loop
+ * variable before each body execution, so the write is modeled at body
+ * entry: the statement end would place a call inside the body before the
+ * write and invent a false dependency. The iterable expression still
+ * evaluates before the write.
+ */
+const requireWriteFact = (
+  writeNode: t.Node,
+  state: JavaScriptSemanticAnalysisState,
+): RequireWriteFact => {
+  const writePosition =
+    t.isForOfStatement(writeNode) || t.isForInStatement(writeNode)
+      ? range(writeNode.body).start
+      : range(writeNode).end;
+  const { line, column } = writePosition;
+  return {
+    endLine: line,
+    endColumn: column,
+    functionNode: nearestFunctionNode(writeNode, state),
+  };
 };
 
 /**
@@ -552,21 +573,34 @@ const requireWriteShadowsCall = (
  * Nearest enclosing function of a node, or null at program top level. The
  * walk starts at the node's parent: a write whose right-hand side is itself
  * a function (e.g. `require = () => "local"`) still takes effect in the
- * enclosing body, not inside the assigned function. An incomplete parent
- * chain falls back to null, which keeps the previous positional behavior for
- * that write or call.
+ * enclosing body, not inside the assigned function. A computed method key
+ * (e.g. the key of `{ [require("ghost")]() {} }`) executes in the enclosing
+ * scope, not inside the method it names, so the walk skips that method. An
+ * incomplete parent chain falls back to null, which keeps the previous
+ * positional behavior for that write or call.
  */
 const nearestFunctionNode = (
   node: t.Node,
   state: JavaScriptSemanticAnalysisState,
 ): t.Node | null => {
-  let current: t.Node | undefined = state.parentsByNode.get(node);
+  let child: t.Node = node;
+  let current: t.Node | undefined = state.parentsByNode.get(child);
   while (current !== undefined) {
-    if (t.isFunction(current)) return current;
+    if (t.isFunction(current) && !isComputedKeyOf(child, current))
+      return current;
+    child = current;
     current = state.parentsByNode.get(current);
   }
   return null;
 };
+
+/** A computed method key runs in the enclosing scope, not inside the method. */
+const isComputedKeyOf = (child: t.Node, parent: t.Node): boolean =>
+  (t.isObjectMethod(parent) ||
+    t.isClassMethod(parent) ||
+    t.isClassPrivateMethod(parent)) &&
+  parent.computed &&
+  parent.key === child;
 
 const chunkLoadSpecifier = (
   node: JavaScriptCallLike,

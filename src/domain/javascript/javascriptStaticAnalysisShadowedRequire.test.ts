@@ -60,6 +60,22 @@ const shadowedCases = [
     `globalThis.webpackChunkApp.push([[1], { entry(module, exports, require) { var require = () => "local"; require("./ghost.cjs"); } }]);`,
   ],
   [
+    "computed method key after a factory write",
+    `globalThis.webpackChunkApp.push([[1], { entry(module, exports, require) { require = () => "local"; const obj = { [require("ghost")]() {} }; } }]);`,
+  ],
+  [
+    "computed class method key after a factory write",
+    `globalThis.webpackChunkApp.push([[1], { entry(module, exports, require) { require = () => "local"; class Routes { [require("ghost")]() {} } } }]);`,
+  ],
+  [
+    "factory rest copy replaces the loader parameter",
+    `globalThis.webpackChunkApp.push([[1], { entry(module, exports, require) { var {...require} = {}; require?.("ghost"); } }]);`,
+  ],
+  [
+    "call after a createRequire alias is replaced",
+    `import { createRequire } from "node:module";\nlet require = createRequire(import.meta.url);\nrequire = localLoader;\nrequire("./ghost.cjs");`,
+  ],
+  [
     "factory loader parameter reassigned before the call",
     `globalThis.webpackChunkApp.push([[1], { entry(module, exports, require) { require = () => "local"; require("./ghost.cjs"); } }]);`,
   ],
@@ -108,6 +124,21 @@ const loaderCases = [
   [
     "direct createRequire binding",
     `import { createRequire } from "node:module";\nconst require = createRequire(import.meta.url);\nconst value = require("./dep.cjs");`,
+    ["./dep.cjs"],
+  ],
+  [
+    "createRequire alias keeps the call before a later write",
+    `import { createRequire } from "node:module";\nlet require = createRequire(import.meta.url);\nrequire("./dep.cjs");\nrequire = localLoader;`,
+    ["./dep.cjs"],
+  ],
+  [
+    "createRequire alias established by an assignment",
+    `import { createRequire } from "node:module";\nvar require;\nrequire = createRequire(import.meta.url);\nrequire("./dep.cjs");`,
+    ["./dep.cjs"],
+  ],
+  [
+    "top-level call before a var declaration initializer",
+    `require("./dep.cjs");\nvar require = localLoader;`,
     ["./dep.cjs"],
   ],
   [
@@ -214,6 +245,14 @@ describe("lexically shadowed require calls", () => {
     expect(
       requireSpecifiers(
         `var require;\nrequire("./before.cjs");\nrequire = localLoader;\nrequire("./after.cjs");`,
+      ),
+    ).toEqual(["./before.cjs"]);
+  });
+
+  it("keeps the createRequire call before a later write but not the call after it", () => {
+    expect(
+      requireSpecifiers(
+        `import { createRequire } from "node:module";\nlet require = createRequire(import.meta.url);\nrequire("./before.cjs");\nrequire = localLoader;\nrequire("./after.cjs");`,
       ),
     ).toEqual(["./before.cjs"]);
   });
