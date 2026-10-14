@@ -222,6 +222,31 @@ const supportsDocumentedApktoolVersion = (version: string): boolean => {
   return parsedVersion !== null && gte(parsedVersion, "2.7.0");
 };
 
+/** First apktool release that keeps decoded resource paths inside the output. */
+const PATH_CONTAINED_APKTOOL_VERSION = [2, 9, 2] as const;
+
+/**
+ * Warn when the launcher predates the CVE-2024-21633 fix. Distribution
+ * packages such as Debian's 2.7.0 remain usable, so this is a limitation
+ * rather than a refusal; unparseable versions produce no claim.
+ */
+export const apktoolVersionLimitations = (
+  version: string | null,
+): readonly string[] => {
+  const match = /^v?(\d+)\.(\d+)\.(\d+)/u.exec(version ?? "");
+  if (match === null) return [];
+  const parts = match.slice(1, 4).map(Number);
+  for (const [index, minimum] of PATH_CONTAINED_APKTOOL_VERSION.entries()) {
+    const part = parts[index] ?? 0;
+    if (part > minimum) return [];
+    if (part < minimum)
+      return [
+        `apktool ${String(version)} predates 2.9.2, which fixed CVE-2024-21633 (decoded resource paths could escape the output directory); decode untrusted APKs with apktool 2.9.2 or newer`,
+      ];
+  }
+  return [];
+};
+
 /** Probe the selected apktool launcher without decoding anything. */
 export const inspectApktoolClient = async (
   selection: ApktoolCommandSelection,
