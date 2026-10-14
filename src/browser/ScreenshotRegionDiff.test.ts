@@ -136,6 +136,66 @@ describe("PNG spatial diff", () => {
   });
 });
 
+describe("spatial result consistency", () => {
+  const result = () =>
+    comparePngScreenshots(
+      compareWebScreenshotsInputSchema.parse({
+        before: artifact(3, 1, [0, 0, 0, 255, 0, 0, 0, 255, 0, 0, 0, 255]),
+        after: artifact(3, 1, [30, 0, 0, 255, 30, 0, 0, 255, 0, 0, 0, 255]),
+        regions: [{ x: 0, y: 0, width: 3, height: 1 }],
+      }),
+    );
+
+  it.each([
+    {
+      status: "identical",
+      changed_pixels: 0,
+      changed_ratio: 0,
+      changed_bounds: null,
+    },
+    { status: "different", changed_pixels: 1, changed_ratio: 1 / 3 },
+  ])("rejects a region count exceeding the $status whole image", (whole) => {
+    const parsed = webScreenshotDiffSchema.safeParse({ ...result(), ...whole });
+    expect(parsed.success).toBe(false);
+    expect(parsed.error?.issues).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({ path: ["region_diffs", 0] }),
+      ]),
+    );
+  });
+
+  it("rejects regional bounds inside the region but outside whole-image bounds", () => {
+    const diff = result();
+    const parsed = webScreenshotDiffSchema.safeParse({
+      ...diff,
+      region_diffs: diff.region_diffs?.map((region) => ({
+        ...region,
+        changed_bounds: { x: 1, y: 0, width: 2, height: 1 },
+      })),
+    });
+    expect(parsed.success).toBe(false);
+    expect(parsed.error?.issues).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({ path: ["region_diffs", 0] }),
+      ]),
+    );
+  });
+
+  it("accepts independently counted duplicate regions and missing historical bounds", () => {
+    const diff = result();
+    const overlapping = {
+      ...diff,
+      region_diffs: [
+        ...(diff.region_diffs ?? []),
+        ...(diff.region_diffs ?? []),
+      ],
+    };
+    expect(webScreenshotDiffSchema.parse(overlapping)).toEqual(overlapping);
+    const { changed_bounds: _bounds, ...historical } = overlapping;
+    expect(webScreenshotDiffSchema.parse(historical)).toEqual(historical);
+  });
+});
+
 describe("historical screenshot results", () => {
   it.each([
     {

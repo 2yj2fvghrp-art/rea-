@@ -56,6 +56,8 @@ export const validateScreenshotSpatialMetrics = (
       !containsScreenshotRegion(image, region) ||
       comparison.compared_pixels !== region.width * region.height ||
       comparison.changed_pixels > comparison.compared_pixels ||
+      (diff.changed_pixels !== null &&
+        comparison.changed_pixels > diff.changed_pixels) ||
       comparison.changed_ratio !==
         comparison.changed_pixels / comparison.compared_pixels ||
       (comparison.status === "identical") !==
@@ -65,7 +67,9 @@ export const validateScreenshotSpatialMetrics = (
       (bounds !== undefined &&
         bounds !== null &&
         (!containsScreenshotRegion(region, bounds) ||
-          bounds.width * bounds.height < comparison.changed_pixels))
+          bounds.width * bounds.height < comparison.changed_pixels ||
+          (diff.changed_bounds != null &&
+            !containsScreenshotRegion(diff.changed_bounds, bounds))))
     )
       context.addIssue({
         code: "custom",
