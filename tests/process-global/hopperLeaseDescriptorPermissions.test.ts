@@ -1,4 +1,4 @@
-import { chmod, lstat, mkdir } from "node:fs/promises";
+import { chmod, lstat, mkdir, mkdtemp, rm } from "node:fs/promises";
 import type { FileHandle } from "node:fs/promises";
 import { join } from "node:path";
 
@@ -33,7 +33,6 @@ vi.mock("node:fs/promises", async (importOriginal) => {
 });
 
 import { acquireLinuxHopperApplicationLease } from "../../src/hopper/HopperTargetLease.js";
-import { createTestTempDirectory } from "../fixtures/temporaryDirectory.js";
 
 afterEach(() => {
   replacement.selected = "";
@@ -44,7 +43,9 @@ afterEach(() => {
 it.skipIf(process.platform === "win32")(
   "secures only the admitted directory descriptor when its path is replaced",
   async () => {
-    const root = await createTestTempDirectory("rea-lease-descriptor-");
+    // macOS limits Unix-domain socket paths to 104 bytes. Keep the selected
+    // directory path short enough for the production lease socket beneath it.
+    const root = await mkdtemp("/tmp/r-");
     const selected = join(root, "selected");
     const retained = join(root, "retained");
     await mkdir(selected);
@@ -56,7 +57,10 @@ it.skipIf(process.platform === "win32")(
       directory: selected,
       runId: "descriptor-permissions",
     });
-    if (!acquired.acquired) throw new Error("Expected the fixture lease");
+    if (!acquired.acquired) {
+      await rm(root, { recursive: true, force: true });
+      throw new Error("Expected the fixture lease");
+    }
     try {
       expect((await lstat(retained)).ino).toBe(before.ino);
       expect((await lstat(retained)).mode & 0o777).toBe(0o700);
@@ -67,6 +71,7 @@ it.skipIf(process.platform === "win32")(
       });
     } finally {
       await acquired.lease.release();
+      await rm(root, { recursive: true, force: true });
     }
     // This asserts descriptor permission ownership only. Later socket
     // operations still resolve the path, as the production comment states.
