@@ -1,6 +1,10 @@
 import { describe, expect, it } from "vitest";
 
 import { parseConfig } from "./config/parseConfig.js";
+import {
+  DEFAULT_GHIDRA_PROJECT_CACHE_MAX_BYTES,
+  defaultGhidraProjectCacheDirectory,
+} from "./config/ghidraProjectCache.js";
 import { projectAnalysisError } from "./domain/analysisErrorProjection.js";
 
 it("reports a configuration failure for a NUL in Hopper loader arguments", () => {
@@ -422,6 +426,73 @@ describe("Ghidra existing project configuration", () => {
     expect(projectAnalysisError(result.error)).toMatchObject({
       code: "configuration_invalid",
       details: { settings: [{ setting, constraint: expect.any(String) }] },
+    });
+  });
+});
+
+describe("Ghidra project cache configuration", () => {
+  const home = "/home/tester";
+
+  it("defaults to off with a manageable cache directory and byte ceiling", () => {
+    const result = parseConfig({ HOME: home });
+    expect(result.ok).toBe(true);
+    if (!result.ok) return;
+    expect(result.value.ghidraProjectCache).toEqual({
+      mode: "off",
+      directory: defaultGhidraProjectCacheDirectory(home),
+      maxBytes: DEFAULT_GHIDRA_PROJECT_CACHE_MAX_BYTES,
+    });
+  });
+
+  it("resolves an explicit mode, directory and byte ceiling", () => {
+    const result = parseConfig({
+      HOME: home,
+      REA_GHIDRA_PROJECT_CACHE: "on",
+      REA_GHIDRA_PROJECT_CACHE_DIR: "/var/cache/rea-projects",
+      REA_GHIDRA_PROJECT_CACHE_MAX_BYTES: "2048",
+    });
+    expect(result.ok).toBe(true);
+    if (!result.ok) return;
+    expect(result.value.ghidraProjectCache).toEqual({
+      mode: "on",
+      directory: "/var/cache/rea-projects",
+      maxBytes: 2048,
+    });
+  });
+
+  it.each<[string, string]>([
+    ["REA_GHIDRA_PROJECT_CACHE", "sometimes"],
+    ["REA_GHIDRA_PROJECT_CACHE_DIR", "relative/cache"],
+    ["REA_GHIDRA_PROJECT_CACHE_MAX_BYTES", "0"],
+  ])("rejects an invalid %s value", (setting, value) => {
+    const result = parseConfig({ HOME: home, [setting]: value });
+    expect(result.ok).toBe(false);
+    if (result.ok) return;
+    expect(projectAnalysisError(result.error)).toMatchObject({
+      code: "configuration_invalid",
+      details: { settings: [{ setting, constraint: expect.any(String) }] },
+    });
+  });
+
+  it("rejects the managed cache combined with a caller-selected project", () => {
+    const result = parseConfig({
+      HOME: home,
+      REA_GHIDRA_PROJECT_CACHE: "read",
+      REA_GHIDRA_EXISTING_PROJECT: "/opt/projects/rea-project",
+      REA_GHIDRA_EXISTING_PROGRAM: "target-abcd.dll",
+    });
+    expect(result.ok).toBe(false);
+    if (result.ok) return;
+    expect(projectAnalysisError(result.error)).toMatchObject({
+      code: "configuration_invalid",
+      details: {
+        settings: [
+          {
+            setting: "REA_GHIDRA_PROJECT_CACHE",
+            constraint: expect.stringContaining("REA_GHIDRA_EXISTING_PROJECT"),
+          },
+        ],
+      },
     });
   });
 });

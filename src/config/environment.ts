@@ -14,6 +14,11 @@ import {
   ghidraExistingProjectPathSchema,
 } from "./ghidraExistingProject.js";
 import {
+  ghidraProjectCacheDirectorySchema,
+  ghidraProjectCacheMaxBytesSchema,
+  ghidraProjectCacheModeSchema,
+} from "./ghidraProjectCache.js";
+import {
   DEFAULT_GHIDRA_STARTUP_TIMEOUT_MS,
   DEFAULT_HOPPER_STARTUP_TIMEOUT_MS,
   DEFAULT_SWIFTC_COMPILE_TIMEOUT_MS,
@@ -65,6 +70,10 @@ const environmentSchema = z.object({
     .optional(),
   REA_GHIDRA_EXISTING_PROJECT: ghidraExistingProjectPathSchema.optional(),
   REA_GHIDRA_EXISTING_PROGRAM: ghidraExistingProgramNameSchema.optional(),
+  REA_GHIDRA_PROJECT_CACHE: ghidraProjectCacheModeSchema,
+  REA_GHIDRA_PROJECT_CACHE_DIR: ghidraProjectCacheDirectorySchema.optional(),
+  REA_GHIDRA_PROJECT_CACHE_MAX_BYTES:
+    ghidraProjectCacheMaxBytesSchema.optional(),
   REA_ILSPY_CMD_PATH: z
     .string()
     .min(1)

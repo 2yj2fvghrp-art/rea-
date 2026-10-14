@@ -5,6 +5,10 @@ import { ConfigurationError } from "../domain/configurationErrors.js";
 import { err, ok, type Result } from "../domain/result.js";
 import { parseEnvironment } from "./environment.js";
 import { homeDirectoryFromEnvironment } from "./homeDirectory.js";
+import {
+  DEFAULT_GHIDRA_PROJECT_CACHE_MAX_BYTES,
+  defaultGhidraProjectCacheDirectory,
+} from "./ghidraProjectCache.js";
 import { parseStringArray, parseLoaderArgs } from "./parsers.js";
 import type { AppConfig } from "./types.js";
 
@@ -109,6 +113,27 @@ export const parseConfig = (
         }),
       );
   }
+  // The managed project cache and a caller-selected project are two competing
+  // sources of saved project state; selecting both is ambiguous.
+  if (
+    env.REA_GHIDRA_PROJECT_CACHE !== "off" &&
+    existingProjectPath !== undefined
+  )
+    return err(
+      new ConfigurationError("Invalid REA environment configuration", {
+        settings: [
+          {
+            setting: "REA_GHIDRA_PROJECT_CACHE",
+            constraint:
+              "cannot be combined with REA_GHIDRA_EXISTING_PROJECT, which selects a project directly",
+          },
+        ],
+      }),
+    );
+  const homeDirectory = homeDirectoryFromEnvironment(
+    environment,
+    process.platform,
+  );
   return ok({
     ...(env.REA_MCP_MAX_RESPONSE_BYTES === undefined
       ? {}
@@ -150,13 +175,19 @@ export const parseConfig = (
     ...(env.REA_GHIDRA_NATIVEAOT_JAR === undefined
       ? {}
       : { ghidraNativeAotJar: env.REA_GHIDRA_NATIVEAOT_JAR }),
+    ghidraProjectCache: {
+      mode: env.REA_GHIDRA_PROJECT_CACHE,
+      directory:
+        env.REA_GHIDRA_PROJECT_CACHE_DIR ??
+        defaultGhidraProjectCacheDirectory(homeDirectory),
+      maxBytes:
+        env.REA_GHIDRA_PROJECT_CACHE_MAX_BYTES ??
+        DEFAULT_GHIDRA_PROJECT_CACHE_MAX_BYTES,
+    },
     ilspyCmdPath: env.REA_ILSPY_CMD_PATH,
     hopperLauncherPath:
       env.HOPPER_LAUNCHER_PATH ??
-      defaultHopperLauncherPath(
-        process.platform,
-        homeDirectoryFromEnvironment(environment, process.platform),
-      ),
+      defaultHopperLauncherPath(process.platform, homeDirectory),
     hopperStartupTimeoutMs: env.REA_HOPPER_STARTUP_TIMEOUT_MS,
     hopperTargetPath: env.HOPPER_TARGET_PATH,
     hopperTargetKind: env.HOPPER_TARGET_KIND,
