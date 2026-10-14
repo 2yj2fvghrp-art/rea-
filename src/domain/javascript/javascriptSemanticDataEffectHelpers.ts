@@ -335,7 +335,7 @@ const builtinBindingPath = (
   specifiers: readonly string[],
   capture: t.Node,
   selectedPath: readonly string[] = [],
-  callableValue = false,
+  selectedValue = false,
   visited: ReadonlySet<string> = new Set(),
   memo: BuiltinBindingMemo = new Map(),
   provenanceCapture?: t.Identifier,
@@ -345,7 +345,7 @@ const builtinBindingPath = (
   const key = JSON.stringify([
     binding.bindingId,
     selectedPath,
-    callableValue,
+    selectedValue,
     provenanceCapture?.start,
     provenanceCapture?.end,
     savedObjectCapture?.start,
@@ -364,7 +364,7 @@ const builtinBindingPath = (
     specifiers,
     capture,
     selectedPath,
-    callableValue,
+    selectedValue,
     visited,
     memo,
     provenanceCapture,
@@ -380,7 +380,7 @@ const computeBuiltinBindingPath = (
   specifiers: readonly string[],
   capture: t.Node,
   selectedPath: readonly string[] = [],
-  callableValue = false,
+  selectedValue = false,
   visited: ReadonlySet<string>,
   memo: BuiltinBindingMemo,
   provenanceCapture?: t.Identifier,
@@ -413,9 +413,9 @@ const computeBuiltinBindingPath = (
     builtinEscapes(binding, state).some(
       ({ path, node }) =>
         affectsBuiltinPath(path, selectedPath) &&
-        // A function-value escape cannot replace its native [[Call]]. An
-        // escaped containing object can still replace the selected method.
-        (!callableValue || path.length < selectedPath.length) &&
+        // Escaping a selected value cannot replace its owning slot. An
+        // escaped containing object can still replace that slot.
+        (!selectedValue || path.length < selectedPath.length) &&
         !semanticTopLevelEffectFollowsCapture(
           capture,
           node,
@@ -453,7 +453,7 @@ const computeBuiltinBindingPath = (
         shared.path,
         capture,
         state,
-        callableValue,
+        selectedValue,
       )
     )
       return null;
@@ -471,7 +471,7 @@ const computeBuiltinBindingPath = (
             ? initializer.node
             : savedObjectCapture,
         capture:
-          callableValue &&
+          selectedValue &&
           selectedPath.length === 0 &&
           initializer.projection.length > 0
             ? initializer.node
@@ -489,7 +489,7 @@ const computeBuiltinBindingPath = (
           specifiers,
           current.capture,
           current.path,
-          callableValue,
+          selectedValue,
           ancestors,
           memo,
           node,
@@ -513,7 +513,7 @@ const computeBuiltinBindingPath = (
           savedObjectCapture: current.savedObjectCapture,
           // Freeze a selected function, not later member reads through a saved object.
           capture:
-            callableValue && selectedPath.length === 0 ? node : current.capture,
+            selectedValue && selectedPath.length === 0 ? node : current.capture,
         });
       } else if (t.isSequenceExpression(node)) {
         const final = node.expressions.at(-1);
@@ -540,7 +540,7 @@ const computeBuiltinBindingPath = (
             [...required.origin.importedPath, ...current.path],
             current.capture,
             state,
-            callableValue,
+            selectedValue,
             current.savedObjectCapture,
           )
         )
@@ -715,7 +715,7 @@ const requiredModuleChanged = (
   selected: readonly string[],
   capture: t.Node,
   state: JavaScriptSemanticAnalysisState,
-  callableValue = false,
+  selectedValue = false,
   savedObjectCapture?: t.Node,
 ): boolean => {
   const identity = semanticRequireExportsIdentity(specifier, selected);
@@ -737,7 +737,7 @@ const requiredModuleChanged = (
         state.parentsByNode,
       ) &&
       (kind === "write" ||
-        !callableValue ||
+        !selectedValue ||
         path.length < identity.path.length),
   );
 };
@@ -850,11 +850,12 @@ export const isSemanticProcessObject = (
 ): boolean => {
   if (!t.isIdentifier(node)) return false;
   const binding = resolveSemanticBindingState(state, node, node.name);
-  const selected = key === undefined || key === null ? [family] : [family, key];
+  const selectedValue = key !== undefined && key !== null;
+  const selected = selectedValue ? [family, key] : [family];
   if (binding === undefined)
     return (
       semanticGlobalProcessOrigin(node, state) !== undefined &&
-      !requiredModuleChanged("process", selected, node, state)
+      !requiredModuleChanged("process", selected, node, state, selectedValue)
     );
   return (
     builtinBindingPath(
@@ -863,6 +864,7 @@ export const isSemanticProcessObject = (
       ["process", "node:process"],
       node,
       selected,
+      selectedValue,
     )?.length === 0
   );
 };
