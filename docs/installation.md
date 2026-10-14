@@ -325,7 +325,8 @@ selected engine. See [provider selection](cli.md#choose-a-provider).
 On Linux, REA's shared process supervisor requires a procps-compatible `ps`
 on REA's `PATH` for ownership checks before launching a child. Ghidra, JADX,
 firmware tools and static JavaScript/Electron analysis use these checks.
-Install `procps` or put another procps-compatible `ps` on `PATH` before
+Install your distribution's `procps` or `procps-ng` package, or put another
+procps-compatible `ps` on `PATH` before
 running those workflows. A missing or incompatible command causes a refusal
 before the supervised child starts.
 
@@ -521,10 +522,10 @@ on Linux continues to use its supported demo-launch route.
 
 Hopper lease directories must be readable and owned by the current user.
 REA validates and secures an opened directory before reserving a lease. If
-directory access fails, the error identifies the path and recovery steps;
-REA leaves its permissions unchanged. Check ownership and parent-directory
-access, then restore owner-only read, write, and search permissions (`0700`)
-on a directory you own before retrying.
+opening that directory fails with a permission error, the diagnostic identifies
+the path and recovery steps while leaving its permissions unchanged. Check
+ownership and parent-directory access, then restore owner-only read, write, and
+search permissions (`0700`) on a directory you own before retrying.
 
 On supported Linux distributions, approved setup verifies Hopper's official
 `.deb`, `.rpm`, or Arch package before invoking the native package manager.
