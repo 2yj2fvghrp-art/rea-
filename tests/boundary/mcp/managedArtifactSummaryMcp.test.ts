@@ -76,7 +76,7 @@ it("returns a first-call overview and pages the unchanged source after its file 
     parent.normalized_result,
   );
   expect(parent.operation).toBe("inspect_managed_artifact");
-  expect(parent.parameters).toEqual({ path, detail: "summary" });
+  expect(parent.parameters).toEqual({ path });
   expect(receipt.evidence_id).not.toBe(parent.evidence_id);
   expect(receipt.evidence_links).toEqual([parent.evidence_id]);
   const { references, resources, attributes, ...identity } = report;
@@ -97,7 +97,7 @@ it("returns a first-call overview and pages the unchanged source after its file 
       ).structuredContent,
     );
     expect(complete.operation).toBe("inspect_managed_artifact");
-    expect(complete.normalized_result).toEqual(parent.normalized_result);
+    expect(complete.evidence_id).toBe(parent.evidence_id);
   }
   const reused = await client.callTool({
     name: "inspect_managed_native_boundaries",

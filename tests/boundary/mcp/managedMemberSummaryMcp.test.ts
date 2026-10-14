@@ -111,6 +111,7 @@ it("summarizes selected members and pages every original collection after the fi
   if (parent === undefined)
     throw new Error("Complete member source was not retained");
   expect(parent.operation).toBe("inspect_managed_members");
+  expect(parent.parameters).toEqual({ path, type_names });
   expect(receipt.evidence_links).toEqual([parent.evidence_id]);
   const report = managedMemberInspectionSchema.parse(parent.normalized_result);
   expect(view.summary.selection).toEqual({
@@ -130,7 +131,7 @@ it("summarizes selected members and pages every original collection after the fi
       ).structuredContent,
     );
     expect(complete.operation).toBe("inspect_managed_members");
-    expect(complete.normalized_result).toEqual(parent.normalized_result);
+    expect(complete.evidence_id).toBe(parent.evidence_id);
   }
   const original = JSON.stringify(parent);
   await unlink(path);
