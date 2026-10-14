@@ -551,12 +551,8 @@ const contextualCandidate = (
       return unresolvedCandidate("rejected", [
         "The URL reference path percent-decodes to NUL or to bytes that are not UTF-8.",
       ]);
-    // Empty URL segments are significant; canonical filesystem paths cannot
-    // preserve them, including their interaction with following dot segments.
-    if (decoded.includes("//"))
-      return unresolvedCandidate("unavailable", [
-        "Repeated URL path separators cannot be mapped to an exact canonical artifact file.",
-      ]);
+    const unavailable = unrepresentableUrlPath(decoded);
+    if (unavailable !== null) return unavailable;
     return exactUrlPathCandidate(
       decoded,
       relativeCandidate(input.sourcePath, decoded),
@@ -1066,11 +1062,18 @@ const htmlCandidate = (
     return unresolvedCandidate("rejected", [
       "The HTML reference path percent-decodes to NUL or to bytes that are not UTF-8.",
     ]);
-  if (declaredPath.startsWith("/")) return declaredPath.slice(1);
+  const unavailable = unrepresentableUrlPath(declaredPath);
+  if (unavailable !== null) return unavailable;
+  if (declaredPath.startsWith("/"))
+    return exactUrlPathCandidate(declaredPath, declaredPath.slice(1), "HTML");
   if (base === undefined || base === null || base === "")
-    return declaredPath === ""
-      ? input.sourcePath
-      : posix.join(posix.dirname(input.sourcePath), declaredPath);
+    return exactUrlPathCandidate(
+      declaredPath,
+      declaredPath === ""
+        ? input.sourcePath
+        : posix.join(posix.dirname(input.sourcePath), declaredPath),
+      "HTML",
+    );
   // A local base href is a second untrusted path input; apply the same
   // admission rules a declared path gets so it cannot smuggle traversal or
   // separator syntax past canonicalization.
@@ -1083,13 +1086,27 @@ const htmlCandidate = (
     return unresolvedCandidate("rejected", [
       "The document base href path percent-decodes to NUL or to bytes that are not UTF-8.",
     ]);
+  const unavailableBase = unrepresentableUrlPath(decodedBase);
+  if (unavailableBase !== null) return unavailableBase;
   const basePath = decodedBase.startsWith("/")
     ? decodedBase.slice(1)
     : posix.join(posix.dirname(input.sourcePath), decodedBase);
   if (declaredPath === "")
     return exactUrlPathCandidate(decodedBase, basePath, "HTML");
-  return posix.join(htmlBaseDirectory(decodedBase, basePath), declaredPath);
+  return exactUrlPathCandidate(
+    declaredPath,
+    posix.join(htmlBaseDirectory(decodedBase, basePath), declaredPath),
+    "HTML",
+  );
 };
+
+/** Empty URL segments, including their interaction with dots, have no canonical artifact spelling. */
+const unrepresentableUrlPath = (path: string): CandidateResolution | null =>
+  path.includes("//")
+    ? unresolvedCandidate("unavailable", [
+        "Repeated URL path separators cannot be mapped to an exact canonical artifact file.",
+      ])
+    : null;
 
 const exactUrlPathCandidate = (
   declared: string,

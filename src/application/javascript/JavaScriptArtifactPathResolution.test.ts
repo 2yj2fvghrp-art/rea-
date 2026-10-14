@@ -2737,6 +2737,29 @@ const aliasFiles = (
   );
 
 describe("exact HTML resource resolution", () => {
+  it.each(["filesystem-expression", "module-specifier"] as const)(
+    "preserves literal repeated separators in %s filesystem lookup",
+    (context) => {
+      const declaredPath = "./nested//app.js";
+      expect(
+        resolve({
+          declaredPath,
+          sourcePath: "renderer/main.cjs",
+          context,
+          moduleKind: "require",
+          files: fileMap([
+            file("renderer/main.cjs", "root"),
+            file("renderer/nested/app.js", "root"),
+          ]),
+        }),
+      ).toMatchObject({
+        declared_path: declaredPath,
+        resolution_status: "resolved",
+        resolved_path: "renderer/nested/app.js",
+      });
+    },
+  );
+
   it.each([
     ["extension", ["app.js"]],
     ["directory index", ["app/index.js"]],
