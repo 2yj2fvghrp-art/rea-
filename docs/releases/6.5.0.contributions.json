@@ -3,7 +3,7 @@
   "repository": "morluto/rea",
   "version": "6.5.0",
   "base": "a56f7bb668ab23fec8d33f7af353ac7ed2fe1895",
-  "target": "92a0edf1875f74528910db461ed03f782b7b59b3",
+  "target": "cbc0e97c29b8dcb3d6ff96eb3af9e0f519a22345",
   "commits": [
     {
       "sha": "0ecf3f2438ec96a6b543942869808018e8d84452",
@@ -20024,6 +20024,23 @@
       "subject": "perf(ci): move full mutation sweeps off the release path",
       "body": "perf(ci): move full mutation sweeps off the release path\n\nKeep fresh coverage and both real mutation preflights required in every CI tier. Run complete canonical sweeps daily or manually in isolated jobs with distinct reports, retained failure diagnostics, and explicit report-presence checks.\n\nPreserve regression inventories, release qualification and mutation settings; remove the superseded duplicate gate test. Related: #3281.\n",
       "parents": ["1b463987959815842c99920b5801358252af19a4"],
+      "authors": [
+        {
+          "name": "morluto",
+          "email": "76467478+morluto@users.noreply.github.com",
+          "user": {
+            "login": "morluto",
+            "__typename": "User"
+          }
+        }
+      ],
+      "pullRequests": []
+    },
+    {
+      "sha": "cbc0e97c29b8dcb3d6ff96eb3af9e0f519a22345",
+      "subject": "test(ci): bind npm cache IDs to output consumers",
+      "body": "test(ci): bind npm cache IDs to output consumers\n\nRemove the blanket caller ID requirement that rejected the standalone mutation workflow. Keep producer bindings where static cache authorization and package verification consume action outputs.\n",
+      "parents": ["92a0edf1875f74528910db461ed03f782b7b59b3"],
       "authors": [
         {
           "name": "morluto",

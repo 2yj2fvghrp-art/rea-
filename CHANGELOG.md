@@ -110,7 +110,7 @@ Provider prerequisites and recorded verification scope are listed in [the testin
 - **ADB installation:** the optional `replace` input is unchanged. Results now require `replace_requested` to record the requested `adb install -r` mode; `replaced` is nullable because prior device package state was not observed. Update result readers to accept null instead of treating reinstall intent as proof of replacement. ([864314a](https://github.com/morluto/rea/commit/864314ac857924a7e6e65bfb37e8dc720fcc21e7)).
 - **Managed/native verification:** unresolved P/Invoke results may retain `matched_native` and candidate facts when module identity is unknown. Interpret `status`, `basis` and `limitations`; `module-identity-unknown` does not verify correspondence, and unresolved no longer implies empty observations. ([3f6b575](https://github.com/morluto/rea/commit/3f6b5755b3e699bd9373641acffe0f2c5d2ab094)).
 
-Full contribution record: [892 commits and 529 merged PRs](https://github.com/morluto/rea/blob/rea-agents-6.5.0/docs/releases/6.5.0.contributions.json).
+Full contribution record: [893 commits and 529 merged PRs](https://github.com/morluto/rea/blob/rea-agents-6.5.0/docs/releases/6.5.0.contributions.json).
 
 
 ## [6.4.0](https://github.com/morluto/rea/compare/rea-agents-6.3.0...rea-agents-6.4.0) (2026-10-11)
