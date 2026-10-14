@@ -2876,3 +2876,8 @@ html[dir="rtl"] .brand-name {
   --font-sans: var(--font-latin), sans-serif;
   --font-mono: var(--font-code), monospace;
 }
+
+:lang(hi) {
+  font-family: "Noto Sans Devanagari", "Mangal", "Kokila", "Arial Unicode MS", sans-serif;
+  letter-spacing: normal;
+}
