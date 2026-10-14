@@ -20,6 +20,18 @@ import type {
 
 const OPERATION = "inspect_analysis_view";
 
+const countValues = <T>(
+  values: readonly T[],
+  key: (value: T) => string,
+): Record<string, number> => {
+  const counts = new Map<string, number>();
+  for (const value of values) {
+    const name = key(value);
+    counts.set(name, (counts.get(name) ?? 0) + 1);
+  }
+  return Object.fromEntries(counts);
+};
+
 const inputError = (
   issues: readonly AnalysisInputIssue[],
 ): AnalysisInputError => new AnalysisInputError(OPERATION, undefined, issues);
@@ -265,6 +277,17 @@ export const projectJavaScriptApplicationView = (
         input_path: analysis.input_path,
         format: analysis.format,
         root_artifact_sha256: analysis.root_artifact_sha256,
+        graph_summary: {
+          application_graph_id: analysis.graph.graph_id,
+          semantic_graph_id: analysis.semantic_graph.graph_id,
+          nodes: analysis.graph.nodes.length,
+          edges: analysis.graph.edges.length,
+          node_kinds: countValues(analysis.graph.nodes, (node) => node.kind),
+          relationships: countValues(
+            analysis.graph.edges,
+            (edge) => edge.relation,
+          ),
+        },
         ...(analysis.source_selection === undefined
           ? {}
           : {

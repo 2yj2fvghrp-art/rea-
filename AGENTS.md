@@ -1,8 +1,19 @@
 # Repository Guidelines
 
+## REL fork-specific guidance for Codex and other repository agents
+
+This checkout is the **REL fork**, which adds an approachable interface on top of REA. Codex in a trusted local checkout can load the repo-scoped `.codex/config.toml` MCP entry and `$rel-investigator` skill (not model training). When the task concerns REL onboarding or Simple Mode, use [README.md](README.md), [rel/README.md](rel/README.md), and [rel/CONNECT_CODEX.md](rel/CONNECT_CODEX.md) as applicable.
+
+- Work **only inside this REL repository** unless the user explicitly expands scope; no edits to their other repositories, deployed projects, global Codex configuration, or services.
+- Prefer `node rel.mjs inspect` (preview) for unfamiliar targets. `analyze TARGET --authorized --out NEW_DIR` runs static JavaScript/Electron analysis only after explicit authorization; `demo --run` is restricted to the source-owned lab.
+- A separate direct REA CLI/MCP invocation has **more authority than `rel.mjs`**. Do not automatically run, attach, scrape, mutate, or instrument outside an authorized explicit target scope.
+- Report observed data, static deductions, unsupported cases and unknowns separately; never claim the model was retrained, a Codex MCP connection was installed, or a run was verified without evidence.
+- Keep upstream docs and licensing intact. If the fork-specific English README changes, preserve the archived upstream README and the translated onboarding test's source.
+- Follow the inherited REA repository rules below for production engine work.
+
 ## Product and Authority
 
-REA is a local-only reverse-engineering tool with shared CLI/MCP workflows. Distinguish observations, derivations, inferences, and unknowns; preserve Evidence provenance and session semantics through both adapters. Provider support and setup live in [README.md](README.md#choosing-a-deep-analysis-provider) and its linked guides.
+REA is a local-only reverse-engineering tool with shared CLI/MCP workflows. Distinguish observations, derivations, inferences, and unknowns; preserve Evidence provenance and session semantics through both adapters. Provider support and setup live in [README.md](UPSTREAM_REA_README.md#choosing-a-deep-analysis-provider) and its linked guides.
 
 Follow the [contribution scope and fail-closed integration rule](CONTRIBUTING.md#contribution-scope). Do not integrate capabilities while material scope, authority, side-effect, or required verification questions remain unresolved. For new providers or capabilities involving target execution, injection, mutation, or protection recovery, seek the required maintainer scope decision before substantial implementation for integration. Welcome early proposals, small exploratory prototypes, and draft PRs that help resolve questions; they do not authorize integration.
 

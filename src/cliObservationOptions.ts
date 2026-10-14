@@ -61,6 +61,14 @@ export const electronPageInspectionOptions = z.object({
 });
 
 export const javascriptApplicationOptions = z.object({
+  summary: z
+    .boolean()
+    .default(false)
+    .describe("Print the bounded summary view instead of the full Evidence"),
+  evidenceOut: z
+    .string()
+    .optional()
+    .describe("Atomically save the complete Evidence JSON to this new path"),
   maxSemanticNodes:
     javaScriptAnalysisResourceControlsSchema.shape.max_semantic_nodes,
   maxSemanticNodesPerFile:

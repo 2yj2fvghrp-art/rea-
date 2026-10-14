@@ -42,7 +42,12 @@ jobs:
           tar -xzf "$RUNNER_TEMP/rea-wakaru/release.tar.gz" -C "$RUNNER_TEMP/rea-wakaru" wakaru
           printf '%s  %s\n' 664fa06782a61eda7ed15885134b52525fd565dd77607e642062ceb6cd927c38 "$RUNNER_TEMP/rea-wakaru/wakaru" | sha256sum --check
       - name: Install isolated fixture compilers
-        run: npm install --prefix "$RUNNER_TEMP/rea-fixture-compilers" --ignore-scripts --no-audit --no-fund esbuild@0.25.10 webpack@5.101.3
+        run: >-
+          npm install --prefix "$RUNNER_TEMP/rea-fixture-compilers"
+          --ignore-scripts --no-audit --no-fund
+          --fetch-retries=5 --fetch-retry-mintimeout=10000
+          --fetch-retry-maxtimeout=120000
+          esbuild@0.25.10 webpack@5.101.3
       - run: npm run build:cached
       - run: npm run verify:javascript:recovery
         env:

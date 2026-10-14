@@ -12,7 +12,9 @@ import { parseCliJsonInput } from "../cliJsonInput.js";
 import { logCliCommand } from "../cliLogging.js";
 import { projectAnalysisError } from "../domain/analysisErrorProjection.js";
 import { analysisInputErrorFromIssues } from "../domain/inputIssueProjection.js";
-import { jsonValueSchema } from "../domain/jsonValue.js";
+import { jsonValueSchema, type JsonValue } from "../domain/jsonValue.js";
+import { parseEvidence } from "../domain/evidence.js";
+import { AnalysisInputError } from "../domain/analysisErrorCore.js";
 import type { Logger } from "pino";
 import type { CliInstance } from "./types.js";
 
@@ -82,7 +84,11 @@ export const registerAnalysisViewCommands = (
           CLI_COMMANDS.inspectAnalysisView,
         );
         if (!input.ok) return input.error;
-        const parsed = inspectAnalysisViewInputSchema.safeParse(input.value);
+        const normalized = await resolveCliEvidenceFile(input.value);
+        if (!normalized.ok) return normalized.error;
+        const parsed = inspectAnalysisViewInputSchema.safeParse(
+          normalized.value,
+        );
         if (!parsed.success)
           return {
             error: "Application workflow failed",
@@ -90,7 +96,7 @@ export const registerAnalysisViewCommands = (
               analysisInputErrorFromIssues(
                 CLI_COMMANDS.inspectAnalysisView,
                 parsed.error.issues,
-                input.value,
+                normalized.value,
               ),
             ),
           };
@@ -103,4 +109,52 @@ export const registerAnalysisViewCommands = (
             };
       }),
   });
+};
+
+/** Resolve the CLI-only file reference without widening the MCP contract. */
+const resolveCliEvidenceFile = async (
+  input: unknown,
+): Promise<
+  | { readonly ok: true; readonly value: unknown }
+  | { readonly ok: false; readonly error: JsonValue }
+> => {
+  if (typeof input !== "object" || input === null || Array.isArray(input))
+    return { ok: true, value: input };
+  const source = Reflect.get(input, "source");
+  if (typeof source !== "object" || source === null || Array.isArray(source))
+    return { ok: true, value: input };
+  if (Reflect.get(source, "kind") !== "evidence-file")
+    return { ok: true, value: input };
+  const path = Reflect.get(source, "path");
+  if (typeof path !== "string" || path.length === 0)
+    return { ok: true, value: input };
+  const loaded = await parseCliJsonInput(
+    path,
+    CLI_COMMANDS.inspectAnalysisView,
+  );
+  if (!loaded.ok) return loaded;
+  try {
+    const evidence = parseEvidence(loaded.value);
+    return {
+      ok: true,
+      value: { ...input, source: { kind: "inline", evidence } },
+    };
+  } catch {
+    return {
+      ok: false,
+      error: {
+        error: "Application workflow failed",
+        ...projectAnalysisError(
+          new AnalysisInputError(CLI_COMMANDS.inspectAnalysisView, undefined, [
+            {
+              path: ["source", "path"],
+              reason: "invalid_value",
+              message:
+                "Saved Evidence file is not a valid complete Evidence record.",
+            },
+          ]),
+        ),
+      },
+    };
+  }
 };

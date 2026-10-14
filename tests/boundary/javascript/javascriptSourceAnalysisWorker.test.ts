@@ -5,7 +5,10 @@ import { join } from "node:path";
 import { promisify } from "node:util";
 import { expect, it } from "vitest";
 import { JavaScriptAnalysisWorker } from "../../../src/javascript/analysis/JavaScriptAnalysisWorker.js";
-import { cleanupOwnedProcessGroup } from "../../../src/process/ProcessOwnership.js";
+import {
+  cleanupOwnedProcessGroup,
+  verifyNoTokenOwnedProcesses,
+} from "../../../src/process/ProcessOwnership.js";
 import type { OwnedProcessGroup } from "../../../src/process/ProcessOwnership.js";
 import { createTestTempDirectory } from "../../fixtures/temporaryDirectory.js";
 import { ProviderCleanupError } from "../../../src/domain/providerCleanupError.js";
@@ -177,15 +180,26 @@ it("ends worker stdin and unreferences process handles when cleanup reports insp
       });
       return {
         ...launched,
-        cleanup: async () =>
-          permitCleanup
-            ? launched.cleanup === undefined
-              ? cleanupOwnedProcessGroup(launched.ownership)
-              : launched.cleanup()
-            : {
-                cleaned: false,
-                reason: "process table could not be inspected: spawn EPERM",
-              },
+        cleanup: async () => {
+          if (!permitCleanup)
+            return {
+              cleaned: false,
+              reason: "process table could not be inspected: spawn EPERM",
+            };
+          const cleanup =
+            launched.cleanup === undefined
+              ? await cleanupOwnedProcessGroup(launched.ownership)
+              : await launched.cleanup();
+          if (
+            cleanup.cleaned ||
+            !cleanup.reason.startsWith("process ownership token mismatch")
+          )
+            return cleanup;
+          // A worker may exit and its PID be recycled under a busy runner.
+          // Never signal the replacement process. Independently verify that
+          // no process retains our exact run token before declaring cleanup.
+          return verifyNoTokenOwnedProcesses(launched.ownership.runId);
+        },
       };
     },
   );

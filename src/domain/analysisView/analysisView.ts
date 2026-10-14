@@ -288,6 +288,17 @@ const javascriptSummarySchema = z.strictObject({
   electron: jsonObjectSchema,
   coverage: jsonObjectSchema,
   limitation_count: z.number().int().nonnegative(),
+  // Older saved views remain readable; new producers always include these counts.
+  graph_summary: z
+    .strictObject({
+      application_graph_id: prefixedDigestSchema("jag"),
+      semantic_graph_id: prefixedDigestSchema("jsrg"),
+      nodes: z.number().int().nonnegative(),
+      edges: z.number().int().nonnegative(),
+      node_kinds: z.record(z.string(), z.number().int().nonnegative()),
+      relationships: z.record(z.string(), z.number().int().nonnegative()),
+    })
+    .exactOptional(),
 });
 
 const inventorySummarySchema = z.strictObject({

@@ -43,7 +43,7 @@ describe("onboarding documentation product facts", () => {
     );
   });
 
-  it("keeps translated onboarding commands aligned with the English examples", async () => {
+  it("keeps upstream translated onboarding commands aligned with the archived English upstream examples", async () => {
     const inventory = JSON.parse(
       await readFile(resolve("website/locales/languages.json"), "utf8"),
     ) as { code: string; readme: string }[];
@@ -56,12 +56,23 @@ describe("onboarding documentation product facts", () => {
       .filter((name) => /^README_[A-Za-z0-9-]+\.md$/u.test(name))
       .map((name) => `docs/readme/${name}`);
     expect([...translatedReadmes].sort()).toEqual(editions.sort());
-    const english = shellExamples(await readFile(resolve("README.md"), "utf8"));
+    const english = shellExamples(
+      await readFile(resolve("UPSTREAM_REA_README.md"), "utf8"),
+    );
     for (const path of translatedReadmes)
       expect(
         shellExamples(await readFile(resolve(path), "utf8")),
         path,
       ).toEqual(english);
+  });
+
+  it("keeps the fork README distinct from upstream release instructions", async () => {
+    const rel = await readFile(resolve("README.md"), "utf8");
+    const upstream = await readFile(resolve("UPSTREAM_REA_README.md"), "utf8");
+    expect(rel).toContain("# REL");
+    expect(rel).toContain("node rel.mjs demo");
+    expect(rel).toContain("rel/CONNECT_CODEX.md");
+    expect(upstream).toContain("# REA: Reverse Engineer Anything");
   });
 
   it("preserves Persian joiners in links to GitHub-rendered headings", async () => {

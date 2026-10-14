@@ -1,379 +1,211 @@
 <div align="center">
 
-# REE: Reverse Engineer Everything
+# REL
 
-### One MCP for reverse engineering across binaries, applications, and runtime behavior.
+### Reverse Engineering Life
 
-**See a feature you like. Understand how it works, down to the binary level.**
+**Understand the mechanism. Keep the proof. Learn by doing.**
 
-[![npm version](https://img.shields.io/npm/v/rea-agents?style=flat-square&color=cb3837)](https://www.npmjs.com/package/rea-agents)
-[![MCP tool catalog](https://img.shields.io/badge/MCP-tool_catalog-5c4ee5?style=flat-square)](docs/mcp-contracts.md#generated-catalog)
-[![Node.js requirements](https://img.shields.io/badge/Node.js-requirements-339933?style=flat-square&logo=nodedotjs&logoColor=white)](#what-you-can-analyze)
-[![skills.sh](https://skills.sh/b/morluto/rea?style=flat-square)](https://skills.sh/morluto/rea/reverse-engineer-anything)
-[![MIT license](https://img.shields.io/badge/license-MIT-f4c430?style=flat-square)](LICENSE)
-[![Discord](https://img.shields.io/discord/1556595354999332884?logo=discord&logoColor=white&label=Discord&color=5865F2)](https://discord.gg/GkcryMnJDM)
+A beginner-friendly investigation interface built on top of [REA — Reverse Engineer Anything](https://github.com/morluto/rea).
 
-<a href="https://trendshift.io/repositories/82054?utm_source=repository-badge&amp;utm_medium=badge&amp;utm_campaign=badge-repository-82054" target="_blank" rel="noopener noreferrer"><img src="https://trendshift.io/api/badge/repositories/82054" alt="morluto%2Frea | Trendshift" width="250" height="55"/></a>
-
-**[Website](https://rea.tools/) · [Guides](https://rea.tools/guides/) · [Showcases](https://rea.tools/showcase/)**
-
-[Quick start](#quick-start) · [How REA works](#how-rea-works) · [What you can analyze](#what-you-can-analyze) · [Showcases](#showcases) · [FAQ](#faq) · [Documentation](#documentation)
-
-<code>npx rea-agents setup</code>
-
-<br />
-
-<img src="docs/assets/rea-hopper-analysis.png" alt="REA launching its analysis bridge inside Hopper while inspecting a native binary" width="1200" />
-
-<br /><br />
-
-<table aria-label="REA community">
-<tr>
-<td align="center" width="360">
-  <a href="https://discord.gg/GkcryMnJDM">
-    <img src="docs/assets/discord.svg" height="42" alt="Discord" /><br />
-    <strong>Join the Reverse Engineering Community</strong>
-  </a><br />
-  <sub>Discord · Q&amp;A · Show and Tell</sub>
-</td>
-</tr>
-</table>
-
-<br />
+**[Open the visual lab](experiments/rel-visual-lab/README.md) · [Get started](#first-run-in-a-terminal) · [Use with Codex](#use-rel-with-codex-or-another-ai-agent) · [Original REA documentation](UPSTREAM_REA_README.md)**
 
 </div>
 
 ---
 
-See a feature in an app that you want in your own product? Ask your agent to investigate it with REA. It can inspect the app without its source code, explain how the feature works, show the evidence, and build a version for your project.
+## Start REL without knowing programming
 
-REA connects your agent to tools for inspecting native binaries, JavaScript and Electron apps, .NET assemblies, and websites. You can also use the same tools from your terminal. Analysis runs locally, and results include the evidence and limitations behind each conclusion.
+**On a Mac with Node.js installed, open `Start-REL.command` from Finder.** It checks basic Mac readiness and launches the first visual investigation in your browser—without installing anything or touching other projects. If macOS prevents opening the downloaded unsigned script, use `zsh ./Start-REL.command` in Terminal instead. [First ten minutes walkthrough](FIRST_10_MINUTES.md).
 
-Setup registers REA with your agent and installs matching workflow instructions. Native analysis can use an existing Hopper, Ghidra, or IDA installation; setup can optionally install Hopper with approval. Static JavaScript analysis needs no native analysis engine.
+## Start here if you're new to code
 
-> **[Visit the REA website](https://rea.tools/)** for setup instructions, illustrated guides, and real case studies.
+REL is our visual, evidence-first learning workbench built **on top of** REA. We keep the powerful original engine and make its investigations understandable to humans. We do not claim to have developed REA's original providers.
 
-## Quick start
-
-### Set up your agent
-
-With Node.js and npm installed, run:
+From a local checkout of this draft branch, with Node.js available:
 
 ```bash
-npx rea-agents setup
+node rel.mjs lab --open
 ```
 
-Choose your agents, review the proposed changes, and approve them. Setup adds
-REA's MCP server and matching workflow instructions, with backups of existing
-configuration. Restart your agent afterward.
+This opens **REL Visual Lab 01** in your own browser. You can search five fictional notes, trace the code's relationships, read plain-English explanations of terms such as _import_ and _function_, and compare a real result with a clearly labeled hypothetical change. Nothing from other repositories is accessed; it does not require an REA build or Codex connection. See the [visual lab guide and learning levels](experiments/rel-visual-lab/README.md).
 
-Setup supports Claude Code, Codex, Cursor, Gemini CLI, Grok Build and
-[other agents](docs/installation.md#supported-agents). See
-[installation and setup](docs/installation.md) for provider configuration and
-manual MCP registration.
+**Our learning progression:** Observe → Map → Explain → Prove → Experiment. Future work may add native-binary analysis and actual side-by-side artifact comparison; the visual lab today is not a live REA graph viewer.
 
-### Ask your agent
+## What is REL?
+
+REL is **not an AI model and not a replacement for the underlying reverse-engineering engines**. Think of it as the workbench that connects them.
+
+| Piece                           | Job                                                                        |
+| ------------------------------- | -------------------------------------------------------------------------- |
+| **You**                         | Ask a question: “How does this feature work?”                              |
+| **REL Simple Mode** (`rel.mjs`) | Recognize the target, show the applicable workflow and its limits          |
+| **REA** (`scripts/rea.mjs`)     | Inspect local software, create graphs, trace evidence and expose MCP tools |
+| **Codex or another AI agent**   | Interpret the evidence and explain it in ordinary language                 |
+| **Optional native tools**       | Supply deeper binary analysis when available (Hopper, Ghidra, IDA, etc.)   |
+
+**It has both a terminal interface and an AI interface.** The same REA engine can answer direct CLI commands or be called by an MCP-capable agent. The REL-branded shortcut is still being developed.
+
+### What actually works today?
+
+- **Works:** `node rel.mjs lab [--open]` opens the offline beginner visual experience through a loopback-only local server; `types`, `inspect TARGET`, and `demo` provide safe previews. `node rel.mjs codex` checks the local Codex integration prerequisites.
+- **Verified:** `node rel.mjs demo --run --out DIR` builds on our source-owned example to invoke the _real_, locally built REA JavaScript analyzer, save full Evidence, and generate a smaller readable report after the build.
+- **Existing upstream capability:** Advanced REA CLI and MCP workflows for JavaScript/Electron, native binaries, managed code, app packages, websites, captured traffic and more. Many require additional dependencies or authority.
+- **New experimental path:** `node rel.mjs analyze TARGET --authorized --out DIR` runs read-only static analysis on an authorized JavaScript/Electron directory or ASAR. **Not yet built:** a general-purpose REA evidence graph dashboard, automatic execution across every format, or guaranteed reconstruction.
+
+A previous real-engine check on our own lab produced **43 application graph nodes and 65 relationships**. See [the recorded proof](experiments/rel-first-lab/VERIFIED_RESULTS.md). That is a successful _small-sample_ test, not a universal capability claim.
+
+## MacBook-first setup
+
+We're developing REL primarily for macOS while preserving upstream cross-platform providers. **Start with `node rel.mjs doctor`** (read-only), then `node rel.mjs lab --open`. Doctor detects Intel versus Apple Silicon, supported Node versions, RAM, available disk space and optional tools on your actual machine. It doesn't install anything or enable global Codex integrations. See the [Mac setup and performance guide](rel/MAC_SETUP.md).
+
+## First run in a terminal
+
+These commands are for macOS/Linux terminals. Windows users can use an appropriately configured Node terminal and choose a platform-specific output directory.
+
+**1. Clone the actual REL work-in-progress branch** (until the draft PR is merged):
+
+```sh
+git clone --branch rel/first-lab-foundations --single-branch https://github.com/gryszzz/Reverse-Engineering-Everything.git
+cd Reverse-Engineering-Everything
+```
+
+**2. See the interface.** For these preview commands, you need Node.js but not the REA build:
+
+```sh
+node rel.mjs
+node rel.mjs types
+node rel.mjs demo
+node rel.mjs inspect "$PWD/experiments/rel-first-lab" --question "What is in this application?"
+```
+
+`inspect` is **preview-only**. It does not run the target or contact a supplied website.
+
+**3. Prove real analysis on our own demo.** Install the pinned Node version from `.nvmrc` (currently Node 24.18.0) and use the repo's npm lockfile. If you already have nvm, run `nvm use` after installing that version.
+
+```sh
+npm ci
+npm run build:cached
+OUT="$(mktemp -d)/investigation"
+node rel.mjs demo --run --out "$OUT"
+cat "$OUT/REL_EVIDENCE_REPORT.md"
+```
+
+The runner saves the complete `evidence.json`, REA's `view-evidence.json`, a `summary.json` and a readable report **outside the repository**. It does not analyze any other project.
+
+**4. Investigate another authorized JavaScript directory or ASAR** (static only, never runs the supplied app; creates a new results directory outside the repo):
+
+```sh
+node rel.mjs inspect /absolute/path/to/authorized/app
+node rel.mjs analyze /absolute/path/to/authorized/app --authorized --out /tmp/rel-investigation-001 --question "How are its modules connected?"
+```
+
+The authorization flag is required. This is implemented in the fork, but the generic analyzer acceptance check passed in our REL GitHub Action on October 13, 2026, using our owned lab as the target. Other file types still require choosing the appropriate REA provider.
+
+**5. Use the full upstream REA CLI from the fork** when you need a supported advanced operation:
+
+```sh
+node scripts/rea.mjs --help
+node scripts/rea.mjs providers --json
+node scripts/rea.mjs capabilities --json
+```
+
+These commands run the **local fork**. In contrast, `npx rea-agents` downloads/runs the _published upstream REA package_, which does **not** contain our REL changes.
+
+## Inspect real saved Evidence
+
+Once REA has analyzed our owned lab, you can inspect its actual static graph instead of relying only on a tutorial animation:
+
+```sh
+OUT="$(mktemp -d)/investigation"
+node rel.mjs demo --run --out "$OUT"
+node rel/evidence-explorer.mjs "$OUT/evidence.json" --find search.mjs
+node rel/evidence-explorer.mjs "$OUT/evidence.json" --dot > "$OUT/relationships.dot"
+```
+
+Build the local REA runtime first with `npm ci && npm run build:cached`. The viewer gives bounded, source-backed relationship details with missing evidence clearly marked; DOT can be rendered using a separate Graphviz installation. This is **saved JavaScript static Evidence**, not a claim of runtime reconstruction or universal provider support. See the [Evidence Explorer guide](rel/EVIDENCE_EXPLORER.md) and its regression tests.
+
+## Use REL with Codex or another AI agent
+
+**Yes—Codex can use the underlying REA tools through MCP.** REL now includes [a repo-local Codex configuration](.codex/config.toml) and [the rel-investigator skill](.agents/skills/rel-investigator/SKILL.md), which Codex can load when you open a trusted REL checkout. It can also read the code and this repository's `AGENTS.md` when the local checkout is open as its workspace. Those are different things:
+
+- **Repository context** tells Codex what REL is, what commands exist and how we work. It is _not_ new model training.
+- **MCP registration** gives Codex a tool connection to the locally built REA server, which exposes more than the simple `rel.mjs` preview.
+- **A prompt** tells Codex your investigation question and the allowed target. Without a working checkout/connection, it cannot inspect arbitrary files on your machine.
+
+### Codex in our fork (project-scoped)
+
+When you open **this checkout from its root** in Codex and trust the project, Codex can load our committed [`.codex/config.toml`](.codex/config.toml) and [REL investigator skill](.agents/skills/rel-investigator/SKILL.md). Build the local fork first with `npm ci && npm run build:cached`, and verify:
+
+```sh
+node rel.mjs codex
+codex mcp list
+```
+
+Check `/mcp` inside the Codex terminal UI and invoke `$rel-investigator` by name if desired. **No global Codex settings are changed by this PR**, and this GitHub change doesn't prove your own Mac, IDE, or cloud workspace is connected. Codex only reads trusted project-scoped config when it has the actual checkout and runtime. The project config starts the **full REA MCP server**, so keep normal Codex approvals enabled; the simplified CLI's static-only restrictions do not cover all MCP tools.
+
+Use the **[Codex integration guide](rel/CONNECT_CODEX.md)** for the difference between project-scoped and optional global registration, missing toolchain troubleshooting, and supported hosts. `npx rea-agents` still invokes upstream's published package, not this fork.
+
+**Try asking Codex, while working in this fork:**
+
+> Read REL's README and AGENTS.md. Only investigate the REL first-lab directory. Use read-only REA JavaScript analysis to show the imports between `cli.mjs`, `notes.mjs` and `search.mjs`. Cite exact source locations, tell me what you inferred, and clearly label what you could not verify. Do not edit another repository, execute an unknown target, or configure external services.
+
+### If you're using ChatGPT on your phone
+
+This GitHub fork and your local Codex/MCP connection are **not automatically the same connection**. Here we can work on your GitHub repo through its connection, but that alone doesn't start the REL program on your Mac or expose its local files. To execute the local MCP server, use a Codex/desktop environment with access to the built checkout.
+
+## What can REL investigate?
+
+The REA base supports multiple families; **capability depends on your target and installed tools**:
+
+| Target                           | Typical investigation                             | Requirements / caveat                              |
+| -------------------------------- | ------------------------------------------------- | -------------------------------------------------- |
+| JavaScript / Electron            | Modules, imports, processes, IPC, source maps     | Node.js; static mode available                     |
+| Native executables and libraries | Assembly, pseudocode, symbols, calls              | Compatible Ghidra, Hopper or IDA                   |
+| .NET                             | Assembly metadata, methods and CIL                | Confirm the file is actually managed               |
+| Websites                         | Scripts, page structure and observable requests   | Browser, authorization, runtime side-effect review |
+| APKs and Apple packages          | Manifests, resources, code and native boundaries  | Extra platform-specific tooling                    |
+| WASM                             | Imports, exports, sections and decoded content    | WABT for deeper parsing                            |
+| SQLite                           | Schema and selected sample rows                   | Snapshot; compatible Node version                  |
+| HAR / PCAP                       | Previously captured network behavior              | Supported capture format and tools                 |
+| Firmware / raw binaries          | Identify regions or hand off to a native provider | Format/architecture knowledge; extra tools         |
+
+Run `node rel.mjs types` to see what the simple interface can classify. _Recognition alone is not proof that the analysis engine for that format is installed._
+
+## How we investigate
 
 ```text
-Understand how search works in the Notes app, show me the evidence, and build a
-similar feature for my project.
+Question → Identify target → Check authority and readiness
+         → Choose REA workflow → Produce full Evidence
+         → Explain important findings → State unknowns
+         → Verify with a controlled test → Only then consider reconstruction
 ```
 
-Replace Notes with your target app and the feature you want to understand.
+The goal is not to dump 100,000 lines of internals into a chatbot. REL should retain complete source evidence while showing you a **short answer, the exact supporting locations, confidence/coverage and what to check next**. Static code relationships do not alone prove runtime execution; a reconstructed feature is a new implementation to test, not magically recovered original source.
 
-### Use the terminal
+### Planned interface (not implemented yet)
 
-Inspect an extracted JavaScript/Electron app directory or ASAR:
+Four human actions: **Understand**, **Map**, **Compare**, **Reconstruct**. These are the design direction for a future agent-centered REL interface. We will add them incrementally after verifying each workflow against authorized, reproducible fixtures.
 
-```bash
-npx -y rea-agents@latest analyze-javascript-application /absolute/path/to/app --json
-```
+## Repository guide
 
-The result includes modules, imports, Electron boundaries and their evidence.
-Replace the path with your target, such as `"D:/apps/example"` on Windows.
+| Location                                                                      | Purpose                                                  |
+| ----------------------------------------------------------------------------- | -------------------------------------------------------- |
+| [`rel.mjs`](rel.mjs)                                                          | Beginner terminal entry point                            |
+| [`rel/intake.mjs`](rel/intake.mjs)                                            | Read-only target classification                          |
+| [`rel/analyze-static.mjs`](rel/analyze-static.mjs)                            | Authorized static JavaScript analysis and bounded report |
+| [`.codex/config.toml`](.codex/config.toml)                                    | Project-scoped Codex MCP connection                      |
+| [`rel/codex-mcp.test.mjs`](rel/codex-mcp.test.mjs)                            | MCP handshake and actual REA tool-discovery test         |
+| [`rel-investigator skill`](.agents/skills/rel-investigator/SKILL.md)          | Codex-native investigation workflow                      |
+| [`rel/CONNECT_CODEX.md`](rel/CONNECT_CODEX.md)                                | Optional Codex/MCP setup                                 |
+| [`experiments/rel-first-lab/`](experiments/rel-first-lab/)                    | Safe demo and saved verification                         |
+| [`REL_START_HERE.md`](REL_START_HERE.md)                                      | Learning milestones                                      |
+| [`src/`](src/)                                                                | Original REA analysis machinery                          |
+| [`docs/cli.md`](docs/cli.md) / [`docs/installation.md`](docs/installation.md) | Advanced CLI and setup                                   |
+| [`UPSTREAM_REA_README.md`](UPSTREAM_REA_README.md)                            | Preserved upstream landing page and docs links           |
 
-To install the `rea` command for regular use:
+## Project boundaries and attribution
 
-```bash
-npm install --global rea-agents
-rea --help
-```
+REL is a fork-specific learning and usability layer. **At this stage we are changing only this REL repository**, not integrating your other projects. Run investigations only on targets you own or are authorized to inspect. The `rel.mjs` shortcut only runs explicit, authorized, static JavaScript targets; directly connecting the underlying MCP is a separate, potentially more powerful tool connection.
 
-For native analysis, configure a provider first. See the
-[CLI and Evidence guide](docs/cli.md) for native commands, provider selection,
-snapshots and scripting.
-
-### Update REA
-
-REA changes quickly, and new releases include frequent bug fixes. Keep your
-installation up to date.
-
-For a CLI installed with `npm install --global` or `bun add --global`:
-
-```bash
-rea update
-```
-
-Bun global updates require Bun 1.2.17 or later. With an older Bun release,
-upgrade Bun manually before running `rea update`.
-
-To refresh your agent registrations and skill, run the setup command printed
-by the update.
-
-If you use `npx`, update your agent setup with:
-
-```bash
-npx rea-agents@latest setup
-```
-
-Review the setup changes and restart your agent. For one-off CLI commands,
-use `npx rea-agents@latest` followed by the command. With Bun, use
-`bunx rea-agents@latest` in place of `npx rea-agents@latest`.
-
-## How REA works
-
-Your agent calls REA through MCP to inspect the target and trace relevant code.
-REA returns findings with their evidence. The agent uses them to ask follow-up
-questions, explain the behavior, or write and test an implementation.
-CLI commands use the same workflows.
-
-![REA investigation flow: your agent asks about a local target, REA inspects and traces it using analysis tools, and the agent uses the returned code, references and unknowns to explain, implement and test.](website/public/assets/figures/rea-investigation-flow.svg)
-
-[Open the full-size figure](website/public/assets/figures/rea-investigation-flow.svg).
-
-<a id="current-status"></a>
-
-## What you can analyze
-
-REA requires Node.js 22.x (>=22.19), 24.x (>=24.11), or 26+, plus npm.
-Additional tools and host support depend on the target:
-
-| Target                 | What REA returns                                                                     | Requirements and guide                                                                                                                |
-| ---------------------- | ------------------------------------------------------------------------------------ | ------------------------------------------------------------------------------------------------------------------------------------- |
-| Native binaries        | Pseudocode, assembly, strings, symbols, calls and references                         | Hopper, Ghidra or IDA; [native analysis](https://rea.tools/guides/native/)                                                            |
-| Offline ELF layout     | Sections, segments, original symbols/relocations and static mitigation candidates    | Caller-supplied pwntools on Linux x64; [binary diagnostics](docs/binary-diagnostics.md)                                               |
-| Go binaries            | Embedded compiler version, modules, replacements and build settings                  | Built-in static ELF/PE/thin Mach-O inspection; no Go installation required                                                            |
-| Rust binaries          | Embedded cargo-auditable crate names, versions, sources and dependency edges         | Built-in static ELF/PE/thin Mach-O inspection; [Rust binaries](docs/rust-binaries.md)                                                 |
-| WASM artifact          | Validation, sections, exact import/export WAT forms and decoded WAT                  | Caller-supplied WABT 1.0.42; `inspect_wasm_artifact`                                                                                  |
-| EVM bytecode           | Dispatch selectors, byte offsets, inferred arguments and mutability                  | Local raw/hex carrier on Linux x64; [offline EVM guide](docs/evm-bytecode.md)                                                         |
-| SQLite databases       | Tables, columns, indexes, views, triggers and selected ordinary-table rows           | Local database/WAL snapshot; Node.js 24.x >=24.15 or 26+ with native SQLite limits                                                    |
-| Recorded Linux crashes | Raw notes, every recorded thread's registers/signals and optional mapping candidates | Caller-supplied pwntools on Linux x64; optional GDB/pwndbg; [recorded crashes](docs/recorded-crashes.md)                              |
-| JavaScript / Electron  | Modules, imports, source maps, routes, IPC and native add-on relationships           | Node.js and npm; [application analysis](https://rea.tools/guides/javascript/)                                                         |
-| Websites               | Page structure, scripts, network observations and requested screenshots              | A Chrome-family browser; [browser analysis](https://rea.tools/guides/browser/)                                                        |
-| Saved network captures | Requests, responses, exposed payloads and source locations                           | HAR or Fiddler Everywhere SAZ; mitmdump on Linux for native mitmproxy; [capture guide](docs/web-network-captures.md)                  |
-| .NET assemblies        | Metadata, CIL instructions, declared native dependencies and build comparisons       | None (static only); [managed-code guide](docs/managed-code-analysis.md)                                                               |
-| Android APKs           | Manifest declarations, classes, decompiled methods and references                    | Headless JADX and a full JDK on Linux/macOS/Windows x64; [Android guide](docs/android-analysis.md)                                    |
-| Android devices        | Devices, packages, processes, logs, dumps, screen captures, and APK/file transfers   | Caller-supplied adb (emulator or hardware); [ADB guide](docs/adb-device-analysis.md)                                                  |
-| JEB projects           | Engine-backed project units, artifact digests and type/method pseudo-code            | A caller-started JEB client serving MCP, selected with REA_JEB_MCP_URL; [JEB guide](docs/jeb-analysis.md)                             |
-| Android resources      | Decoded manifest, string tables, locales and version facts                           | Caller-supplied Apktool launcher; [resource guide](docs/apktool-resource-analysis.md)                                                 |
-| Flutter apps           | Dart snapshot hash, per-ABI library digests and engine build provenance              | None (static APK parsing); [Flutter guide](docs/flutter-analysis.md)                                                                  |
-| Firmware               | Regions, extraction results and native-analysis handoffs                             | Binwalk / Unblob on Linux; [firmware guide](docs/firmware-analysis.md)                                                                |
-| Recorded packets       | Selected fields, repeated values, filters and decode-as rules                        | Linux: TShark 4.x + prlimit; [capture guide](docs/packet-captures.md)                                                                 |
-| Packet summaries       | Endpoints, DNS, TLS SNI, protocol distribution and HTTP requests                     | Caller-supplied tshark and capinfos (Linux-verified); [pcap guide](docs/pcap-analysis.md)                                             |
-| Recorded logic signals | Decoder annotations, sample ranges and diagnostics                                   | Linux: sigrok-cli 0.7.2 + prlimit; [signal recordings](docs/signal-recordings.md)                                                     |
-| Packages and resources | File inventories, digests, plists, Apple bundle anatomy and extracted resources      | [Artifact and JavaScript guide](docs/javascript-artifact-reconstruction.md), [Apple applications](docs/apple-application-analysis.md) |
-| Process behavior       | Terminal output, interactions, exit and filesystem observations, and run comparisons | Linux/macOS with a native PTY; [process capture](docs/process-capture.md)                                                             |
-
-Static JavaScript and .NET inspection read the supplied files without running
-the application. Runtime capture runs or interacts with the selected target
-using your user permissions; each runtime guide describes its effects.
-
-For offline native-binary inspection, REA also supports caller-supplied GNU
-objdump and Rizin. See the [reverse-engineering tools guide](docs/reverse-engineering-tools.md)
-for provider setup, CLI commands, and Evidence limitations. REA does not install
-or update either provider.
-
-<a id="choosing-a-deep-analysis-provider"></a>
-
-Native formats and host support vary by provider. See
-[Hopper and Ghidra setup](docs/installation.md#hopper), the
-[IDA guide](docs/ida-provider.md) (including an optional native MCP bridge), and
-[experimental Windows Ghidra support](docs/windows-ghidra-p0.md).
-Ghidra also supports [16-bit DOS analysis](docs/ghidra-dos.md).
-For large binaries, raise the provider's startup deadline with
-`REA_GHIDRA_STARTUP_TIMEOUT_MS` or `REA_HOPPER_STARTUP_TIMEOUT_MS`.
-For provider selection, see the [CLI guide](docs/cli.md#choose-a-provider).
-Check [release availability](docs/installation.md#released-package-and-main)
-for features added since the latest npm release.
-
-## Showcases
-
-[![Illustrations of the DX-Ball sound-pan, Notion clipboard-bridge, and TH04 bullet-ring showcases](docs/assets/rea-showcases.png)](https://rea.tools/showcase/)
-
-### DX-Ball: reconstruct a sound-pan calculation
-
-Follow a sound call into its position-to-pan helper, inspect the instructions,
-and turn incomplete pseudocode into C. The reconstruction passes 3,205
-original-x86 cases and reproduces all 63 compiled function bytes.
-
-[Read the case study](https://rea.tools/showcase/dx-ball/) ·
-[Reconstruction repository](https://github.com/N0zoM1z0/dx-ball)
-
-### Notion: trace the Electron clipboard bridge
-
-Find the renderer's clipboard API, follow it through preload and IPC into the
-main process, and inspect the rich clipboard format.
-
-[Read the case study](https://rea.tools/showcase/notion/)
-
-### TH04: recover a DOS bullet-ring calculation
-
-Inspect the original PC-98 game's 16-bit instructions, recover the fixed and
-aimed angle calculations, and compare the reconstructed C++ with the
-historical compiler output.
-
-[Read the case study](https://rea.tools/showcase/th04/) ·
-[Reconstruction repository](https://github.com/N0zoM1z0/th04)
-
-If you've used REA on something interesting, we'd love to see it. Share your
-case in an [issue](https://github.com/morluto/rea/issues) or a
-[pull request](https://github.com/morluto/rea/pulls), including the target,
-your question, how REA helped, and what you found.
-
-## FAQ
-
-<details>
-<summary><strong>Which agents can use REA?</strong></summary>
-
-Any agent that supports local MCP servers. Setup configures the
-[supported agents](docs/installation.md#supported-agents); other clients can use
-[manual MCP registration](docs/installation.md#mcp-registry).
-
-</details>
-
-<details>
-<summary><strong>Do I need Hopper, Ghidra or IDA?</strong></summary>
-
-Deep native analysis uses one of them. Static JavaScript and .NET inspection
-work without a native analysis engine. Setup can install Hopper after approval;
-Ghidra and IDA use your existing installations. See [provider setup](docs/installation.md#hopper).
-
-</details>
-
-<details>
-<summary><strong>Do I need to start Hopper first?</strong></summary>
-
-REA starts Hopper when an operation needs it. On macOS, a first-run dialog may
-ask you to choose demo mode or activate your license. Complete that prompt in the
-same user session before your first CLI/MCP operation or unattended job. Open
-Hopper manually if needed. See
-[Hopper startup and troubleshooting](docs/installation.md#launcher-paths-and-troubleshooting).
-
-</details>
-
-<details>
-<summary><strong>What does installing the skill from skills.sh do?</strong></summary>
-
-The skill supplies investigation instructions for your agent. Use `npx rea-agents setup`
-to register REA's MCP server and install the matching instructions, then restart
-your agent. See [skill-only installation](docs/installation.md#skill-only-installation).
-
-</details>
-
-<details>
-<summary><strong>What code does REA return?</strong></summary>
-
-Native analysis returns pseudocode and assembly. JavaScript/Electron analysis
-recovers modules and their relationships. Your agent uses these findings to
-write and test an implementation; the [showcases](#showcases) give worked examples.
-
-</details>
-
-<details>
-<summary><strong>Does REA upload my app?</strong></summary>
-
-REA analyzes targets locally. Your agent receives the tool results, and its
-model provider has its own data policy.
-
-</details>
-
-<details>
-<summary><strong>What should I do if I hit a bug?</strong></summary>
-
-Update first; a recent release may already fix it.
-
-For a CLI installed with `npm install --global` or `bun add --global`:
-
-```bash
-rea update
-```
-
-For agent setup through `npx`:
-
-```bash
-npx rea-agents@latest setup
-```
-
-If you're using an agent, complete the [setup refresh](#update-rea) and restart
-it. Retry the same task. If the problem persists, [open an issue](https://github.com/morluto/rea/issues)
-with your REA version, target type, steps to reproduce and error output.
-
-</details>
-
-## Documentation
-
-Start with the website's [worked guides](https://rea.tools/guides/).
-For exact options, prerequisites and result contracts:
-
-- [Installation and setup](docs/installation.md): agent registration, provider configuration, updates and uninstall.
-- [Readiness and troubleshooting](docs/installation.md#check-readiness-for-your-task): diagnose one agent or analysis engine.
-- [CLI and Evidence](docs/cli.md): commands, provider selection, snapshots, import/export and exit statuses.
-- [MCP contracts](docs/mcp-contracts.md) and [agent prompts](docs/mcp-prompts.md): tool results, sessions and guided investigations.
-- [Tool catalog](docs/mcp-contracts.md#generated-catalog): generated inventory of tools, providers and CLI commands.
-- [Roadmap](docs/roadmap.md): planned work and capability trackers.
-
-Report vulnerabilities through [SECURITY.md](SECURITY.md).
-
-## Star history
-
-🎉 **180,000 GitHub stars — thank you!**
-
-Thanks to everyone using REA, reporting bugs, requesting features, testing builds, and contributing fixes.
-
-<a href="https://www.star-history.com/?repos=morluto%2Frea&amp;type=date">
-  <picture>
-    <source media="(prefers-color-scheme: dark)" srcset="https://api.star-history.com/chart?repos=morluto/rea&amp;type=date&amp;theme=dark&amp;legend=top-left" />
-    <source media="(prefers-color-scheme: light)" srcset="https://api.star-history.com/chart?repos=morluto/rea&amp;type=date" />
-    <img alt="REA GitHub star history" src="https://api.star-history.com/chart?repos=morluto/rea&amp;type=date" />
-  </picture>
-</a>
-
-## Disclaimer
-
-See [DISCLAIMER.md](DISCLAIMER.md) for responsible-use guidance.
-
-The project's position on illegal or unauthorized use covers all REA versions,
-distribution channels, and platforms; each copy retains its applicable licenses.
-
-REA is for lawful research, education, interoperability, software preservation,
-and analysis of software you own or are authorized to examine.
-
-## Contributing
-
-We'd love your help with REA! [Open an issue](https://github.com/morluto/rea/issues) to
-report a bug or suggest a feature, or [send a pull request](https://github.com/morluto/rea/pulls)
-to improve the code or docs.
-
-See [CONTRIBUTING.md](CONTRIBUTING.md) for development setup and checks,
-[testing](docs/testing.md) for verification lanes, and the
-[architecture map](docs/architecture.mermaid) for the project structure.
-
-## License
-
-**English** · [简体中文](docs/readme/README_zh.md) · [繁體中文](docs/readme/README_zh-TW.md) · [日本語](docs/readme/README_ja.md) · [한국어](docs/readme/README_ko.md) · [Türkçe](docs/readme/README_tr.md) · [Русский](docs/readme/README_ru.md) · [Tiếng Việt](docs/readme/README_vi.md) · [ไทย](docs/readme/README_th.md) · [Deutsch](docs/readme/README_de.md) · [Español](docs/readme/README_es.md) · [Français](docs/readme/README_fr.md) · [Українська](docs/readme/README_uk.md) · [Polski](docs/readme/README_pl.md) · [Português (Brasil)](docs/readme/README_pt-BR.md) · [العربية](docs/readme/README_ar.md) · [فارسی](docs/readme/README_fa.md) · [Bahasa Indonesia](docs/readme/README_id.md) · [Italiano](docs/readme/README_it.md)
-· [Ελληνικά](docs/readme/README_el.md)
-
-[MIT](LICENSE)
-
-REA-authored code is licensed under MIT. Third-party material retains its own
-licenses and copyright notices; see
-[Third-party notices](THIRD_PARTY_NOTICES.md) for the dependency inventory,
-preserved license texts, and external-tool terms.
-
-**You must legally obtain and be authorized to use commercial tools**, including
-IDA Pro / Hex-Rays decompilers, Hopper, and JEB, under their applicable
-licenses. REA grants no tool license, key, or activation entitlement. Trials and
-demos remain subject to vendor terms, including user, feature, automation, and
-output sharing restrictions. Cracked copies, stolen keys, unauthorized key
-sharing, and bypassing license restrictions are not authorized. This guidance
-does not amend MIT or third-party licenses.
+Based on **[morluto/rea](https://github.com/morluto/rea)**. Original README preserved in [`UPSTREAM_REA_README.md`](UPSTREAM_REA_README.md); original [MIT license](LICENSE), [third-party notices](THIRD_PARTY_NOTICES.md), and upstream technical docs remain available. This fork isn't affiliated with or published as the original REA npm package.
