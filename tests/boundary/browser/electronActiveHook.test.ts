@@ -15,7 +15,9 @@ app.isReady = () => true;
 app.relaunch = () => undefined;
 app.setAsDefaultProtocolClient = () => true;
 app.setLoginItemSettings = () => undefined;
-app.moveToApplicationsFolder = () => true;
+app.moveToApplicationsFolder = () => {
+  throw new Error("moveToApplicationsFolder must stay blocked during capture");
+};
 const ipcMain = new EventEmitter();
 ipcMain.handlers = new Map();
 ipcMain.handle = (channel, listener) => ipcMain.handlers.set(channel, listener);
