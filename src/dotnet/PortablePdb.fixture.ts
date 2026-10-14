@@ -294,26 +294,26 @@ export const buildPortablePdbFixture = (
           compressedUnsigned(part.length === 0 ? 0 : blobs.addUtf8(part)),
         ),
       ]);
-      return {
-        name: blobs.add(nameBlob),
-        algorithm: guids.add(
-          HASH_ALGORITHM_GUIDS[document.hashAlgorithm ?? "sha-256"] ??
-            document.hashAlgorithm ??
-            HASH_ALGORITHM_GUIDS["sha-256"]!,
-        ),
-        hash: blobs.add(
-          document.hash ??
-            Buffer.from(
-              "0000000000000000000000000000000000000000000000000000000000000000",
-              "hex",
-            ),
-        ),
-        language: guids.add(
-          LANGUAGE_GUIDS[document.language ?? "csharp"] ??
-            document.language ??
-            LANGUAGE_GUIDS["csharp"]!,
-        ),
-      };
+      // The name blob can be huge; add it last so the smaller column indexes
+      // keep positions inside the fixture's two-byte heap indexes.
+      const algorithm = guids.add(
+        HASH_ALGORITHM_GUIDS[document.hashAlgorithm ?? "sha-256"] ??
+          document.hashAlgorithm ??
+          HASH_ALGORITHM_GUIDS["sha-256"]!,
+      );
+      const hash = blobs.add(
+        document.hash ??
+          Buffer.from(
+            "0000000000000000000000000000000000000000000000000000000000000000",
+            "hex",
+          ),
+      );
+      const language = guids.add(
+        LANGUAGE_GUIDS[document.language ?? "csharp"] ??
+          document.language ??
+          LANGUAGE_GUIDS["csharp"]!,
+      );
+      return { name: blobs.add(nameBlob), algorithm, hash, language };
     }) ?? [];
 
   const methodCount = options.methods?.length ?? 0;

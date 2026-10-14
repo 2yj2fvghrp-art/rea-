@@ -40,6 +40,10 @@ const HIDDEN_LINE = 0xfe_efee;
 const MAX_DEBUG_MAP_ISSUES = 64;
 /** Approximate retained projection bytes per decoded sequence point. */
 const SEQUENCE_POINT_PROJECTION_BYTES = 128;
+/** Retained cost per document-name part: array slot, string, separator. */
+const DOCUMENT_NAME_PART_BYTES = 128;
+/** Metadata tokens name a 24-bit row; larger rows cannot be represented. */
+const MAX_TOKEN_ROW = 0xff_ffff;
 
 const HASH_ALGORITHMS = new Map<string, string>([
   ["ff1816ec-aa5e-4d10-87f7-6f4963833460", "sha-1"],
@@ -64,7 +68,8 @@ export type PortablePdbSelection =
     }
   | { readonly kind: "embedded" };
 
-const utf8 = new TextDecoder("utf-8", { fatal: true });
+// Name parts are stored strings, not documents: a leading U+FEFF is content.
+const utf8 = new TextDecoder("utf-8", { fatal: true, ignoreBOM: true });
 
 /** Bounded per-map issue collector so hostile row counts cannot flood coverage. */
 interface DebugIssueSink {
@@ -186,10 +191,14 @@ const decodeDocumentName = (
     "pdb.document-name",
   );
   const parts: string[] = [];
+  const budget = managedDecodeBudget(layout);
   while (!cursor.done) {
+    // A part costs one encoded byte but retains an array slot and a string;
+    // charge for the slot itself so empty parts cannot amplify memory.
+    budget.reserve(DOCUMENT_NAME_PART_BYTES, null);
     const partIndex = cursor.readUnsigned();
     const part = readMetadataBlob(bytes, layout, partIndex, bytes.length);
-    managedDecodeBudget(layout).reserveString(part.length, null);
+    budget.reserveString(part.length, null);
     parts.push(utf8.decode(part));
   }
   return parts.join(separator);
@@ -325,7 +334,13 @@ const decodeSequencePoints = (
   const cursor = new BlobCursor(blob, "pdb.sequence-points");
   const localSignatureRow = cursor.readUnsigned();
   let currentDocument = declaredDocumentRow;
-  if (declaredDocumentRow === 0) currentDocument = cursor.readUnsigned();
+  if (declaredDocumentRow === 0) {
+    currentDocument = cursor.readUnsigned();
+    if (currentDocument < 1 || currentDocument > documentRowCount)
+      throw new BlobFormatError(
+        `initial document record selects row ${String(currentDocument)} beyond the ${String(documentRowCount)}-row Document table`,
+      );
+  }
   const points: DecodedSequencePoint[] = [];
   let ilOffset = 0;
   let previousStartLine = 0;
@@ -445,7 +460,12 @@ const decodeMethodDebugInformation = (
   readonly uncovered: number;
 } => {
   const table = layout.table(METHOD_DEBUG_INFORMATION_TABLE);
-  const documentRowCount = layout.table(DOCUMENT_TABLE)?.rowCount ?? 0;
+  // Rows above the 24-bit token range cannot be named; bound every row
+  // validity check at the representable space, not the declared count.
+  const documentRowCount = Math.min(
+    layout.table(DOCUMENT_TABLE)?.rowCount ?? 0,
+    MAX_TOKEN_ROW,
+  );
   const declaredMethodRows = layout.typeSystemRowCounts[METHOD_DEF_TABLE] ?? 0;
   if (
     table !== undefined &&
@@ -505,10 +525,13 @@ const decodeMethodDebugInformation = (
         documentRowCount,
         managedDecodeBudget(layout),
       );
-      const standaloneSignatureRows = layout.typeSystemRowCounts[0x11] ?? 0;
+      const standaloneSignatureRows = Math.min(
+        layout.typeSystemRowCounts[0x11] ?? 0,
+        MAX_TOKEN_ROW,
+      );
       if (decoded.localSignatureRow > standaloneSignatureRows)
         throw new BlobFormatError(
-          `local signature selects row ${String(decoded.localSignatureRow)} beyond the ${String(standaloneSignatureRows)} declared StandAloneSig rows`,
+          `local signature selects row ${String(decoded.localSignatureRow)} beyond the ${String(standaloneSignatureRows)} admitted StandAloneSig rows`,
         );
       entry.local_signature_token =
         decoded.localSignatureRow === 0

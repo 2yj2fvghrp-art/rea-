@@ -821,3 +821,92 @@ describe("Portable PDB sequence-point encoding edge cases", () => {
     expect(result.debug_map?.methods_without_debug_information).toBe(1);
   });
 });
+
+describe("Portable PDB hostile metadata bounds", () => {
+  it("bounds memory for a document name built from many empty parts", () => {
+    // Each separator split yields an empty part whose encoded form is one
+    // byte, but the retained array slot and string cost far more; the name
+    // budget must trip instead of letting part count amplify memory.
+    const pdb = buildPortablePdbFixture({
+      documents: [{ name: "/".repeat(600_000) }],
+    });
+    const result = memberInspection(
+      buildManagedPeFixture({ codeview: matchingCodeview }),
+      externalPdb(pdb),
+    );
+    expect(result.debug_map?.status).toBe("malformed");
+    expect(result.debug_map?.coverage.issues).toContainEqual(
+      expect.objectContaining({ code: "resource-limit" }),
+    );
+    expect(result.methods[0]?.token).toBe("0x06000001");
+  });
+
+  it("preserves a leading byte-order mark inside a document name part", () => {
+    // Document name parts are stored strings, not text files: a leading
+    // U+FEFF is filename content and must survive decoding.
+    const pdb = buildPortablePdbFixture({
+      documents: [{ name: "/src/\uFEFFProgram.cs" }],
+      methods: [
+        { document: 1, points: [{ il: 0, startLine: 1, startColumn: 1 }] },
+      ],
+    });
+    const result = memberInspection(
+      buildManagedPeFixture({ codeview: matchingCodeview }),
+      externalPdb(pdb),
+    );
+    expect(result.debug_map?.documents[0]?.name).toBe("/src/\uFEFFProgram.cs");
+  });
+
+  it("rejects an initial document record outside the Document table", () => {
+    // Document column 0 makes the blob's first record the initial document;
+    // it must satisfy the same row bound as mid-blob document records.
+    for (const sequencePoints of [
+      Buffer.from([0x00, 0x02]), // row 2 beyond the 1-row table, no points
+      Buffer.from([0x00, 0x7f]), // row 127 beyond the table, no points
+      Buffer.from([0x00, 0x00, 0x00, 0x00, 0x01, 0x01, 0x01]), // nil row
+    ]) {
+      const pdb = buildPortablePdbFixture({
+        documents: [{ name: "/src/Program.cs" }],
+        methods: [{ document: 0, sequencePoints }],
+      });
+      const result = memberInspection(
+        buildManagedPeFixture({ codeview: matchingCodeview }),
+        externalPdb(pdb),
+      );
+      expect(result.debug_map?.methods[0]?.state).toBe("malformed");
+      expect(
+        result.debug_map?.coverage.issues.some((issue) =>
+          issue.detail.includes("initial document record"),
+        ),
+      ).toBe(true);
+    }
+  });
+
+  it("rejects a local signature row beyond the 24-bit token range", () => {
+    // #Pdb row counts are pure claims about the assembly: a declared
+    // StandAloneSig count of 0x1000000 must not let the row forge a
+    // table-0x12 token.
+    const pdb = buildPortablePdbFixture({
+      documents: [{ name: "/src/Program.cs" }],
+      referencedStandaloneSignatures: 0x100_0000,
+      methods: [
+        {
+          document: 1,
+          localSignature: 0x100_0000,
+          points: [{ il: 0, startLine: 1, startColumn: 1 }],
+        },
+      ],
+    });
+    const result = memberInspection(
+      buildManagedPeFixture({ codeview: matchingCodeview }),
+      externalPdb(pdb),
+    );
+    expect(result.debug_map?.methods[0]?.state).toBe("malformed");
+    expect(result.debug_map?.methods[0]?.local_signature_token).toBeNull();
+    expect(
+      result.debug_map?.coverage.issues.some((issue) =>
+        issue.detail.includes("local signature selects row 16777216"),
+      ),
+    ).toBe(true);
+  });
+});
