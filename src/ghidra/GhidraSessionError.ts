@@ -182,12 +182,10 @@ const causeCommandOutcome = (
       stderr: stderr.text,
       stdoutBytes: outcome.stdoutBytes ?? Buffer.byteLength(outcome.stdout),
       stderrBytes: outcome.stderrBytes ?? Buffer.byteLength(outcome.stderr),
-      stdoutTruncated: outcome.stdoutTruncated || stdout.truncated,
-      stderrTruncated: outcome.stderrTruncated || stderr.truncated,
+      stdoutTruncated: stdout.truncated,
+      stderrTruncated: stderr.truncated,
       outputTruncated: outcome.outputTruncated,
       killed: outcome.killed,
-      exit_code: outcome.exitCode,
-      signal: outcome.signal,
     },
   };
 };
@@ -296,10 +294,8 @@ const causeLaunchOutcome = (
       truncated,
       ...(truncated
         ? {
-            stdout_bytes:
-              output.stdout_bytes ?? Buffer.byteLength(output.stdout),
-            stderr_bytes:
-              output.stderr_bytes ?? Buffer.byteLength(output.stderr),
+            stdout_bytes: Buffer.byteLength(output.stdout),
+            stderr_bytes: Buffer.byteLength(output.stderr),
           }
         : {}),
       ...(output.exit_code === undefined

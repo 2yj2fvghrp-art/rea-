@@ -34,6 +34,6 @@ export const cdpSnapshotAttributesResolve = (
     (attribute, offset) =>
       attribute !== undefined &&
       (offset % 2 === 0
-        ? cdpSnapshotString(strings, attribute) || undefined
+        ? cdpSnapshotString(strings, attribute)
         : cdpSnapshotValueString(strings, attribute)) !== undefined,
   );

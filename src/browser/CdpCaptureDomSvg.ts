@@ -292,7 +292,7 @@ const validSvgSourceNode = (
 ): boolean => {
   if (
     nodes.nodeTypes[index] === undefined ||
-    !cdpSnapshotString(nodes.strings, nodes.nodeNames[index])
+    cdpSnapshotString(nodes.strings, nodes.nodeNames[index]) === undefined
   )
     return false;
   const rawAttributes = nodes.attributes[index];

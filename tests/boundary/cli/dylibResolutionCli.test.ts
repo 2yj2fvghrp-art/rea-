@@ -231,18 +231,14 @@ describe("trace-dylib-resolution CLI", () => {
       // A root below a symlinked directory that points outside the bundle.
       const outside = await createTestTempDirectory("rea-dylib-outside-");
       await writeFiles(outside, { Tool: machoImage({}) });
-      await symlink(
-        outside,
-        join(app, "Contents/Linked"),
-        process.platform === "win32" ? "junction" : "dir",
-      );
+      await symlink(outside, join(app, "Contents/Linked"), "dir");
       for (const [root, reason, message] of [
         ["../outside", "invalid_format", "Use a normalized path"],
         ["Contents/Info.plist", "invalid_value", "is not a Mach-O image"],
         [
           "Contents/Linked/Tool",
           "invalid_value",
-          // Windows rejects reparse entries before following the directory link.
+          // Windows link text is outside the POSIX dyld path representation.
           process.platform === "win32"
             ? "is not a regular file in the analyzed root"
             : "resolves outside the analyzed root",
@@ -436,7 +432,7 @@ cliTest(
   },
 );
 
-// chmod cannot deny reads on Windows, and root bypasses POSIX mode restrictions.
+// This permission fixture requires POSIX mode bits and a non-root caller.
 describe.skipIf(process.platform === "win32" || process.getuid?.() === 0)(
   "trace-dylib-resolution permissions",
   () => {

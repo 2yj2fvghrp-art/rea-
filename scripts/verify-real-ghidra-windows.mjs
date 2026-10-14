@@ -103,8 +103,9 @@ const client = new GhidraClient({
   launcher: new GhidraHeadlessLauncher({
     environment: process.env,
     analyzeHeadlessPath: installation.analyzeHeadlessPath,
-    javaHome: installation.javaHome,
-    javaVmName: installation.javaVmName,
+    ...(process.env.JAVA_HOME === undefined
+      ? {}
+      : { javaHome: process.env.JAVA_HOME }),
     bridgeScriptPath: fileURLToPath(
       new URL("../bridge/ghidra/ReaGhidraBridge.java", import.meta.url),
     ),

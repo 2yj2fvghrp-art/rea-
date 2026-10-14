@@ -634,7 +634,7 @@ export class GhidraClient {
           providerVersion: this.#options.providerVersion,
           profileDigest: this.#options.profileDigest,
         },
-        { signal: deadline.signal, timeoutMs: deadline.remainingMs() },
+        { signal: deadline.signal },
       )
       .catch((cause: unknown) =>
         err(this.#failure("start", "Ghidra launcher failed", cause)),

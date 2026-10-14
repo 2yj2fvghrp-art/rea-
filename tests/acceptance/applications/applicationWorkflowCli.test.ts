@@ -4,7 +4,6 @@ import { copyFile, mkdir, writeFile } from "node:fs/promises";
 import { createRequire } from "node:module";
 import { join, relative, resolve } from "node:path";
 import { promisify } from "node:util";
-import { pathToFileURL } from "node:url";
 
 import { Client } from "@modelcontextprotocol/client";
 import { StdioClientTransport } from "@modelcontextprotocol/client/stdio";
@@ -1234,7 +1233,7 @@ describe("application workflow CLI and MCP capture lifetimes", () => {
         "--input-type=module",
         "--eval",
         "const module = await import(process.argv[1]); console.log(JSON.stringify(module.default()));",
-        pathToFileURL(join(root, String(index), "parser.mjs")).href,
+        join(root, String(index), "parser.mjs"),
       ]);
       expect(JSON.parse(stdout)).toEqual({
         kind: "capture-boundary",
@@ -1605,18 +1604,10 @@ const runCli = async (
   arguments_: readonly string[],
   environment: Readonly<Record<string, string>> = {},
 ): Promise<unknown> => {
-  const cliArguments = [...arguments_];
-  const input = cliArguments[1];
-  if (input?.startsWith("{")) {
-    const directory = await createTestTempDirectory("rea-workflow-cli-input-");
-    const path = join(directory, "input.json");
-    await writeFile(path, input);
-    cliArguments[1] = path;
-  }
   try {
     const { stdout } = await execute(
       process.execPath,
-      ["scripts/rea.mjs", ...cliArguments],
+      ["scripts/rea.mjs", ...arguments_],
       {
         cwd: process.cwd(),
         env: { ...process.env, ...environment },
