@@ -54,34 +54,36 @@ export interface ParsedInventorySet {
 export const parseArtifactInventoryEvidence = (
   input: unknown,
 ): ParsedInventorySet => {
-  const pages = (Array.isArray(input) ? input : [input]).map((value) => {
-    const evidence = parseEvidence(value);
+  const evidence = (Array.isArray(input) ? input : [input]).map((value) =>
+    parseEvidence(value),
+  );
+  const pages = evidence.flatMap((sourceEvidence) => {
     const inventoryEvidence =
-      evidence.operation === "inventory_artifact"
-        ? evidence
-        : evidence.operation === "inspect_artifact"
-          ? artifactInspectionResultSchema.parse(evidence.normalized_result)
-              .substeps[0]?.evidence
-          : undefined;
-    if (inventoryEvidence === undefined)
+      sourceEvidence.operation === "inventory_artifact"
+        ? [sourceEvidence]
+        : sourceEvidence.operation === "inspect_artifact"
+          ? artifactInspectionResultSchema.parse(sourceEvidence.normalized_result)
+              .substeps.map(({ evidence: nestedEvidence }) => nestedEvidence)
+          : [];
+    if (inventoryEvidence.length === 0)
       throw new TypeError(
         "Artifact comparison requires inspect_artifact Evidence",
       );
-    const inventory = artifactInventoryResultSchema.parse(
-      inventoryEvidence.normalized_result,
-    );
-    validateArtifactInventorySubject(
-      inventoryEvidence.subject,
-      inventory.manifest,
-    );
-    validateInventoryPage(inventory);
-    return { evidence, inventory };
+    return inventoryEvidence.map((nestedEvidence) => {
+      const inventory = artifactInventoryResultSchema.parse(
+        nestedEvidence.normalized_result,
+      );
+      validateArtifactInventorySubject(
+        nestedEvidence.subject,
+        inventory.manifest,
+      );
+      validateInventoryPage(inventory);
+      return inventory;
+    });
   });
   return {
-    evidence: pages.map(({ evidence }) => evidence),
-    inventory: assembleInventoryResults(
-      pages.map(({ inventory }) => inventory),
-    ),
+    evidence,
+    inventory: assembleInventoryResults(pages),
   };
 };
 
