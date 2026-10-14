@@ -88,6 +88,8 @@ export const SCOPES = {
   ],
   // Four-host installed-package matrix and the Windows curated lane.
   package: [
+    "src/wasm/WasmGlueAdapter.ts",
+    "src/wasm/WabtOutput.test.ts",
     "src/windows/**",
     "native/windows/**",
     "src/process/capture/FilesystemSnapshot.ts",

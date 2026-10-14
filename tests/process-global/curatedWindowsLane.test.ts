@@ -55,6 +55,12 @@ const exists = async (path: string): Promise<boolean> =>
   );
 
 describe("curated Windows test lane", () => {
+  it("runs the WASM path namespace regressions on Windows", async () => {
+    expect(await explicitPaths("windows")).toContain(
+      "src/wasm/WabtOutput.test.ts",
+    );
+  });
+
   it("references only test files that exist", async () => {
     const paths = await explicitPaths("windows");
     expect(paths.length).toBeGreaterThan(0);

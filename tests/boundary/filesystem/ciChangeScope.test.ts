@@ -748,6 +748,14 @@ it.each([
     { code: true, package: true, runtime: true, apple: false },
   ],
   [
+    "src/wasm/WasmGlueAdapter.ts",
+    { code: true, package: true, runtime: true, apple: false },
+  ],
+  [
+    "src/wasm/WabtOutput.test.ts",
+    { code: true, package: true, runtime: true, apple: false },
+  ],
+  [
     "src/process/ProcessOwnership.test.ts",
     { code: true, package: true, apple: false, evm: false, browser: false },
   ],

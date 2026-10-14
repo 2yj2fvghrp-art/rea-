@@ -715,6 +715,7 @@ jobs:
       - name: Run curated Windows capability tests
         run: >-
           npx vitest run --coverage.enabled=false
+          src/wasm/WabtOutput.test.ts
           src/process/capture/FilesystemSnapshot.test.ts
           tests/process-global/filesystemSnapshotFallbackCancellation.test.ts
           tests/boundary/filesystem/binaryTarget.test.ts
