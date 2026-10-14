@@ -55,6 +55,7 @@ const emptyManagedMembers = (
   field_accesses: [],
   user_strings: { state: "complete", literals: [], issues: [] },
   selection: null,
+  debug_map: null,
   coverage: { state: "complete", issues: [] },
   limitations: [],
 });
