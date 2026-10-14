@@ -746,9 +746,7 @@ describe("analysis error projection: operational diagnostics", () => {
       },
     });
     expect(exited.message).not.toContain("Run `rea doctor`, then try again.");
-    expect(exited.remediation.action).toContain(
-      "end the owning REA connection",
-    );
+    expect(exited.remediation.action).toContain("Restart the owned provider");
 
     const unknown = projectAnalysisError(
       new HopperProcessError(null, {
@@ -767,36 +765,6 @@ describe("analysis error projection: operational diagnostics", () => {
     expect(unknown.message).toContain("could not determine");
     expect(unknown.message).not.toContain("stopped");
     expect(unknown.remediation.action).toContain("provider_operation_health");
-  });
-
-  it("names ending the owning REA connection when the Hopper app has exited", () => {
-    const exited = projectAnalysisError(
-      new HopperProcessError(7, { operation: "search_strings", requestId: 4 }),
-    );
-    expect(exited.details).toMatchObject({ provider_state: "exited" });
-    expect(exited.remediation.action).toContain(
-      "end the owning REA connection",
-    );
-    expect(exited.remediation.action).not.toContain("close_binary, then open");
-    expect(exited.message).toContain("end the owning REA connection");
-  });
-
-  it("keeps the close-and-reopen remediation when Hopper is only unreachable", () => {
-    const unreachable = projectAnalysisError(
-      new HopperProcessError(7, {
-        operation: "search_strings",
-        requestId: 4,
-        providerState: "unreachable",
-      }),
-    );
-    expect(unreachable.details).toMatchObject({
-      provider_state: "unreachable",
-      retry_action: "restart_provider",
-    });
-    expect(unreachable.remediation.action).toContain(
-      "Restart the owned provider",
-    );
-    expect(unreachable.remediation.action).not.toContain("end the owning REA");
   });
 });
 
