@@ -3,7 +3,7 @@
   "repository": "morluto/rea",
   "version": "6.5.0",
   "base": "a56f7bb668ab23fec8d33f7af353ac7ed2fe1895",
-  "target": "c2b79aa462af6a7eaff26124f39473417f2a5ff0",
+  "target": "f75b1a416ba67b8421e7dbd248160afedb79581f",
   "commits": [
     {
       "sha": "0ecf3f2438ec96a6b543942869808018e8d84452",
@@ -19948,6 +19948,40 @@
       "subject": "test(doctor): separate Hopper availability and version assertions",
       "body": "test(doctor): separate Hopper availability and version assertions\n",
       "parents": ["efe0923914312487e790f059837f6f89eefce16f"],
+      "authors": [
+        {
+          "name": "morluto",
+          "email": "76467478+morluto@users.noreply.github.com",
+          "user": {
+            "login": "morluto",
+            "__typename": "User"
+          }
+        }
+      ],
+      "pullRequests": []
+    },
+    {
+      "sha": "0686b07546d0e2bdc01ff936c5ba7678b045bece",
+      "subject": "test(doctor): retain discovered Hopper paths despite version failures",
+      "body": "test(doctor): retain discovered Hopper paths despite version failures\n",
+      "parents": ["c2b79aa462af6a7eaff26124f39473417f2a5ff0"],
+      "authors": [
+        {
+          "name": "morluto",
+          "email": "76467478+morluto@users.noreply.github.com",
+          "user": {
+            "login": "morluto",
+            "__typename": "User"
+          }
+        }
+      ],
+      "pullRequests": []
+    },
+    {
+      "sha": "f75b1a416ba67b8421e7dbd248160afedb79581f",
+      "subject": "test(browser): retain bounded diagnostics for scenario policy failures",
+      "body": "test(browser): retain bounded diagnostics for scenario policy failures\n",
+      "parents": ["0686b07546d0e2bdc01ff936c5ba7678b045bece"],
       "authors": [
         {
           "name": "morluto",
