@@ -105,6 +105,75 @@ describe("HTML base href dot segments", () => {
     },
   );
 });
+describe("HTML URL path identity", () => {
+  it.each([
+    ["./app.js/.", "", "/renderer/app.js/"],
+    ["./app.js/child/..", "", "/renderer/app.js/"],
+    ["./app.js/.?cache=1#entry", "/assets/", "/assets/app.js/"],
+    ["/assets/app.js/.", "", "/assets/app.js/"],
+    ["./app.js/", "/assets/", "/assets/app.js/"],
+  ])(
+    "does not associate directory-form reference %s under base %s with a file",
+    (declared, base, pathname) => {
+      expect(new URL(declared, new URL(base, documentUrl)).pathname).toBe(
+        pathname,
+      );
+      const outcome = resolve(declared, base);
+      expect(outcome).toMatchObject({
+        declared_path: declared,
+        resolution_status: "not-found",
+        resolved_path: null,
+      });
+    },
+  );
+
+  it.each([
+    ["./a//app.js", "/renderer/a//app.js"],
+    ["./a//../app.js", "/renderer/a/app.js"],
+    ["/assets//app.js", "/assets//app.js"],
+  ])(
+    "keeps reference %s unavailable rather than collapsing empty URL segments",
+    (declared, pathname) => {
+      expect(new URL(declared, documentUrl).pathname).toBe(pathname);
+      expect(resolve(declared, "")).toMatchObject({
+        declared_path: declared,
+        resolution_status: "unavailable",
+        resolved_path: null,
+      });
+    },
+  );
+
+  it.each([
+    ["a//", "/renderer/a//app.js"],
+    ["a//../", "/renderer/a/app.js"],
+    ["/assets//", "/assets//app.js"],
+    ["/assets//../", "/assets/app.js"],
+  ])(
+    "keeps base %s unavailable without changing its URL identity",
+    (base, pathname) => {
+      expect(new URL("app.js", new URL(base, documentUrl)).pathname).toBe(
+        pathname,
+      );
+      expect(resolve("app.js", base)).toMatchObject({
+        resolution_status: "unavailable",
+        resolved_path: null,
+      });
+    },
+  );
+
+  it("preserves ordinary dot segments and path-looking URL suffixes", () => {
+    const declared = "./a/../app.js?cache=//#entry";
+    const base = "/assets/./?cache=//";
+    expect(new URL(declared, new URL(base, documentUrl)).pathname).toBe(
+      "/assets/app.js",
+    );
+    expect(resolve(declared, base)).toMatchObject({
+      declared_path: declared,
+      resolution_status: "resolved",
+      resolved_path: "assets/app.js",
+    });
+  });
+});
 describe("HTML base href path syntax", () => {
   it.each(["%2e%2e/secret/", "/a/%2e%2e/", "/a\\b/", "a\0b"])(
     "rejects base href %j with the same admission rules a declared path gets",
