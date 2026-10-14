@@ -86,8 +86,10 @@ outside this mutation pass.
 
 Function fingerprints commit normalized syntax, control-flow shape, relation
 shape, literal sets, arity, and detected effects without using local names or
-source offsets. Normalized syntax distinguishes ordinary/delegating `yield` and
-prefix/postfix updates. Equal duplicate fingerprints remain ambiguous.
+source offsets. Function-local directive literals contribute their values while
+preserving escape spelling: `"use\x20strict"` differs from `"use strict"`.
+Quote style, formatting, and local names remain normalized. Equal duplicate
+fingerprints remain ambiguous.
 Fingerprints are static candidates, not behavioral-equivalence proofs or a
 version-independent identity. Re-analyze affected sources and obtain new seeds
 after analyzer corrections; previously retained Evidence remains queryable using

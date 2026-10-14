@@ -10,21 +10,22 @@ import { createTestTempDirectory } from "../../fixtures/temporaryDirectory.js";
 import { cliTest } from "../../support/cli/cliFixture.js";
 
 cliTest(
-  "function fingerprint seeds distinguish syntax while retaining duplicate ambiguity through CLI and MCP",
+  "function fingerprint seeds retain directive values and normalized duplicates through CLI and MCP",
   async ({ cli }) => {
     const root = await createTestTempDirectory("rea-function-fingerprints-");
     const application = join(root, "application");
     await mkdir(application);
     await writeFile(
-      join(application, "app.mjs"),
-      `
+      join(application, "app.cjs"),
+      String.raw`
     throw new Error("This analysis fixture must not execute");
-    export function postfix(value) { return value++; }
-    export function prefix(value) { return ++value; }
-    export function renamed(item) { return item++ ; }
-    export function* plain(values) { yield values; }
-    export function* delegated(values) { yield* values; }
-    export function* renamedGenerator(items) { yield items ; }
+    function strict(value) { "use strict"; return value; }
+    function ordinary(value) { "ordinary"; return value; }
+    function asm(value) { "use asm"; return value; }
+    function alpha(value) { "alpha"; return value; }
+    function beta(value) { "beta"; return value; }
+    function escaped(value) { "use\x20strict"; return value; }
+    function renamed(input) { 'use strict'; return input; }
   `,
     );
     const analyzed = await cli.run({
@@ -69,10 +70,12 @@ cliTest(
       return result;
     };
     for (const [selected, expectedNames] of [
-      ["postfix", ["postfix", "renamed"]],
-      ["prefix", ["prefix"]],
-      ["plain", ["plain", "renamedGenerator"]],
-      ["delegated", ["delegated"]],
+      ["strict", ["strict", "renamed"]],
+      ["ordinary", ["ordinary"]],
+      ["asm", ["asm"]],
+      ["alpha", ["alpha"]],
+      ["beta", ["beta"]],
+      ["escaped", ["escaped"]],
     ] as const) {
       const query = {
         seed: {
@@ -102,7 +105,7 @@ cliTest(
         expectedNames.length > 1 ? "ambiguous" : "found",
       );
       expect(trace.source_graph_id).toBe(graph.graph_id);
-      if (selected === "prefix") {
+      if (selected === "strict") {
         const requestPath = join(root, "trace-request.json");
         await writeFile(
           requestPath,

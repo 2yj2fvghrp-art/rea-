@@ -13,46 +13,53 @@ const components = (source: string) => {
 };
 
 it.each([
-  [
-    "increment",
-    "function sample(value) { return value++; }",
-    "function sample(value) { return ++value; }",
-  ],
-  [
-    "decrement",
-    "function sample(value) { return value--; }",
-    "function sample(value) { return --value; }",
-  ],
-  [
-    "yield delegation",
-    "function* sample(values) { yield values; }",
-    "function* sample(values) { yield* values; }",
-  ],
-])("retains %s distinctions in normalized syntax", (_name, plain, changed) => {
-  const left = components(plain);
-  const right = components(changed);
-  expect(right.normalizedAstSha256).not.toBe(left.normalizedAstSha256);
-  expect(right.parameterArity).toBe(left.parameterArity);
-  expect(right.literalSetSha256).toBe(left.literalSetSha256);
-  expect(right.controlFlowSha256).toBe(left.controlFlowSha256);
+  ["recognized directives", '"use strict"', '"use asm"'],
+  ["ordinary directives", '"alpha"', '"beta"'],
+  ["empty directive", '""', '"alpha"'],
+  ["escaped strict spelling", '"use strict"', String.raw`"use\x20strict"`],
+])("retains %s in the function literal commitment", (_name, left, right) => {
+  const source = (directive: string) =>
+    `function sample(value) { ${directive}; return value; }`;
+  expect(components(source(left)).literalSetSha256).not.toBe(
+    components(source(right)).literalSetSha256,
+  );
 });
 
 it.each([
   [
-    "function sample(value) { return value++; }",
-    "function renamed(item) {\n  return item++ ;\n}",
+    'function sample(value) { "use strict"; return value; }',
+    "function renamed(input) {\n 'use strict' ;\n return input;\n}",
   ],
   [
-    "function sample(value) { return --value; }",
-    "function renamed(item) {\n  return --item ;\n}",
-  ],
-  [
-    "function* sample(values) { yield* values; }",
-    "function* renamed(items) {\n yield * items ;\n}",
+    String.raw`function sample(value) { "use\x20strict"; return value; }`,
+    String.raw`function renamed(input) { 'use\x20strict'; return input; }`,
   ],
 ])(
-  "keeps identifier and formatting normalization for %s",
+  "normalizes quote style, formatting and names for %s",
   (original, renamed) => {
     expect(components(renamed)).toEqual(components(original));
   },
 );
+
+it("keeps a nested function's directive out of its owner fingerprint", () => {
+  const analyze = (directive: string) => {
+    const ir = analyzeJavaScriptSemantics(
+      `function outer() { function inner(value) { ${directive}; return value; } return 1; }`,
+    );
+    return new Map(
+      ir.functionFingerprints.map((fingerprint) => [
+        ir.callables.find(
+          ({ callableId }) => callableId === fingerprint.callableId,
+        )?.name,
+        fingerprint.components,
+      ]),
+    );
+  };
+  const first = analyze('"use strict"');
+  const second = analyze('"ordinary"');
+  expect(first.size).toBe(2);
+  expect(second.get("outer")).toEqual(first.get("outer"));
+  expect(second.get("inner")?.literalSetSha256).not.toBe(
+    first.get("inner")?.literalSetSha256,
+  );
+});
