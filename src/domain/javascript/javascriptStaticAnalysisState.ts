@@ -53,6 +53,8 @@ export interface JavaScriptAnalysisAccumulator {
   readonly utilityProcesses: LocatedJavaScriptFinding<ElectronUtilityProcessFinding>[];
   readonly nativeAddonBindings: LocatedJavaScriptFinding<ElectronNativeAddonBindingFinding>[];
   readonly moduleRangeIndex: JavaScriptModuleRangeIndex;
+  /** Binding identities proven as third-parameter loaders of recovered factories. */
+  readonly factoryRequireBindingIds: Set<string>;
   /** `preload` attributes of audio and video elements, which are not scripts. */
   readonly mediaElementPreloads: WeakSet<t.Node>;
   readonly seen: Set<string>;
@@ -88,6 +90,7 @@ export interface JavaScriptEndpointInput {
   readonly kind: JavaScriptStaticEndpoint["kind"];
   readonly value: string;
   readonly mechanism: string;
+  readonly interpretation?: "candidate";
 }
 
 /** Values required to append one module-attributable static finding. */
@@ -117,6 +120,7 @@ export const createJavaScriptAnalysisAccumulator = (
   utilityProcesses: [],
   nativeAddonBindings: [],
   moduleRangeIndex: new JavaScriptModuleRangeIndex(sourceLength),
+  factoryRequireBindingIds: new Set(),
   mediaElementPreloads: new WeakSet(),
   seen: new Set(),
   visitedNodes: 0,

@@ -310,7 +310,7 @@ function* aliasProducerInputsSteps(
     const inputs: {
       source: AliasVertex;
       first: CacheKey;
-      copyKeepsCache: boolean;
+      copyKeepsCache?: boolean;
     }[] = [];
     let overwritten = false;
     let examined = 0;
@@ -364,7 +364,7 @@ function* aliasProducerInputsSteps(
     const inputs: {
       source: AliasVertex;
       first: CacheKey;
-      copyKeepsCache: boolean;
+      copyKeepsCache?: boolean;
     }[] = [];
     let overwritten = false;
     let examined = 0;

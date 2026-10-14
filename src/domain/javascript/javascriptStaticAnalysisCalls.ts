@@ -1,4 +1,5 @@
 import * as t from "@babel/types";
+import { traverseJavaScriptAst } from "./javascriptSemanticTraversal.js";
 
 import { htmlUrlText, stripQueryAndFragment } from "../artifactPathSyntax.js";
 import { sanitizeEndpointCandidate } from "../browserObservation.js";
@@ -39,6 +40,11 @@ import {
   isUnmodifiedGlobalReference,
   isUnmodifiedImportMetaUrl,
 } from "./javascriptSemanticAmbientWrites.js";
+import {
+  semanticFactoryLoaderMemberAt,
+  semanticFactoryRequireLoaderAt,
+  semanticRequireLoaderAt,
+} from "./javascriptSemanticRequireOrigin.js";
 
 type JavaScriptCallLike =
   | t.CallExpression
@@ -54,16 +60,14 @@ export const inspectCall = (
   const { accumulator } = context;
   const name = calleeName(node.callee);
   const first = stringValue(node.arguments[0]);
-  const module = context.accumulator.moduleRangeIndex.find(node.start);
-  const moduleRequireName = module?.requireName ?? null;
-  const requireCall = requireCallSpecifier(node, name, moduleRequireName);
+  const requireCall = requireCallSpecifier(node, bindings, context);
   if (requireCall !== null)
     addReference(context, {
       node,
       kind: "require",
       specifier: requireCall.specifier,
     });
-  const chunkLoad = chunkLoadSpecifier(node, name, moduleRequireName);
+  const chunkLoad = chunkLoadSpecifier(node, bindings, context);
   if (chunkLoad !== null)
     addReference(context, {
       node,
@@ -96,13 +100,19 @@ export const inspectCall = (
           ? undefined
           : workerUrlSpecifier(worker, bindings)),
     });
-  if (name.endsWith("serviceWorker.register"))
+  if (
+    name === "serviceWorker.register" ||
+    name.endsWith(".serviceWorker.register")
+  )
     addReference(context, { node, kind: "service-worker", specifier: first });
   inspectEndpointCall(node, name, first, context);
   inspectStorageCall(node, name, first, context);
   if (first === "audio" || first === "video")
     noteMediaElementPreloads(node, accumulator);
-  if (name.endsWith("loadFile") && first !== undefined)
+  if (
+    (name === "loadFile" || name.endsWith(".loadFile")) &&
+    first !== undefined
+  )
     addLocatedFinding(context, {
       collection: accumulator.roles,
       key: `role\0renderer\0${first}`,
@@ -116,7 +126,7 @@ export const inspectCall = (
         location: range(node),
       },
     });
-  if (name.endsWith("loadURL") && first !== undefined)
+  if ((name === "loadURL" || name.endsWith(".loadURL")) && first !== undefined)
     addLocatedFinding(context, {
       collection: accumulator.roles,
       key: `role\0renderer\0${first}`,
@@ -214,31 +224,61 @@ const noteMediaElementPreloads = (
 
 const requireCallSpecifier = (
   node: JavaScriptCallLike,
-  name: string,
-  moduleRequireName: string | null,
+  bindings: JavaScriptSemanticAnalysisState,
+  context: FindingContext,
 ): { readonly specifier: string | undefined } | null => {
-  if (name === "require" || name.endsWith(".require"))
-    return { specifier: argumentValue(node.arguments[0]) };
-  if (name === "__webpack_require__" || name === moduleRequireName)
-    return { specifier: argumentValue(node.arguments[0]) };
-  if (
-    name === "__webpack_require__.bind" ||
-    (moduleRequireName !== null && name === `${moduleRequireName}.bind`)
-  )
-    return { specifier: argumentValue(node.arguments[1]) };
+  const bareRequire = t.isIdentifier(node.callee, { name: "require" });
+  if (bareRequire) {
+    const loader = semanticRequireLoaderAt(
+      node,
+      bindings,
+      context.accumulator.factoryRequireBindingIds,
+    );
+    if (loader === "local") return null;
+    if (loader === "unknown") context.accumulator.unknownFindings += 1;
+    return {
+      specifier:
+        loader === "unknown" ? undefined : argumentValue(node.arguments[0]),
+    };
+  }
+  const factoryLoader = semanticFactoryRequireLoaderAt(
+    node,
+    bindings,
+    context.accumulator.factoryRequireBindingIds,
+  );
+  if (factoryLoader === "factory-loader")
+    return {
+      specifier: argumentValue(
+        node.arguments[
+          t.isMemberExpression(unwrapJavaScriptExpression(node.callee).node) ||
+          t.isOptionalMemberExpression(
+            unwrapJavaScriptExpression(node.callee).node,
+          )
+            ? 1
+            : 0
+        ],
+      ),
+    };
+  if (factoryLoader === "unknown") {
+    context.accumulator.unknownFindings += 1;
+    return { specifier: undefined };
+  }
   return null;
 };
 
 const chunkLoadSpecifier = (
   node: JavaScriptCallLike,
-  name: string,
-  moduleRequireName: string | null,
+  bindings: JavaScriptSemanticAnalysisState,
+  context: FindingContext,
 ): { readonly specifier: string | undefined } | null => {
-  if (
-    name !== "__webpack_require__.e" &&
-    (moduleRequireName === null || name !== `${moduleRequireName}.e`)
-  )
-    return null;
+  const loader = semanticFactoryLoaderMemberAt(
+    node,
+    bindings,
+    context.accumulator.factoryRequireBindingIds,
+    "e",
+  );
+  if (loader === undefined) return null;
+  if (loader === "unknown") return { specifier: undefined };
   return { specifier: prefixedArgument("chunk:", node.arguments[0]) };
 };
 
@@ -269,8 +309,9 @@ const inspectEndpointCall = (
     addEndpoint(context, {
       node,
       kind: "network",
-      value: endpoint,
+      value: endpoint.value,
       mechanism: `call:${name}`,
+      ...(endpoint.kind === "candidate" ? { interpretation: "candidate" } : {}),
     });
 };
 
@@ -286,11 +327,12 @@ export const inspectRouteProperty = (
   context: FindingContext,
 ): void => {
   const key = semanticStaticPropertyName(node.key, node.computed);
-  if ((key === "path" || key === "route") && t.isStringLiteral(node.value))
+  const value = stringValue(node.value);
+  if ((key === "path" || key === "route") && value !== undefined)
     addEndpoint(context, {
       node,
       kind: "route",
-      value: node.value.value,
+      value,
       mechanism: `property:${key}`,
     });
 };
@@ -378,12 +420,15 @@ export const addReference = (
 const addEndpoint = (context: FindingContext, input: EndpointInput): void =>
   addLocatedFinding(context, {
     collection: context.accumulator.endpoints,
-    key: `endpoint\0${input.kind}\0${input.value}`,
+    key: `endpoint\0${input.kind}\0${input.interpretation ?? "literal"}\0${input.value}`,
     node: input.node,
     value: {
       kind: input.kind,
       value: sanitizeEndpointCandidate(input.value),
       mechanism: input.mechanism,
+      ...(input.interpretation === undefined
+        ? {}
+        : { interpretation: input.interpretation }),
       module_key: null,
       location: range(input.node),
     },
