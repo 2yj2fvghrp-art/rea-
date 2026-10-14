@@ -306,7 +306,7 @@ describe("Ghidra incomplete Java observations", () => {
     { name: "known 128-bit runtime", major: 21, bits: 128, min: 21, max: 25 },
   ])(
     "classifies incomplete Java evidence: $name",
-    ({ major, bits, min, max }) => {
+    ({ name, major, bits, min, max }) => {
       const readText = () =>
         `application.version=12.1.4\napplication.java.min=${min}\napplication.java.max=${max}\n`;
       const incomplete: IncompleteGhidraJavaObservation = {
