@@ -4,9 +4,11 @@ import { join } from "node:path";
 import { expect } from "vitest";
 
 import { toolContract } from "../../src/contracts/toolContracts.js";
+import { analysisErrorProjectionSchema } from "../../src/contracts/errorSchemas.js";
 import { createRustElfWithGoSection } from "../fixtures/rust/image.js";
 import { createTestTempDirectory } from "../fixtures/temporaryDirectory.js";
 import { connectLocalToolsMcp } from "../fixtures/localToolsMcp.js";
+import { parseMcpToolError } from "../fixtures/mcpToolError.js";
 import { cliTest } from "../support/cli/cliFixture.js";
 
 cliTest.for(["CLI", "stdio MCP"] as const)(
@@ -29,7 +31,9 @@ cliTest.for(["CLI", "stdio MCP"] as const)(
         );
         return {
           success: response.isError !== true,
-          document: response.structuredContent ?? response.content,
+          document: response.isError
+            ? parseMcpToolError(response).error
+            : response.structuredContent,
         };
       }
       const response = await cli.run({
@@ -66,9 +70,30 @@ cliTest.for(["CLI", "stdio MCP"] as const)(
       if (name === "extra") metadata = report.auditable_metadata;
       else expect(report.auditable_metadata).toEqual(metadata);
     }
+    const goControl = await inspect(join(root, "extra.elf"), "go");
+    expect(goControl.success, JSON.stringify(goControl.document)).toBe(true);
+    expect(
+      toolContract("inspect_go_binary").outputSchema.parse(goControl.document)
+        .normalized_result.build_info,
+    ).toBeNull();
     const go = await inspect(join(root, "go.elf"), "go");
     expect(go.success).toBe(false);
-    expect(JSON.stringify(go.document)).toContain("invalid_request");
+    expect(analysisErrorProjectionSchema.parse(go.document)).toMatchObject({
+      code: "invalid_request",
+      category: "invalid_input",
+      details: {
+        operation: "inspect_go_binary",
+        issues: expect.arrayContaining([
+          expect.objectContaining({
+            path: ["path"],
+            reason: "invalid_format",
+            message: expect.stringContaining(
+              "Virtual address or string range is not file mapped",
+            ),
+          }),
+        ]),
+      },
+    });
     const brokenTable = Buffer.from(bytes);
     brokenTable.writeBigUInt64LE(BigInt(bytes.length + 64), 40);
     const brokenDependency = Buffer.from(bytes);
