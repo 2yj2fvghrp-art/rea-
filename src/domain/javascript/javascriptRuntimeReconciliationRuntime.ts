@@ -525,6 +525,9 @@ const runtimeSectionComplete = (
   if (section === "scripts") return capture.scriptsCompleteWithinScope;
   return (
     !capture.inspection.completeness.truncated_sections.includes(section) &&
+    !capture.inspection.completeness.attach_limited_sections.includes(
+      section,
+    ) &&
     !capture.inspection.completeness.unavailable_sections.includes(section)
   );
 };

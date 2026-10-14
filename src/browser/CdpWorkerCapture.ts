@@ -23,7 +23,12 @@ const workerAutoAttachParameters = {
   autoAttach: true,
   waitForDebuggerOnStart: false,
   flatten: true,
-  filter: [{ type: "worker" }, { type: "service_worker" }, { exclude: true }],
+  filter: [
+    { type: "iframe" },
+    { type: "worker" },
+    { type: "service_worker" },
+    { exclude: true },
+  ],
 };
 
 type Worker = WebPageInspection["workers"][number];
@@ -33,6 +38,7 @@ interface WorkerState {
   sessionId: string | undefined;
   detached: boolean;
   enabled: boolean;
+  domains: Set<string>;
   autoAttach: boolean;
   events: CdpCaptureEvents;
   sources: Map<string, Observation["scripts"][number]>;
@@ -42,10 +48,19 @@ interface WorkerState {
 export class CdpWorkerCapture {
   readonly #workers = new Map<string, WorkerState>();
   readonly #sessions = new Map<string, WorkerState>();
+  readonly #frames = new Map<
+    string,
+    { targetId: string; detached: boolean; autoAttach: boolean }
+  >();
   readonly #controlled = new Set<string>();
   readonly #versionsByTarget = new Map<string, Observation["lifecycle"]>();
   readonly #pending = new Set<Promise<void>>();
   readonly #invalidTargets = new Set<string>();
+  readonly #sourceReads: {
+    worker: WorkerState;
+    item: Observation["scripts"][number];
+  }[] = [];
+  #readingSources = false;
   #failure: unknown;
   #removeListener: (() => void) | undefined;
   #stopped = false;
@@ -131,10 +146,12 @@ export class CdpWorkerCapture {
             "not_approved",
             worker.sources.size,
           );
-        if (!worker.enabled) {
+        if (!worker.domains.has("Debugger"))
           worker.events.completeness.unavailable("scripts");
+        if (!worker.domains.has("Network"))
           worker.events.completeness.unavailable("network_requests");
-        }
+        if (!worker.domains.has("Runtime"))
+          worker.events.completeness.unavailable("metadata");
         worker.item.observation.network_requests = [
           ...worker.events.network.values(),
         ];
@@ -182,6 +199,16 @@ export class CdpWorkerCapture {
     for (const [sessionId, worker] of this.#sessions) {
       if (worker.detached) continue;
       if (worker.autoAttach)
+        await send(
+          "Target.setAutoAttach",
+          { autoAttach: false, waitForDebuggerOnStart: false, flatten: true },
+          sessionId,
+        );
+      await send("Target.detachFromTarget", { sessionId });
+    }
+    for (const [sessionId, frame] of this.#frames) {
+      if (frame.detached) continue;
+      if (frame.autoAttach)
         await send(
           "Target.setAutoAttach",
           { autoAttach: false, waitForDebuggerOnStart: false, flatten: true },
@@ -273,6 +300,7 @@ export class CdpWorkerCapture {
       sessionId: undefined,
       detached: false,
       enabled: false,
+      domains: new Set(),
       autoAttach: false,
       events: new CdpCaptureEvents(this.context.input, this.allowedOrigins),
       sources: new Map(),
@@ -287,11 +315,15 @@ export class CdpWorkerCapture {
     if (
       event.sessionId !== this.context.sessionId &&
       !this.#sessions.has(event.sessionId ?? "") &&
+      !this.#frames.has(event.sessionId ?? "") &&
       !(
         event.method === "Target.detachedFromTarget" &&
-        this.#sessions.has(
+        (this.#sessions.has(
           cdpStringValue(recordValue(event.params)?.sessionId) ?? "",
-        )
+        ) ||
+          this.#frames.has(
+            cdpStringValue(recordValue(event.params)?.sessionId) ?? "",
+          ))
       )
     )
       return;
@@ -322,8 +354,14 @@ export class CdpWorkerCapture {
         event.sessionId === this.context.sessionId
           ? undefined
           : this.#sessions.get(event.sessionId ?? "");
-      if (event.sessionId !== this.context.sessionId && parent === undefined)
+      const frameParent = this.#frames.get(event.sessionId ?? "");
+      if (
+        event.sessionId !== this.context.sessionId &&
+        parent === undefined &&
+        frameParent === undefined
+      )
         return;
+      if (parent?.detached || frameParent?.detached) return;
       const info = recordValue(params.targetInfo);
       const sessionId = cdpStringValue(params.sessionId);
       if (sessionId === undefined || sessionId.length === 0)
@@ -331,6 +369,56 @@ export class CdpWorkerCapture {
           this.context.operation,
           "protocol_error",
         );
+      if (info?.type === "iframe") {
+        if (parent !== undefined) return;
+        const targetId = cdpStringValue(info.targetId);
+        if (targetId === undefined || targetId.length === 0)
+          throw new BrowserObservationError(
+            this.context.operation,
+            "protocol_error",
+          );
+        if (allowedSanitizedUrl(info.url, this.allowedOrigins) === undefined) {
+          this.pageEvents.completeness.exclude(
+            "workers",
+            exclusionReasonForUrl(cdpStringValue(info.url)),
+            null,
+          );
+          return;
+        }
+        const existing = this.#frames.get(sessionId);
+        if (
+          this.#sessions.has(sessionId) ||
+          (existing !== undefined && existing.targetId !== targetId)
+        )
+          throw new BrowserObservationError(
+            this.context.operation,
+            "protocol_error",
+          );
+        if (existing !== undefined) return;
+        const frame = { targetId, detached: false, autoAttach: false };
+        this.#frames.set(sessionId, frame);
+        this.#queue(async () => {
+          if (frame.detached) return;
+          try {
+            const result = await this.#command(
+              "Target.setAutoAttach",
+              workerAutoAttachParameters,
+              sessionId,
+            );
+            frame.autoAttach = result !== undefined;
+          } catch (cause) {
+            if (
+              this.signal.aborted ||
+              !(cause instanceof CdpCommandRejection) ||
+              cause.code !== -32_000
+            )
+              throw cause;
+          }
+          if (!frame.autoAttach)
+            this.pageEvents.completeness.unavailable("workers");
+        });
+        return;
+      }
       const worker = info === undefined ? undefined : this.#admit(info);
       if (worker === undefined) return;
       if (
@@ -345,7 +433,18 @@ export class CdpWorkerCapture {
       return;
     }
     if (event.method === "Target.detachedFromTarget") {
-      const worker = this.#sessions.get(cdpStringValue(params.sessionId) ?? "");
+      const sessionId = cdpStringValue(params.sessionId);
+      if (sessionId === undefined || sessionId.length === 0)
+        throw new BrowserObservationError(
+          this.context.operation,
+          "protocol_error",
+        );
+      const frame = this.#frames.get(sessionId);
+      if (frame !== undefined) {
+        frame.detached = true;
+        this.pageEvents.completeness.unavailable("workers");
+      }
+      const worker = this.#sessions.get(sessionId);
       if (worker !== undefined) {
         worker.detached = true;
         worker.item.observation.lifecycle.push({
@@ -427,21 +526,37 @@ export class CdpWorkerCapture {
       return;
     }
     worker.sources.set(script.scriptId, item);
-    if (this.context.input.include_script_sources)
-      this.#queue(async () => {
+    if (this.context.input.include_script_sources) {
+      this.#sourceReads.push({ worker, item });
+      if (this.#readingSources) return;
+      this.#readingSources = true;
+      this.#queue(() => this.#readSources());
+    }
+  }
+
+  async #readSources(): Promise<void> {
+    try {
+      for (
+        let index = 0;
+        index < this.#sourceReads.length && !this.signal.aborted;
+        index++
+      ) {
+        const { worker, item } = this.#sourceReads[index]!;
         try {
-          const source = await this.#command(
-            "Debugger.getScriptSource",
-            { scriptId: script.scriptId },
-            worker.sessionId,
-            worker.item.observation.limitations,
-          );
+          const source = worker.detached
+            ? undefined
+            : await this.#command(
+                "Debugger.getScriptSource",
+                { scriptId: item.script_id },
+                worker.sessionId,
+                worker.item.observation.limitations,
+              );
           if (source === undefined) {
             item.source = sourceExcluded(
               "Worker source retrieval is unavailable",
             );
             worker.events.completeness.unavailable("script_sources");
-            return;
+            continue;
           }
           const text = requiredScriptSource(source, this.context.operation);
           this.#sourceBytes += Buffer.byteLength(text);
@@ -463,13 +578,23 @@ export class CdpWorkerCapture {
             worker.events.completeness.unavailable("script_sources");
           } else throw cause;
         }
-      });
+      }
+    } finally {
+      this.#sourceReads.length = 0;
+      this.#readingSources = false;
+    }
   }
 
   #versions(params: Readonly<Record<string, unknown>>): void {
     for (const version of recordsValue(params.versions)) {
       const id = cdpStringValue(version.targetId);
-      if (id === undefined) continue;
+      if (id === undefined || id.length === 0) {
+        this.pageEvents.completeness.exclude(
+          "workers",
+          "invalid_protocol_value",
+        );
+        continue;
+      }
       const controls =
         Array.isArray(version.controlledClients) &&
         version.controlledClients.every((client) => typeof client === "string")
@@ -531,7 +656,10 @@ export class CdpWorkerCapture {
         "protocol_error",
       );
     const owner = this.#sessions.get(sessionId);
-    if (owner !== undefined && owner !== worker)
+    if (
+      this.#frames.has(sessionId) ||
+      (owner !== undefined && owner !== worker)
+    )
       throw new BrowserObservationError(
         this.context.operation,
         "protocol_error",
@@ -587,6 +715,7 @@ export class CdpWorkerCapture {
           worker.sessionId,
           worker.item.observation.limitations,
         );
+        if (result !== undefined) worker.domains.add(domain);
         if (result === undefined && domain !== "Runtime")
           worker.events.completeness.unavailable(
             domain === "Debugger" ? "scripts" : "network_requests",

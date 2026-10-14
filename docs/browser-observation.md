@@ -336,6 +336,7 @@ transitions, network requests and capture completeness. Selected script sources
 carry the same self-verifying UTF-8 artifacts as page scripts.
 
 Chrome's page-session attachment proves a dedicated-worker relationship;
+related iframe sessions also arm worker attachment within the selected origins.
 Service Worker `controlledClients` proves a client relationship. Same-origin
 workers without either proof remain `ownership: "unknown"`. Their metadata is
 retained, but their sources and runtime activity are not collected by default.
@@ -383,3 +384,7 @@ worker sessions. Worker attachments and domains are released on completion,
 failure and cancellation; REA does not terminate workers or the user-owned page.
 Worker capture uses the existing runtime limits (8 MiB observed event metadata,
 32 MiB retained source), with an explicit failure rather than silent truncation.
+Worker source reads are serialized across sessions. A worker that detaches during
+setup retains unavailable coverage for domains that were not enabled. Runtime
+reconciliation checks explicit worker selection against the recorded target IDs
+and preserves attachment limits in worker node and relationship coverage.

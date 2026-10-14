@@ -4,6 +4,7 @@ import {
   browserAllowedOriginsSchema,
   browserEndpointSchema,
   recordedBrowserObservationEndpointSchema,
+  browserWorkerTargetIdsSchema,
 } from "../browserObservation.js";
 import {
   webPageInspectionSchema,
@@ -189,6 +190,7 @@ const parseBrowserCapture = (
       kind: "browser",
       targetId: inspection.target.target_id,
       targetOrigin: inspection.target.origin,
+      workers: inspection.workers,
       sourceIncluded:
         inspection.scripts.items.some(({ source }) => source.included) ||
         inspection.workers.some((worker) =>
@@ -424,6 +426,7 @@ const assertRuntimeParameters = (
         readonly kind: "browser";
         readonly targetId: string;
         readonly targetOrigin: string;
+        readonly workers: WebPageInspection["workers"];
         readonly sourceIncluded: boolean;
       }
     | {
@@ -445,6 +448,7 @@ const assertRuntimeParameters = (
             ...common,
             cdp_endpoint: recordedBrowserObservationEndpointSchema,
             allowed_origins: browserAllowedOriginsSchema,
+            worker_target_ids: browserWorkerTargetIdsSchema,
           })
           .passthrough()
           .parse(value),
@@ -466,6 +470,22 @@ const assertRuntimeParameters = (
         [...path, "parameters", "include_script_sources"],
         "Runtime Evidence contains source without source-capture selection",
       );
+    for (const [index, worker] of expected.workers.entries()) {
+      const observation = worker.observation;
+      if (observation === undefined) continue;
+      const selected =
+        parameters.worker_target_ids?.includes(worker.target_id) ?? false;
+      if (
+        observation.selected_explicitly !== selected ||
+        (observation.ownership === "unknown" &&
+          !selected &&
+          observation.scripts.some(({ source }) => source.included))
+      )
+        throw invalidInput(
+          [...path, "normalized_result", "workers", index, "observation"],
+          "Worker runtime Evidence disagrees with its recorded target selection",
+        );
+    }
     return;
   }
   const parameters = parseAtPath(

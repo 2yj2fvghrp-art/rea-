@@ -308,9 +308,50 @@ export async function verifyBrowserWorkers(
     await capture({ ...input, observation_ms: 0 });
     assert.equal(page.isClosed(), false);
     assert.equal(other.isClosed(), false);
+    const iframeOrigin = site.origin.replace("127.0.0.1", "localhost");
+    await page.evaluate(async (origin) => {
+      const frame = document.createElement("iframe");
+      frame.src = origin + "/frame";
+      const loaded = new Promise((resolve) => (frame.onload = resolve));
+      document.body.append(frame);
+      await loaded;
+    }, iframeOrigin);
+    const iframe = page
+      .frames()
+      .find((frame) => frame.url() === iframeOrigin + "/frame");
+    assert.ok(iframe);
+    await iframe.evaluate(() => window.ready);
+    const iframeTargets = (await cdp.send("Target.getTargets")).targetInfos;
+    assert.ok(
+      iframeTargets.some(
+        (t) => t.type === "iframe" && t.url === iframeOrigin + "/frame",
+      ),
+      "expected an out-of-process iframe target",
+    );
+    const iframeResult = await capture({
+      ...input,
+      allowed_origins: [site.origin, iframeOrigin],
+      observation_ms: 100,
+    });
+    const iframeWorker = iframeResult.workers.find(
+      (w) => w.url === iframeOrigin + "/worker.js",
+    );
+    assert.equal(iframeWorker?.observation.ownership, "page_related");
+    assert.equal(iframeWorker.observation.page_target_id, target);
+    assert.ok(
+      iframeWorker.observation.scripts.some(
+        (s) =>
+          s.source.included &&
+          s.source.artifact.text === site.sources["/worker.js"],
+      ),
+    );
+    const excludedFrame = await capture({ ...input, observation_ms: 0 });
+    assert.ok(excludedFrame.workers.every((w) => w.origin !== iframeOrigin));
+    await client.ping();
     await cdp.detach();
     return {
-      cases: 9,
+      cases: 11,
+      outOfProcessIframeWorker: true,
       originBoundary: true,
       exportedWorkerSources: exportedWorkers.length,
       browser: browser.version(),

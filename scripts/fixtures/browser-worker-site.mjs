@@ -20,7 +20,11 @@ export async function startWorkerSite() {
     );
     res.end(
       sources[req.url] ??
-        (req.url === "/" || req.url === "/other" ? html : "ok"),
+        (req.url === "/" || req.url === "/other"
+          ? html
+          : req.url === "/frame"
+            ? `<script>window.ready=new Promise(resolve=>{window.worker=new Worker("/worker.js");worker.onmessage=resolve;});</script>`
+            : "ok"),
     );
   });
   await new Promise((r) => server.listen(0, "127.0.0.1", r));

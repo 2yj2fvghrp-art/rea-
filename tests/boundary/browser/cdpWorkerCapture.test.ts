@@ -221,7 +221,10 @@ it("does not enter worker observation for page-only bundle analysis", async () =
         : undefined,
   });
   const result = await provider.analyzeBundle(
-    analyzeWebBundleInputSchema.parse(input),
+    analyzeWebBundleInputSchema.parse({
+      ...input,
+      cdp_endpoint: browser.endpoint,
+    }),
   );
   expect(result.ok).toBe(true);
   expect(
@@ -957,4 +960,240 @@ it("records and excludes empty worker script identifiers at ingestion", async ()
     reason: "invalid_protocol_value",
     count: 1,
   });
+});
+
+it.each(["Target.setAutoAttach", "Runtime.enable", "Debugger.enable"])(
+  "marks worker domains not enabled before detachment at %s",
+  async (stage) => {
+    const { provider, input } = await fixture({
+      eventsBeforeReply: [stage],
+      commandEvents: (command) =>
+        command.sessionId === "worker-own" && command.method === stage
+          ? [
+              {
+                method: "Target.detachedFromTarget",
+                sessionId: "session-1",
+                params: { sessionId: "worker-own" },
+              },
+            ]
+          : undefined,
+    });
+    const captured = await provider.inspectPage(input);
+    if (!captured.ok) throw captured.error;
+    const observation = captured.value.workers.find(
+      (w) => w.target_id === "own",
+    )!.observation!;
+    expect(observation.completeness.unavailable_sections).toContain(
+      "network_requests",
+    );
+    if (stage !== "Debugger.enable")
+      expect(observation.completeness.unavailable_sections).toContain(
+        "scripts",
+      );
+  },
+);
+
+it.each([undefined, null, 42, ""])(
+  "rejects malformed worker detachment session %j",
+  async (sessionId) => {
+    const { provider, input } = await fixture({
+      commandEvents: (command) =>
+        command.sessionId === "worker-own" &&
+        command.method === "Network.enable"
+          ? [
+              {
+                method: "Target.detachedFromTarget",
+                sessionId: "session-1",
+                params: { sessionId },
+              },
+            ]
+          : undefined,
+    });
+    expect(await provider.inspectPage(input)).toMatchObject({
+      ok: false,
+      error: { reason: "protocol_error" },
+    });
+  },
+);
+
+it.each([undefined, 42, ""])(
+  "records malformed service worker target %j",
+  async (targetId) => {
+    const { provider, input } = await fixture({
+      commandEvents: (command) =>
+        command.method === "ServiceWorker.enable"
+          ? [
+              {
+                method: "ServiceWorker.workerVersionUpdated",
+                sessionId: "session-1",
+                params: {
+                  versions: [{ targetId, controlledClients: ["allowed-page"] }],
+                },
+              },
+            ]
+          : undefined,
+    });
+    const captured = await provider.inspectPage(input);
+    if (!captured.ok) throw captured.error;
+    expect(captured.value.completeness.excluded).toContainEqual({
+      section: "workers",
+      reason: "invalid_protocol_value",
+      count: 1,
+    });
+  },
+);
+
+it("observes workers reached through an allowed iframe session and releases it", async () => {
+  const { provider, input, browser } = await fixture({
+    commandEvents: (command, origin) => {
+      if (
+        command.method !== "Target.setAutoAttach" ||
+        command.params.autoAttach !== true
+      )
+        return undefined;
+      if (command.sessionId === "session-1")
+        return [
+          {
+            method: "Target.attachedToTarget",
+            sessionId: "session-1",
+            params: {
+              sessionId: "iframe-session",
+              targetInfo: {
+                targetId: "iframe-target",
+                type: "iframe",
+                url: origin + "/frame",
+                attached: true,
+              },
+            },
+          },
+        ];
+      if (command.sessionId === "iframe-session")
+        return [
+          {
+            method: "Target.attachedToTarget",
+            sessionId: "iframe-session",
+            params: {
+              sessionId: "worker-child",
+              targetInfo: {
+                targetId: "child",
+                type: "worker",
+                url: origin + "/same.js",
+                attached: true,
+              },
+            },
+          },
+        ];
+      return [];
+    },
+  });
+  const captured = await provider.inspectPage(input);
+  if (!captured.ok) throw captured.error;
+  expect(
+    captured.value.workers.find((w) => w.target_id === "child")?.observation,
+  ).toMatchObject({
+    ownership: "page_related",
+    page_target_id: "allowed-page",
+    scripts: [{ source: { included: true } }],
+  });
+  expect(browser.commands).toContainEqual(
+    expect.objectContaining({
+      method: "Target.detachFromTarget",
+      params: { sessionId: "iframe-session" },
+    }),
+  );
+});
+
+it("bounds worker source requests while retaining cancellation cleanup", async () => {
+  const { provider, input, browser } = await fixture({
+    hangOnMethod: "Debugger.getScriptSource",
+    commandEvents: (command, origin) =>
+      command.method === "Debugger.enable" && command.sessionId === "worker-own"
+        ? Array.from({ length: 64 }, (_, index) => ({
+            method: "Debugger.scriptParsed",
+            sessionId: "worker-own",
+            params: {
+              scriptId: String(index),
+              url: origin + "/" + String(index) + ".js",
+              hash: "hash",
+              executionContextId: 1,
+            },
+          }))
+        : undefined,
+  });
+  const abort = new AbortController();
+  const pending = provider.inspectPage(input, { signal: abort.signal });
+  try {
+    await vi.waitFor(() =>
+      expect(
+        browser.commands.filter((c) => c.method === "Debugger.getScriptSource")
+          .length,
+      ).toBeGreaterThan(0),
+    );
+    await new Promise((resolve) => setTimeout(resolve, 30));
+    expect(
+      browser.commands.filter((c) => c.method === "Debugger.getScriptSource"),
+    ).toHaveLength(1);
+  } finally {
+    abort.abort();
+    await pending;
+  }
+  await vi.waitFor(() => expect(browser.activeConnectionCount()).toBe(0));
+});
+
+it("authenticates explicit worker selections in retained Evidence", async () => {
+  const { provider, input } = await fixture();
+  const selected = { ...input, worker_target_ids: ["shared"] };
+  const captured = await provider.inspectPage(selected);
+  if (!captured.ok) throw captured.error;
+  const evidence = createBrowserEvidence(
+    "inspect_web_page",
+    selected,
+    captured.value,
+    provider.identity(),
+  );
+  expect(() => parseRuntimeCaptures([evidence])).not.toThrow();
+  for (const worker_target_ids of [undefined, [], ["other"]]) {
+    const inconsistent = createBrowserEvidence(
+      "inspect_web_page",
+      { ...input, worker_target_ids },
+      captured.value,
+      provider.identity(),
+    );
+    expect(() => parseRuntimeCaptures([inconsistent])).toThrow();
+  }
+  const unknown = captured.value.workers.find(
+    (w) => w.target_id === "shared",
+  )!.observation!;
+  unknown.selected_explicitly = false;
+  const unselected = createBrowserEvidence(
+    "inspect_web_page",
+    input,
+    captured.value,
+    provider.identity(),
+  );
+  expect(() => parseRuntimeCaptures([unselected])).toThrow();
+});
+
+it("retains attach-limited worker node and containment coverage", async () => {
+  const { provider, input } = await fixture();
+  const captured = await provider.inspectPage(input);
+  if (!captured.ok) throw captured.error;
+  const evidence = createBrowserEvidence(
+    "inspect_web_page",
+    input,
+    captured.value,
+    provider.identity(),
+  );
+  const projected = projectRuntimeCaptures(parseRuntimeCaptures([evidence]));
+  const worker = projected.entities.find(
+    (e) => e.kind === "worker" && e.runtimeKey === "own",
+  )!;
+  expect(worker.coverage).toMatchObject({
+    status: "partial",
+    omitted_count: null,
+  });
+  expect(
+    projected.edges.find((e) => e.target_node_id === worker.node.node_id)
+      ?.evidence.coverage,
+  ).toMatchObject({ status: "partial", omitted_count: null });
 });

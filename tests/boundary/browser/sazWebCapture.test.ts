@@ -453,6 +453,8 @@ it.each([
       ["raw/8_c.txt", Buffer.from("GET /a HTTP/1.1\r\n\r\n")],
       ["raw/9_c.txt", Buffer.from("GET /b HTTP/1.1\r\n\r\n")],
     ];
+  if (variant === "expanded-limit")
+    entries.push(["raw/8_c.txt", Buffer.alloc(33 * 1024 * 1024, 0x61)]);
   let bytes = await archive(
     entries,
     variant === "encrypted" ? "fixture-password" : undefined,
@@ -468,22 +470,26 @@ it.each([
     expect(offset).toBeGreaterThan(0);
     bytes[offset + 9] = 0x35;
   }
-  if (variant === "expanded-limit") {
-    const central = bytes.indexOf(Buffer.from([0x50, 0x4b, 0x01, 0x02]));
-    bytes.writeUInt32LE(33 * 1024 * 1024, central + 24);
-  }
   const path = await fixture(bytes);
   const result = await cliResponse(path, ["--record", "0"]);
   expect(result.ok, result.stdout).toBe(false);
-  expect(JSON.parse(result.stdout).category).toBe(
+  expect(JSON.parse(result.stdout).category, result.stdout).toBe(
     ["encrypted", "unknown-member", "dtd"].includes(variant)
       ? "unsupported_provider"
-      : variant === "expanded-limit"
-        ? "execution_failure"
-        : "invalid_input",
+      : "invalid_input",
   );
   if (variant === "expanded-limit")
-    expect(JSON.parse(result.stdout).code).toBe("unreadable_output");
+    expect(JSON.parse(result.stdout)).toMatchObject({
+      code: "invalid_request",
+      details: {
+        issues: [
+          {
+            reason: "out_of_range",
+            expected: { maximum_expanded_capture_bytes: 32 * 1024 * 1024 },
+          },
+        ],
+      },
+    });
   expect(JSON.stringify(result)).not.toContain("malformed-private-input");
 });
 
