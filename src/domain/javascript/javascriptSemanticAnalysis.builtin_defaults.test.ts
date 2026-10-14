@@ -503,15 +503,34 @@ it.each([
 });
 
 it.each([
-  `const fs = require('fs'); const result = (fs.readFileSync('kept'), fs.readFileSync = custom);`,
-  `const fs = require('fs'); const read = fs.readFileSync; const result = (read('kept'), fs.readFileSync = custom);`,
-  `const fs = require('fs'); consume(fs.readFileSync('before'), fs.readFileSync = custom);`,
-])("retains reads before a later sequence operand: %s", (source) => {
-  expect(
-    analyzeJavaScriptSemantics(source).configurationOperations.map(
-      ({ key }) => key,
-    ),
-  ).toEqual(["kept"]);
+  [
+    `const fs = require('fs'); const result = (fs.readFileSync('kept'), fs.readFileSync = custom);`,
+    "kept",
+  ],
+  [
+    `const fs = require('fs'); const read = fs.readFileSync; const result = (read('kept'), fs.readFileSync = custom);`,
+    "kept",
+  ],
+  [
+    `const fs = require('fs'); consume(fs.readFileSync('before'), fs.readFileSync = custom);`,
+    "before",
+  ],
+])(
+  "retains reads before a later sequence operand: %s",
+  (source, expectedKey) => {
+    expect(
+      analyzeJavaScriptSemantics(source).configurationOperations.map(
+        ({ key }) => key,
+      ),
+    ).toEqual([expectedKey]);
+  },
+);
+
+it("does not use source offsets for destructuring assignment evaluation order", () => {
+  const ir =
+    analyzeJavaScriptSemantics(`const fs = require('fs'); const target = {};
+    [target[fs.readFileSync('wrong')]] = (fs.readFileSync = custom, []);`);
+  expect(ir.configurationOperations).toEqual([]);
 });
 
 it("keeps process reads after an alias is reassigned away from the global", () => {

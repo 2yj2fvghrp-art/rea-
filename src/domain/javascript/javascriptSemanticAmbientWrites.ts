@@ -255,7 +255,7 @@ export function* indexJavaScriptAmbientWritesSteps(
   });
   yield* collectJavaScriptIdentityWritesSteps(
     program,
-    (root, kind) => {
+    (root, kind, writeSite) => {
       if (kind === "opaque-call") return [];
       // Reassigning a local alias changes the binding, not the referenced object.
       if (kind === "binding")
@@ -263,7 +263,7 @@ export function* indexJavaScriptAmbientWritesSteps(
           isUnshadowedGlobal(root, state, root.name)
           ? [["global", root.name]]
           : [];
-      return ambientWrites(root, node);
+      return ambientWrites(root, writeSite);
     },
     interop.intrinsicInvocation,
     interop.staticString,

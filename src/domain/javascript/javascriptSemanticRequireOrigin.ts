@@ -1,4 +1,5 @@
 import * as t from "@babel/types";
+import { traverseJavaScriptAst } from "./javascriptSemanticTraversal.js";
 
 import { BUILTIN_RESOURCE_METHODS } from "./javascriptBuiltinResourceMethods.js";
 import type { JavaScriptModuleOrigin } from "./javascriptSemanticIr.js";
@@ -16,7 +17,7 @@ import { stringValue } from "./javascriptStaticAnalysisHelpers.js";
 import { semanticTopLevelEffectFollowsCapture } from "./javascriptSemanticMutationInitializers.js";
 import { createSemanticModuleInterop } from "./javascriptModuleInterop.js";
 
-interface JavaScriptRequireOrigin {
+export interface JavaScriptRequireOrigin {
   readonly origin: JavaScriptModuleOrigin;
   readonly call: t.CallExpression;
 }
@@ -47,12 +48,12 @@ const writesModuleRequire = (
     visited = new Set<string>(),
   ): boolean => {
     const value = unwrapJavaScriptExpression(node).node;
-    if (t.isIdentifier(value, { name: "module" }))
+    if (!t.isIdentifier(value)) return false;
+    if (value.name === "module")
       return (
         resolveSemanticBindingState(state, value, "module") === undefined &&
         !semanticResolutionBlocked(state, value, "module")
       );
-    if (!t.isIdentifier(value)) return false;
     const binding = resolveSemanticBindingState(state, value, value.name);
     if (binding === undefined || visited.has(binding.bindingId)) return false;
     const next = new Set(visited).add(binding.bindingId);
@@ -61,109 +62,105 @@ const writesModuleRequire = (
       binding.initializers.every(({ node: init }) => isModuleObject(init, next))
     );
   };
-  const pending: t.Node[] = [state.program];
-  while (pending.length > 0) {
-    const node = pending.pop();
-    if (node === undefined) break;
-    const target = t.isAssignmentExpression(node)
-      ? node.left
-      : t.isUpdateExpression(node) ||
-          t.isUnaryExpression(node, { operator: "delete" })
-        ? node.argument
-        : undefined;
-    if (target !== undefined) {
-      const members: string[] = [];
-      let root: t.Node = target;
-      while (t.isMemberExpression(root) || t.isOptionalMemberExpression(root)) {
-        const key = semanticStaticPropertyKey(root.property, root.computed);
-        if (key === null) break;
-        members.unshift(key);
-        root = root.object;
-      }
-      if (
-        members.length === 1 &&
-        members[0] === "require" &&
-        isModuleObject(root)
-      )
-        writes.push(node);
-      else if (
-        members.length === 0 &&
-        (t.isMemberExpression(target) ||
-          t.isOptionalMemberExpression(target)) &&
-        target.computed &&
-        semanticStaticPropertyKey(target.property, true) === null &&
-        isModuleObject(target.object)
-      )
-        // An unknown computed key may be "require"; retain uncertainty rather
-        // than treating this direct delegate write as a proven unrelated slot.
-        writes.push(node);
-    }
-    if (t.isCallExpression(node) || t.isOptionalCallExpression(node)) {
-      const invocation = interop.intrinsicInvocation(node);
-      const owner =
-        invocation?.path?.length === 3 ? invocation.path[1] : undefined;
-      const method = invocation?.path?.at(-1);
-      const args = invocation?.arguments;
-      if (
-        (owner === "Object" || owner === "Reflect") &&
-        method === "defineProperty" &&
-        isModuleObject(args?.[0] ?? t.nullLiteral())
-      ) {
-        const key = interop.staticString(args?.[1]);
-        if (key === "require" || key === undefined) writes.push(node);
-      } else if (
-        owner === "Object" &&
-        method === "defineProperties" &&
-        isModuleObject(args?.[0] ?? t.nullLiteral())
-      ) {
-        const descriptors = args?.[1];
+  traverseJavaScriptAst(state.program, {
+    enter: (node) => {
+      const target = t.isAssignmentExpression(node)
+        ? node.left
+        : t.isUpdateExpression(node) ||
+            t.isUnaryExpression(node, { operator: "delete" })
+          ? node.argument
+          : undefined;
+      if (target !== undefined) {
+        const members: string[] = [];
+        let root: t.Node = target;
+        while (
+          t.isMemberExpression(root) ||
+          t.isOptionalMemberExpression(root)
+        ) {
+          const key = semanticStaticPropertyKey(root.property, root.computed);
+          if (key === null) break;
+          members.unshift(key);
+          root = root.object;
+        }
         if (
-          !t.isObjectExpression(descriptors) ||
-          descriptors.properties.some(
-            (property) =>
-              t.isSpreadElement(property) ||
-              (t.isObjectProperty(property) &&
-                semanticStaticPropertyKey(property.key, property.computed) ===
-                  "require"),
-          )
+          members.length === 1 &&
+          members[0] === "require" &&
+          isModuleObject(root)
         )
           writes.push(node);
-      } else if (
-        owner === "Object" &&
-        method === "assign" &&
-        args?.some((arg) => isModuleObject(arg))
-      ) {
-        const target = args?.[0];
-        if (target !== undefined && isModuleObject(target)) {
-          const sourceHasRequire = args
-            ?.slice(1)
-            .some(
-              (arg) =>
-                t.isObjectExpression(arg) &&
-                arg.properties.some(
-                  (property) =>
-                    t.isObjectProperty(property) &&
-                    semanticStaticPropertyKey(
-                      property.key,
-                      property.computed,
-                    ) === "require",
-                ),
-            );
+        else if (
+          members.length === 0 &&
+          (t.isMemberExpression(target) ||
+            t.isOptionalMemberExpression(target)) &&
+          target.computed &&
+          semanticStaticPropertyKey(target.property, true) === null &&
+          isModuleObject(target.object)
+        )
+          // An unknown computed key may be "require"; retain uncertainty rather
+          // than treating this direct delegate write as a proven unrelated slot.
+          writes.push(node);
+      }
+      if (t.isCallExpression(node) || t.isOptionalCallExpression(node)) {
+        const invocation = interop.intrinsicInvocation(node);
+        const owner =
+          invocation?.path?.length === 3 ? invocation.path[1] : undefined;
+        const method = invocation?.path?.at(-1);
+        const args = invocation?.arguments;
+        if (
+          (owner === "Object" || owner === "Reflect") &&
+          method === "defineProperty" &&
+          isModuleObject(args?.[0] ?? t.nullLiteral())
+        ) {
+          const key = interop.staticString(args?.[1]);
+          if (key === "require" || key === undefined) writes.push(node);
+        } else if (
+          owner === "Object" &&
+          method === "defineProperties" &&
+          isModuleObject(args?.[0] ?? t.nullLiteral())
+        ) {
+          const descriptors = args?.[1];
           if (
-            sourceHasRequire ||
-            args?.slice(1).some((arg) => !t.isObjectExpression(arg))
+            !t.isObjectExpression(descriptors) ||
+            descriptors.properties.some(
+              (property) =>
+                t.isSpreadElement(property) ||
+                (t.isObjectProperty(property) &&
+                  semanticStaticPropertyKey(property.key, property.computed) ===
+                    "require"),
+            )
           )
             writes.push(node);
+        } else if (
+          owner === "Object" &&
+          method === "assign" &&
+          args?.some((arg) => isModuleObject(arg))
+        ) {
+          const target = args?.[0];
+          if (target !== undefined && isModuleObject(target)) {
+            const sourceHasRequire = args
+              ?.slice(1)
+              .some(
+                (arg) =>
+                  t.isObjectExpression(arg) &&
+                  arg.properties.some(
+                    (property) =>
+                      t.isObjectProperty(property) &&
+                      semanticStaticPropertyKey(
+                        property.key,
+                        property.computed,
+                      ) === "require",
+                  ),
+              );
+            if (
+              sourceHasRequire ||
+              args?.slice(1).some((arg) => !t.isObjectExpression(arg))
+            )
+              writes.push(node);
+          }
         }
       }
-    }
-    for (const key of t.VISITOR_KEYS[node.type] ?? []) {
-      const value = (node as unknown as Record<string, unknown>)[key];
-      if (Array.isArray(value)) {
-        for (const child of value) if (t.isNode(child)) pending.push(child);
-      } else if (t.isNode(value)) pending.push(value);
-    }
-  }
+    },
+  });
   moduleRequireWrites.set(state, writes);
   return writes;
 };
@@ -242,11 +239,12 @@ export const semanticGlobalProcessPathOrigin = (
   };
 };
 
-/** Recover an unshadowed literal require origin and its exact member path. */
-export const semanticRequireOrigin = (
+/** Strip a static member chain, returning its root expression and member path. */
+export const semanticMemberChain = (
   node: t.Node | null | undefined,
-  state: JavaScriptSemanticAnalysisState,
-): JavaScriptRequireOrigin | undefined => {
+):
+  | { readonly root: t.Node | null | undefined; readonly members: string[] }
+  | undefined => {
   const members: string[] = [];
   let current = node;
   while (current !== null && current !== undefined) {
@@ -264,7 +262,18 @@ export const semanticRequireOrigin = (
     members.push(member);
     current = current.object;
   }
+  return { root: current, members: members.reverse() };
+};
+
+/** Recover an unshadowed literal require origin and its exact member path. */
+export const semanticRequireOrigin = (
+  node: t.Node | null | undefined,
+  state: JavaScriptSemanticAnalysisState,
+): JavaScriptRequireOrigin | undefined => {
+  const chain = semanticMemberChain(node);
+  const current = chain?.root;
   if (
+    chain === undefined ||
     !t.isCallExpression(current) ||
     !t.isIdentifier(current.callee, { name: "require" })
   )
@@ -300,7 +309,7 @@ export const semanticRequireOrigin = (
     : {
         origin: {
           specifier,
-          importedPath: members.reverse(),
+          importedPath: chain.members,
           resolutionMode: "require",
         },
         call: current,
@@ -329,7 +338,7 @@ const MUTABLE_BUILTIN_DEFAULTS = new Set([
 ]);
 
 /** Mutable default/object selections share CommonJS identity; namespace slots do not. */
-export const semanticMutableBuiltinOrigin = <Key>(
+export const semanticMutableBuiltinOrigin = <Key = never>(
   origin: JavaScriptModuleOrigin,
   selected: readonly Key[] = [],
 ):

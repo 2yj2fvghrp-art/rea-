@@ -206,7 +206,13 @@ export const builtinDataEffectMethod = (
     if (method !== null && receiver !== undefined) {
       const provenance = evaluateSemanticProvenance(receiver.binding, state);
       if (provenance.status === "module") {
-        const origin = builtinNamespaceOrigin(provenance.origins[0]);
+        const origin = builtinNamespaceOrigin({
+          ...provenance.origins[0],
+          importedPath: [
+            ...provenance.origins[0].importedPath,
+            ...receiver.path,
+          ],
+        });
         if (
           specifiers.some(
             (specifier) =>
@@ -250,19 +256,24 @@ export const builtinDataEffectMethod = (
   );
   const method = semanticStaticPropertyKey(callee.property, callee.computed);
   if (method === null) return null;
-  if (
-    builtinBindingPath(binding, state, specifiers, callee, [method], true)
-      ?.length === 0
-  )
-    return method;
+  const resolvedPath = builtinBindingPath(
+    binding,
+    state,
+    specifiers,
+    callee,
+    [method],
+    true,
+  );
+  if (resolvedPath?.length === 0) return method;
   const initializer = binding?.initializers[0];
   if (
     initializer === undefined ||
     binding?.initializers.length !== 1 ||
     (!t.isMemberExpression(initializer.node) &&
       !t.isOptionalMemberExpression(initializer.node))
-  )
+  ) {
     return null;
+  }
   const provenance = evaluateSemanticProvenance(binding, state);
   if (provenance.status !== "module") return null;
   const origin = builtinNamespaceOrigin(provenance.origins[0]);
@@ -327,6 +338,7 @@ const builtinBindingPath = (
   visited: ReadonlySet<string> = new Set(),
   memo: BuiltinBindingMemo = new Map(),
   provenanceCapture?: t.Identifier,
+  savedObjectCapture?: t.Node,
 ): readonly string[] | null => {
   if (binding === undefined) return null;
   const key = JSON.stringify([
@@ -335,6 +347,8 @@ const builtinBindingPath = (
     callableValue,
     provenanceCapture?.start,
     provenanceCapture?.end,
+    savedObjectCapture?.start,
+    savedObjectCapture?.end,
   ]);
   let captured = memo.get(capture);
   if (captured?.has(key)) return captured.get(key) ?? null;
@@ -353,6 +367,7 @@ const builtinBindingPath = (
     visited,
     memo,
     provenanceCapture,
+    savedObjectCapture,
   );
   captured.set(key, result);
   return result;
@@ -368,6 +383,7 @@ const computeBuiltinBindingPath = (
   visited: ReadonlySet<string>,
   memo: BuiltinBindingMemo,
   provenanceCapture?: t.Identifier,
+  savedObjectCapture?: t.Node,
 ): readonly string[] | null => {
   if (binding === undefined || visited.has(binding.bindingId)) return null;
   // Provenance identifies the module, independently of whether a selected slot
@@ -376,12 +392,21 @@ const computeBuiltinBindingPath = (
     binding.memberWrites.some(
       ({ path, node }) =>
         affectsBuiltinPath(path, selectedPath) &&
-        !semanticTopLevelEffectFollowsCapture(
-          path.length === 0 && provenanceCapture !== undefined
-            ? provenanceCapture
-            : capture,
-          node,
-          state.parentsByNode,
+        !(
+          semanticTopLevelEffectFollowsCapture(
+            path.length === 0 && provenanceCapture !== undefined
+              ? provenanceCapture
+              : capture,
+            node,
+            state.parentsByNode,
+          ) ||
+          (savedObjectCapture !== undefined &&
+            path.length < selectedPath.length &&
+            semanticTopLevelEffectFollowsCapture(
+              savedObjectCapture,
+              node,
+              state.parentsByNode,
+            ))
         ),
     ) ||
     builtinEscapes(binding, state).some(
@@ -406,9 +431,15 @@ const computeBuiltinBindingPath = (
   const { importedPath } = provenance.origins[0];
   const namespace = builtinNamespaceOrigin(provenance.origins[0]);
   if (
-    !specifiers.some(
-      (item) => item.replace(/^node:/u, "") === namespace.specifier,
-    )
+    !specifiers.some((item) => {
+      const name = item.replace(/^node:/u, "");
+      return (
+        name === namespace.specifier ||
+        (namespace.specifier === "fs" &&
+          selectedPath[0] === "promises" &&
+          name === "fs/promises")
+      );
+    })
   )
     return null;
   let resolvedPath: readonly string[] = importedPath;
@@ -432,6 +463,12 @@ const computeBuiltinBindingPath = (
       {
         node: initializer.node,
         path: [...initializer.projection.map(String), ...selectedPath],
+        savedObjectCapture:
+          selectedPath.length > 0 &&
+          (t.isMemberExpression(initializer.node) ||
+            t.isOptionalMemberExpression(initializer.node))
+            ? initializer.node
+            : savedObjectCapture,
         capture:
           callableValue &&
           selectedPath.length === 0 &&
@@ -455,6 +492,7 @@ const computeBuiltinBindingPath = (
           ancestors,
           memo,
           node,
+          current.savedObjectCapture,
         );
         if (sourcePath === null) return null;
         // Normalize ESM default namespaces at their owner before projecting an alias.
@@ -471,6 +509,7 @@ const computeBuiltinBindingPath = (
         pending.push({
           node: node.object,
           path: [key, ...current.path],
+          savedObjectCapture: current.savedObjectCapture,
           // Freeze a selected function, not later member reads through a saved object.
           capture:
             callableValue && selectedPath.length === 0 ? node : current.capture,
@@ -501,6 +540,7 @@ const computeBuiltinBindingPath = (
             current.capture,
             state,
             callableValue,
+            current.savedObjectCapture,
           )
         )
           return null;
@@ -648,6 +688,21 @@ const builtinModuleEffects = (
       ({ kind, node }) =>
         kind === "write" || !originalBuiltinReceiver(node, state),
     );
+    if (specifier === "fs/promises") {
+      const sharedFsEscapes = (state.requiredModuleEffects.get("fs") ?? [])
+        .filter(
+          ({ kind, path, node }) =>
+            kind === "escape" &&
+            (path.length === 0 || path[0] === "promises") &&
+            !originalBuiltinReceiver(node, state),
+        )
+        .map((effect) => ({
+          ...effect,
+          path:
+            effect.path[0] === "promises" ? effect.path.slice(1) : effect.path,
+        }));
+      effects = [...effects, ...sharedFsEscapes];
+    }
     cache.set(specifier, effects);
   }
   return effects;
