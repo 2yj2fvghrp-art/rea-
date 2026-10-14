@@ -1,3 +1,4 @@
+import { ProviderResponseLines } from "../process/ProviderResponseLines.js";
 import {
   parseBridgeMessageLine,
   type HopperBridgeMessage,
@@ -12,28 +13,22 @@ export interface HopperResponseStreamOptions {
 
 /** Incrementally validates Hopper NDJSON response frames. */
 export class HopperResponseStream {
-  #buffer = "";
-  #fragments: string[] = [];
+  readonly #lines = new ProviderResponseLines({
+    onLine: (line) => this.#acceptLine(line),
+    onOverflow: () =>
+      this.options.abort(
+        "Hopper response line exceeds the runtime string length limit",
+      ),
+  });
 
   constructor(readonly options: HopperResponseStreamOptions) {}
 
   push(chunk: string): void {
-    this.#fragments.push(chunk);
-    if (!chunk.includes("\n")) return;
-    this.#buffer += this.#fragments.join("");
-    this.#fragments = [];
-    let newline = this.#buffer.indexOf("\n");
-    while (newline >= 0) {
-      const line = this.#buffer.slice(0, newline).trim();
-      this.#buffer = this.#buffer.slice(newline + 1);
-      if (line.length > 0 && !this.#acceptLine(line)) return;
-      newline = this.#buffer.indexOf("\n");
-    }
+    this.#lines.push(chunk);
   }
 
   reset(): void {
-    this.#buffer = "";
-    this.#fragments = [];
+    this.#lines.reset();
   }
 
   #acceptLine(line: string): boolean {

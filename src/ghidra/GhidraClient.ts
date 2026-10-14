@@ -17,6 +17,7 @@ import type { Logger } from "pino";
 import { PendingOperations } from "../process/PendingOperations.js";
 import { PrivateRuntimeRoot } from "../process/PrivateRuntimeRoot.js";
 import { ProviderStartupDeadline } from "../process/ProviderDeadline.js";
+import { ProviderResponseLines } from "../process/ProviderResponseLines.js";
 import { ProviderRunLineage } from "../process/ProviderRunLineage.js";
 import {
   type ProviderProcessDiagnostic,
@@ -36,7 +37,6 @@ import {
   GHIDRA_PROCESS_DIAGNOSTIC_BYTES,
 } from "./GhidraDiagnostics.js";
 import { GhidraLaunchError, type GhidraLaunch } from "./GhidraLauncher.js";
-import { GhidraResponseBuffer } from "./GhidraResponseBuffer.js";
 import { GhidraResponseRouter } from "./GhidraResponseRouter.js";
 import { GhidraRequestQueue } from "./GhidraRequestQueue.js";
 import {
@@ -133,8 +133,15 @@ export class GhidraClient {
       }),
     protocolFailure: (message, cause) => this.#abortProtocol(message, cause),
   });
-  readonly #responseBuffer = new GhidraResponseBuffer({
-    onLine: (line) => this.#responseRouter.route(line),
+  readonly #responseBuffer = new ProviderResponseLines({
+    onLine: (line) => {
+      this.#responseRouter.route(line);
+      return true;
+    },
+    onOverflow: () =>
+      this.#abortProtocol(
+        "Ghidra response line exceeds the runtime string length limit",
+      ),
   });
   readonly #onSocketData = (chunk: string): void =>
     this.#responseBuffer.push(chunk);
