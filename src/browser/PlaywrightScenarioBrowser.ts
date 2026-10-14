@@ -51,7 +51,6 @@ export class PlaywrightScenarioBrowserCleanupOwner {
     return this.#browserClosed;
   }
 
-  // Resource release outlives request cancellation and has its own deadline.
   close(finishEvents?: () => Promise<void>): Promise<void> {
     const cleanup = this.#closePromise ?? this.#closeResources(finishEvents);
     if (this.#closePromise === undefined) {
