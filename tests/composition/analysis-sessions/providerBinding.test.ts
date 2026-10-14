@@ -391,6 +391,72 @@ describe("automatic re-selection on an unchanged target", () => {
     await session.close();
   });
 
+  it("records an explicit choice that reuses the retained client", async () => {
+    const target = await databaseTarget();
+    const alpha = deepProvider("alpha");
+    const beta = deepProvider("beta");
+    beta.available = false;
+    const session = selectableSession([alpha.provider, beta.provider]);
+
+    // Automatic selection binds the only eligible provider and records it.
+    expect((await session.open(target)).ok).toBe(true);
+    expect(bindingStatus(session)).toMatchObject({
+      analysis_provider_binding: {
+        provider: { id: "alpha", version: "1" },
+        selection_source: "auto-single-candidate",
+      },
+    });
+    expect((await session.execute("address_name", { address: "0x1" })).ok).toBe(
+      true,
+    );
+    expect(alpha.clients).toHaveLength(1);
+    const automatic = selectionRecords(session);
+    expect(automatic).toHaveLength(1);
+    expect(automatic.map(selectionRuleOf)).toEqual(["auto-single-candidate"]);
+    const callsAfterAnalysis = [...(alpha.clients[0]?.calls ?? [])];
+
+    // Asking explicitly for the provider already bound changes no engine work,
+    // so the live client is retained; the caller's choice must still be adopted
+    // and recorded instead of leaving `selection_source` on the earlier
+    // automatic decision.
+    expect((await session.open(target, { providerId: "alpha" })).ok).toBe(true);
+    expect(alpha.clients).toHaveLength(1);
+    expect(alpha.clients[0]?.closed).toBe(false);
+    expect(alpha.clients[0]?.calls).toEqual(callsAfterAnalysis);
+    expect(beta.clients).toHaveLength(0);
+    expect(bindingStatus(session)).toMatchObject({
+      analysis_provider_selection_state: "bound",
+      analysis_provider_binding: {
+        provider: { id: "alpha", version: "1" },
+        selection_source: "request",
+      },
+    });
+    expect(selectionRecords(session).map(selectionRuleOf).sort()).toEqual([
+      "auto-single-candidate",
+      "explicit-provider",
+    ]);
+
+    // Repeating the same explicit choice is the same decision, so it adds no
+    // record and does not disturb the retained client.
+    expect((await session.open(target, { providerId: "alpha" })).ok).toBe(true);
+    expect(selectionRecords(session)).toHaveLength(2);
+    expect(alpha.clients).toHaveLength(1);
+    expect(alpha.clients[0]?.closed).toBe(false);
+
+    // The retained client still serves analysis after the adoption.
+    expect((await session.execute("address_name", { address: "0x2" })).ok).toBe(
+      true,
+    );
+    expect(alpha.clients).toHaveLength(1);
+    expect(alpha.clients[0]?.calls).toEqual([
+      ...callsAfterAnalysis,
+      "address_name",
+    ]);
+
+    await session.close();
+    expect(alpha.clients[0]?.closed).toBe(true);
+  });
+
   it("re-resolves auto against a concrete binding because that is a new decision", async () => {
     const { session, target, alpha, beta } = await overlappingSession();
     expect((await session.open(target, { providerId: "beta" })).ok).toBe(true);
@@ -645,6 +711,13 @@ const selectionRecords = (session: BinarySession) =>
     .records.filter(
       ({ predicate_type: predicate }) => predicate === "rea.provider-selection",
     );
+
+/** Deterministic rule reported by one selection record. */
+const selectionRuleOf = (record: {
+  readonly normalized_result: unknown;
+}): string =>
+  z.object({ deterministic_rule: z.string() }).parse(record.normalized_result)
+    .deterministic_rule;
 
 interface Deferred<Value> {
   readonly promise: Promise<Value>;

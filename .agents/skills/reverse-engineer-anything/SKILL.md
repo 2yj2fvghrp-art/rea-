@@ -284,7 +284,10 @@ selection error whose `details.selection_reason` is `ambiguous`. That is not a
 transient failure: select a provider instead of retrying the same call. Reopening
 the same target without `provider_id`, or with `auto` when the current route was
 already resolved by `auto`, keeps the existing route rather than re-deciding; use
-a concrete `provider_id` to change engine. If a
+a concrete `provider_id` to change engine. Naming the provider that is already
+bound reuses the live engine without restarting it, and REA still records that
+explicit choice and reports `selection_source: "request"`, so the session never
+keeps claiming the earlier automatic decision. If a
 bound provider fails at runtime, REA returns the original reason and never
 switches engines. Report the failure; if a different engine is warranted, decide
 that explicitly as above rather than retrying blindly. Close the session with

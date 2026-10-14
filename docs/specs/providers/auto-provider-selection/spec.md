@@ -180,8 +180,14 @@ standard digest identity, immutability, bundle validation, retention, export,
 and cleanup semantics.
 
 Repeat operations do not duplicate it: equivalent decisions produce an identical
-`evidence_id`, which the ledger records as a duplicate. The retained
-reopen fast path (same target and same profile) records nothing new.
+`evidence_id`, which the ledger records as a duplicate. The retained reopen fast
+path (same target and same profile) still records a decision that differs from
+the one in force — asking explicitly for the provider that automatic selection
+already bound is a new caller choice — while reusing the live client, its run ID,
+and the snapshot binding. That record is adopted into the active route so
+`analysis_provider_binding.selection_source` reports `request` instead of the
+superseded automatic decision, and repeating the same explicit choice adds no
+second record.
 
 ## Compatibility guarantees
 

@@ -112,10 +112,20 @@ export class BinarySession
    * falls through and a real client is started; an aborted caller leaves the
    * session untouched. Returns the fast-path result, or undefined to fall
    * through to the slow path.
+   *
+   * A caller can also express a new selection without changing the target or its
+   * analysis profile: asking explicitly for the provider that automatic
+   * selection already bound is the common case. The engine work is identical, so
+   * the client, its run ID, the snapshot binding, and any in-flight state are all
+   * retained and no provider is restarted. Only the selection fact changes, and
+   * it is still recorded and adopted — otherwise `selection_source` keeps
+   * reporting the earlier automatic decision and the caller's explicit choice
+   * leaves no Evidence at all.
    */
   async #tryRetainedFastPath(
     retained: SessionBinding,
     target: BinaryTarget,
+    route: SessionProviderRoute,
     options: Pick<BinarySessionOpenOptions, "signal" | "snapshot">,
   ): Promise<Result<BinaryTarget, AnalysisError> | undefined> {
     const live = await this.#retainedClientLive(retained.client, options);
@@ -125,6 +135,15 @@ export class BinarySession
     if (options.snapshot !== undefined) {
       const imported = this.importAnalysisSnapshot(options.snapshot);
       if (!imported.ok) return imported;
+    }
+    // An identical route object means the caller's selector resolved to the
+    // decision already in force, so there is nothing new to record or adopt.
+    if (route !== retained.route) {
+      // Record before adopting: a failed write must leave the retained session
+      // exactly as it was, because its client is still valid.
+      const recorded = this.#recordProviderSelection(target, route);
+      if (!recorded.ok) return recorded;
+      this.#active = { ...retained, route };
     }
     return ok(target);
   }
@@ -291,6 +310,7 @@ export class BinarySession
       const fastPath = await this.#tryRetainedFastPath(
         retained,
         target,
+        route,
         options,
       );
       if (fastPath !== undefined) return fastPath;
@@ -446,11 +466,14 @@ export class BinarySession
   /**
    * Retain the deterministic selection decision for an admitted target.
    *
-   * Only the slow path records it: reopening an unchanged target and profile
-   * resolves the identical decision, whose Evidence identity already exists, so
-   * the retained fast path adds nothing. The record carries no analysis profile
-   * and is never registered in the snapshot cache, so it can neither replay
-   * provider results nor claim provider-produced observations.
+   * Both admission paths record it: the slow path for a newly built route, and
+   * the retained fast path when the caller expressed a different selection that
+   * reuses the live client. Neither path invents a second record for the same
+   * decision — an equivalent reopen resolves an identical selection, whose
+   * Evidence identity already exists, so the ledger reports a duplicate. The
+   * record carries no analysis profile and is never registered in the snapshot
+   * cache, so it can neither replay provider results nor claim provider-produced
+   * observations.
    */
   #recordProviderSelection(
     target: BinaryTarget,

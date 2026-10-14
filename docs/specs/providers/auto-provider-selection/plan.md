@@ -56,6 +56,12 @@ types, and the application layer keeps owning the decision.
    On success it records one selection Evidence record and, when a profile was
    bound, selects the snapshot binding.
 
+   A transition whose target and analysis profile are unchanged takes the
+   retained fast path instead: the live client, its run ID, the snapshot binding,
+   and in-flight state are kept. When that reopen resolved a _different_
+   selection, the record is still written and the route is adopted, so
+   `selection_source` cannot keep reporting a superseded decision.
+
 6. `BinarySessionStatus` projects `analysis_provider_selection_state` and each
    candidate's `eligibility`.
 

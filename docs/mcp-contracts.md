@@ -450,9 +450,13 @@ configured or automatic one. It is attributed to the REA selection policy with
 `analyst-inference` authority and `derived` confidence rather than the default
 `shipped-artifact`, because it reports REA's own provider decision instead of a
 read of the artifact's contents; that keeps static reconstruction and unknown
-resolution from accepting it as artifact evidence. An equivalent reopen resolves
-the identical
-decision, whose Evidence digest already exists, and adds no record. The record
+resolution from accepting it as artifact evidence. A reopen that resolves an
+identical selection adds no record, because its Evidence digest already exists.
+A reopen that resolves a _different_ selection for the same live target — asking
+explicitly for the provider automatic selection already bound is the common case —
+records that decision and adopts it, so `analysis_provider_binding.selection_source`
+reports the caller's choice instead of the superseded automatic one while the
+provider client, run ID, and snapshot binding are retained. The record
 carries no analysis profile, is attributed to the
 REA selection policy rather than to an engine, is never registered as a snapshot
 replay binding, and is not duplicated by an equivalent reopen.

@@ -162,6 +162,29 @@ fixed at the boundary that owns the fact.
       `ProviderSelectionEvidence.test.ts` asserts the classification, including
       an explicit `not.toBe("shipped-artifact")`.
 
+## Phase M — Review response: explicit choices on the retained fast path
+
+- [x] **Explicit choices went unrecorded** (`BinarySession.ts`, review round 4).
+      `#tryRetainedFastPath` returned before `#recordProviderSelection`, so
+      naming the provider that `auto` had already bound reused the live client,
+      recorded nothing, and left `analysis_provider_binding.selection_source` on
+      `auto-single-candidate`. The fast path now receives the resolved route and,
+      when it differs from the retained one, records that decision with
+      `#recordProviderSelection` and adopts the route into the active binding
+      (`{ ...retained, route }`) while keeping the client, run ID, analysis
+      profile, snapshot binding, and in-flight state. The record is written before
+      the route is adopted, so a failed write leaves the still-valid retained
+      session untouched. An identical route object (an omitted selector, or
+      `auto` against an `auto` route) skips both steps, and a repeated identical
+      explicit choice resolves to the same Evidence digest, which the ledger
+      reports as a duplicate.
+- [x] Regression test (`providerBinding.test.ts`, "records an explicit choice that
+      reuses the retained client") covering the agreed matrix: automatic bind and
+      record, explicit reopen reusing one client with no new provider calls,
+      `selection_source: "request"`, no duplicate on repeat, and analysis still
+      served by the retained client. Verified to fail without the `BinarySession`
+      change.
+
 ## Phase H — Verification
 
 Recorded on Windows 11 with Node.js `26.3.0`, npm `12.0.2`. Baseline comparisons
