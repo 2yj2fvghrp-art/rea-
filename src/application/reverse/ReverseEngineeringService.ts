@@ -40,7 +40,8 @@ import {
 import type { ProviderProcessSupervisor } from "../../process/ProviderProcess.js";
 
 export type ReverseEngineeringOperation =
-  "inspect_with_objdump" | "execute_rizin_command";
+  | "inspect_with_objdump"
+  | "execute_rizin_command";
 
 const DEFAULT_TIMEOUT_MS = 120_000;
 const MAX_COMBINED_OUTPUT_BYTES = 16 * 1024 * 1024;
