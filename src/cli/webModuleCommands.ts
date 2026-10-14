@@ -3,6 +3,10 @@ import { createWebModuleTraceService } from "../composition/webModules.js";
 import { CLI_COMMANDS } from "../cliCommandNames.js";
 import { logCliCommand } from "../cliLogging.js";
 import { projectAnalysisError } from "../domain/analysisErrorProjection.js";
+import { analysisErrorWithCleanupFailure } from "../domain/analysisErrorCleanup.js";
+import { AnalysisError } from "../domain/analysisErrorBase.js";
+import type { Result } from "../domain/result.js";
+import type { Evidence } from "../domain/evidence.js";
 import { webModuleTraceInputSchema } from "../domain/webModuleTrace.js";
 import type { Logger } from "pino";
 import type { CliInstance } from "./types.js";
@@ -16,8 +20,8 @@ export const registerWebModuleCommands = (
   cli: CliInstance,
   logger: Logger,
   environment: Readonly<Record<string, string | undefined>>,
+  service = createWebModuleTraceService(environment),
 ): void => {
-  const service = createWebModuleTraceService(environment);
   cli.command(CLI_COMMANDS.traceWebModuleImports, {
     description:
       "Trace one captured script's native imports to URLs and captured source candidates",
@@ -42,12 +46,14 @@ export const registerWebModuleCommands = (
     }),
     run: ({ args, options }) =>
       withCommandCancellation(async (signal) => {
-        try {
-          return await logCliCommand(
-            logger,
-            CLI_COMMANDS.traceWebModuleImports,
-            async () => {
-              const result = await service.trace(
+        return await logCliCommand(
+          logger,
+          CLI_COMMANDS.traceWebModuleImports,
+          async () => {
+            let primary: Result<Evidence, AnalysisError> | undefined;
+            let executionError: unknown;
+            try {
+              primary = await service.trace(
                 {
                   manifest_path: args.manifestPath,
                   script_index: args.scriptIndex,
@@ -66,14 +72,38 @@ export const registerWebModuleCommands = (
                 },
                 { signal },
               );
-              return result.ok
-                ? result.value
-                : projectAnalysisError(result.error);
-            },
-          );
-        } finally {
-          await service.close();
-        }
+            } catch (cause: unknown) {
+              executionError = cause;
+            }
+            let cleanupError: AnalysisError | undefined;
+            try {
+              await service.close();
+            } catch (cause: unknown) {
+              if (cause instanceof AnalysisError) {
+                cleanupError = cause;
+              } else {
+                throw cause;
+              }
+            }
+            if (executionError !== undefined) throw executionError;
+            if (primary !== undefined) {
+              if (cleanupError !== undefined) {
+                const error = primary.ok
+                  ? cleanupError
+                  : analysisErrorWithCleanupFailure(
+                      primary.error,
+                      cleanupError,
+                      "trace_web_module_imports",
+                    );
+                return projectAnalysisError(error);
+              }
+              return primary.ok
+                ? primary.value
+                : projectAnalysisError(primary.error);
+            }
+            throw new Error("Unreachable: missing trace result and error");
+          },
+        );
       }),
   });
 };
