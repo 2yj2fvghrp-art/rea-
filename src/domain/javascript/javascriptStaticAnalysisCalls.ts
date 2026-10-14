@@ -773,9 +773,14 @@ const requireWriteShadowsCall = (
  * either — `for (var require = local; false;) {}` still replaces the loader.
  * A `do...while` body always runs once, so the loop is not conditional for a
  * write in its own body either — `do { require = local; } while (false);
- * require("./ghost.cjs")` still replaces the loader. Other loops (`while`,
- * classic `for` bodies, `for...of`/`for...in`) may skip their body entirely,
- * so they stay conditional.
+ * require("./ghost.cjs")` still replaces the loader. Loop conditions always
+ * evaluate at least once when the loop statement runs — a `while` test, a
+ * classic `for` test after its initializer, a `do...while` test after its
+ * body — unlike loop bodies which may never run, so the loop is not
+ * conditional for a write in its own condition either: `while
+ * ((require = local, false)) {}); require("./ghost.cjs")` still replaces
+ * the loader. A classic `for` update only runs after a body iteration, so it
+ * stays conditional, as do `while` and `for...of`/`for...in` bodies.
  */
 const writeMustRunBeforeCall = (
   writeNode: t.Node,
@@ -792,14 +797,24 @@ const writeMustRunBeforeCall = (
         t.isLoop(current) ||
         t.isSwitchCase(current) ||
         t.isTryStatement(current)) &&
-      // A `for` initializer always runs once before the loop, so a write in
-      // the loop head is not work the loop may skip. A `do...while` body
-      // always runs once too, so a write in the body is not work the loop
-      // may skip either — the write provably runs before any call after the
-      // loop. Other loops may skip their body entirely, so they stay
-      // conditional.
-      !(t.isForStatement(current) && current.init === child) &&
-      !(t.isDoWhileStatement(current) && current.body === child)
+      // A `for` initializer always runs once before the loop, and a `for`
+      // test always evaluates at least once after the initializer, so a
+      // write in either is not work the loop may skip. A `do...while` body
+      // always runs once and its test always evaluates after it, so a write
+      // in either is not work the loop may skip either. A `while` test
+      // always evaluates at least once too. The write provably runs before
+      // any call after the loop. Other loops may skip their body entirely
+      // (and a classic `for` update only runs after a body iteration), so
+      // they stay conditional.
+      !(
+        t.isForStatement(current) &&
+        (current.init === child || current.test === child)
+      ) &&
+      !(
+        t.isDoWhileStatement(current) &&
+        (current.body === child || current.test === child)
+      ) &&
+      !(t.isWhileStatement(current) && current.test === child)
     )
       writeBranches.set(current, child);
     child = current;

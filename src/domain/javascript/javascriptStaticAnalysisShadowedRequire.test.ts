@@ -159,6 +159,22 @@ const shadowedCases = [
     "computed key write shadows a call in a later static field",
     `var require;\nclass C { [(require = () => "local", "k")]() {} static value = require("./ghost.cjs"); }`,
   ],
+  [
+    "write in a while condition shadows a later call",
+    `var require;\nwhile ((require = () => "local", false)) {}\nrequire("./ghost.cjs");`,
+  ],
+  [
+    "write in a while condition shadows a call in the loop body",
+    `var require;\nwhile ((require = () => "local", keepGoing())) { require("./ghost.cjs"); }`,
+  ],
+  [
+    "write in a classic for condition shadows a later call",
+    `var require;\nfor (var i = 0; (require = () => "local", false), i < 0; i += 1) {}\nrequire("./ghost.cjs");`,
+  ],
+  [
+    "write in a do-while test shadows a later call",
+    `var require;\ndo {} while ((require = () => "local", false));\nrequire("./ghost.cjs");`,
+  ],
 ];
 
 const loaderCases = [
