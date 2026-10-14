@@ -16,6 +16,7 @@ import {
   type JavaScriptSemanticAnalysisState,
 } from "./javascriptSemanticState.js";
 import { isImportMetaUrl } from "./javascriptStaticAnalysisHelpers.js";
+import { semanticReadInitializers } from "./javascriptSemanticMutationInitializers.js";
 
 const GLOBAL_OBJECT_NAMES = ["globalThis", "global", "window", "self"];
 
@@ -43,8 +44,9 @@ type AmbientProjection = AmbientPath | undefined;
 
 /**
  * Follow local object identities without equating shallow copies with their
- * sources. Write lookup retains every visible initializer: reassigning an alias
- * later cannot erase a possible earlier mutation. Intrinsic reads stay strict.
+ * sources. Each alias hop uses the initializer visible at that hop's read:
+ * a later reassignment cannot rewrite an earlier captured identity. Intrinsic
+ * reads stay strict; uncertain activations retain all possible initializers.
  */
 const createAmbientPathResolver = (
   state: JavaScriptSemanticAnalysisState,
@@ -52,7 +54,7 @@ const createAmbientPathResolver = (
 ) => {
   const cached = new WeakMap<t.Node, readonly AmbientPath[]>();
   return (node: t.Node): readonly AmbientPath[] => {
-    const prior = cached.get(node);
+    const prior = possibleWrites ? undefined : cached.get(node);
     if (prior !== undefined) return prior;
     const result = new Map<string, AmbientPath>();
     const pending: { node: t.Node; suffix: AmbientProjection }[] = [
@@ -126,7 +128,8 @@ const createAmbientPathResolver = (
         if (binding === undefined) continue;
         const stable = semanticStableInitializer(binding, state);
         const initializers = possibleWrites
-          ? binding.initializers
+          ? semanticReadInitializers(binding, root, state.parentsByNode)
+              .initializers
           : stable === undefined
             ? []
             : [stable];
@@ -221,7 +224,7 @@ const createAmbientPathResolver = (
       }
     }
     const paths = [...result.values()];
-    cached.set(node, paths);
+    if (!possibleWrites) cached.set(node, paths);
     return paths;
   };
 };
@@ -261,8 +264,9 @@ export function* indexJavaScriptAmbientWritesSteps(
     interop.intrinsicInvocation,
     interop.staticString,
     interop.isFreshObject,
-    (_node, path) => {
+    (node, path) => {
       state.ambientWrites.retain(path);
+      state.ambientWriteEffects.push({ path, node });
     },
   );
 }

@@ -84,6 +84,7 @@ export const unambiguousElectronIpcPairings = (
 /** Summarize static Electron findings without treating gaps as absence. */
 export const summarizeElectronBoundaries = (
   analysis: JavaScriptModuleArtifactAnalysis,
+  directoryPaths?: ReadonlySet<string>,
 ): ElectronBoundarySummary => {
   const files = new Map(analysis.files.map(({ file }) => [file.path, file]));
   const javascript = analysis.files.flatMap(({ javascript: value }) =>
@@ -166,6 +167,7 @@ export const summarizeElectronBoundaries = (
           specifier: finding.module_path,
           context: finding.module_resolution_context,
           files,
+          directoryPaths,
           runtimePathKind: "node-entrypoint",
         }),
     ).length,
@@ -176,6 +178,7 @@ export const summarizeElectronBoundaries = (
         specifier: finding.specifier,
         context: "module-specifier",
         files,
+        directoryPaths,
         kind: "native-addon",
         moduleKind: finding.module_kind,
       }),
@@ -209,6 +212,7 @@ interface ResolveToFileInput {
   readonly specifier: string;
   readonly context: "module-specifier" | "filesystem-expression";
   readonly files: ReadonlyMap<string, JavaScriptArtifactFile>;
+  readonly directoryPaths?: ReadonlySet<string> | undefined;
   readonly kind?: JavaScriptArtifactFile["kind"];
   readonly moduleKind?: JavaScriptModuleResolutionMode;
   readonly runtimePathKind?: ResolveArtifactPathInput["runtimePathKind"];
@@ -220,6 +224,9 @@ const resolvesToFile = (input: ResolveToFileInput): boolean => {
     sourcePath: input.file.path,
     context: input.context,
     files: input.files,
+    ...(input.directoryPaths === undefined
+      ? {}
+      : { directoryPaths: input.directoryPaths }),
     ...(input.runtimePathKind === undefined
       ? {}
       : { runtimePathKind: input.runtimePathKind }),

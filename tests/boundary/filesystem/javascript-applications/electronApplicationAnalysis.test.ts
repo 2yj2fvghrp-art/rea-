@@ -86,17 +86,8 @@ describe("static Electron application analysis", () => {
     const graph = parseJavaScriptApplicationGraph(result.graph);
     // Computed access keeps no known members; the unknown access is an
     // explicit dynamic flag rather than a "*" sentinel inside members.
-    const accesses = graph.nodes.flatMap((node) =>
-      node.kind === "native-export"
-        ? node.observations
-            .filter(({ properties }) => properties.type_only === false)
-            .map(({ properties }) => ({
-              members: Array.isArray(properties.requested_members)
-                ? properties.requested_members
-                : [],
-              dynamicMemberAccess: properties.dynamic_member_access ?? false,
-            }))
-        : [],
+    const nativeBindings = graph.nodes.filter(
+      (node) => node.kind === "native-export",
     );
 
     expect(result.electron_summary).toMatchObject({
@@ -104,7 +95,6 @@ describe("static Electron application analysis", () => {
       native_addon_bindings: 1,
       resolved_native_addon_bindings: 1,
     });
-    expect(accesses).toEqual([{ members: [], dynamicMemberAccess: true }]);
     expect(
       graph.nodes
         .flatMap(({ kind, observations }) =>
@@ -118,6 +108,21 @@ describe("static Electron application analysis", () => {
         .flatMap(({ observations }) => observations)
         .every(({ properties }) => properties.type_only === false),
     ).toBe(true);
+    expect(nativeBindings).toMatchObject([
+      {
+        observations: [
+          {
+            properties: {
+              requested_members: [],
+              namespace_access: false,
+              dynamic_member_access: true,
+              native_export_verification: "not-performed",
+              type_only: false,
+            },
+          },
+        ],
+      },
+    ]);
   });
 
   it("maps Electron boundaries through bundler-renamed bindings", async () => {

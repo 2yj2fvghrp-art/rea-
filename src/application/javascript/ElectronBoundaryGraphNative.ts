@@ -52,6 +52,7 @@ const addNativeBinding = (input: NativeBindingInput): void => {
     declaredPath: value.specifier,
     sourcePath: file.path,
     files: context.filesByPath,
+    directoryPaths: context.directoryPaths,
     context: "module-specifier",
     moduleKind: value.module_kind,
   });
