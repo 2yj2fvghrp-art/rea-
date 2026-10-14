@@ -173,7 +173,8 @@ describe("reference import paths beyond the platform limit", () => {
           message: expect.stringContaining("ENAMETOOLONG"),
         });
         const filteredRead = await readReferenceSource(root, {
-          shouldExclude: (_path, kind) => kind === "directory",
+          shouldExclude: (path, kind) =>
+            path === failed?.path && kind === "directory",
         });
         if (!filteredRead.ok) throw new Error(filteredRead.error.message);
         expect(
@@ -195,6 +196,22 @@ describe("reference import paths beyond the platform limit", () => {
         expect(deep?.limitations.join(" ")).toContain(
           failed?.status === "failed" ? failed.message : "missing failure",
         );
+        // A directory-only secret rule still applies when the kind is unknown.
+        const secretPattern = `${failed?.path ?? "missing"}/`;
+        const secret = await importReferenceSource({
+          root,
+          caller: "native-entry-failure-detail-test",
+          policy: { secretPatterns: [secretPattern] },
+        });
+        if (!secret.ok) throw new Error(secret.error.message);
+        expect(
+          secret.value.entries.some(({ path }) => path === failed?.path),
+        ).toBe(false);
+        expect(secret.value.exclusions).toContainEqual({
+          path: failed?.path,
+          reason: "configured-secret",
+          pattern: secretPattern,
+        });
       } finally {
         await deepTree("remove");
       }

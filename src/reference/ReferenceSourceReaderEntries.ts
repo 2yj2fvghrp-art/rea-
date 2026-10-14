@@ -25,7 +25,7 @@ import {
 import type {
   PendingDirectory,
   ReferenceSourceEntry,
-  ReferenceSourceEntryKind,
+  ReferenceSourceExclusionKind,
   ReferenceSourceResult,
   TraversalState,
 } from "./ReferenceSourceReaderTypes.js";
@@ -378,10 +378,10 @@ const readSymlinkTarget = async (
 
 const applyExclusion = (
   shouldExclude:
-    | ((path: string, kind: ReferenceSourceEntryKind) => boolean)
+    | ((path: string, kind: ReferenceSourceExclusionKind) => boolean)
     | undefined,
   path: string,
-  kind: ReferenceSourceEntryKind,
+  kind: ReferenceSourceExclusionKind,
 ): { readonly ok: true; readonly value: boolean } | { readonly ok: false } => {
   try {
     return { ok: true, value: shouldExclude?.(path, kind) === true };
