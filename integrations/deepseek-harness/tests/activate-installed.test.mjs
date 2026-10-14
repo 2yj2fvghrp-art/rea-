@@ -72,7 +72,7 @@ function fixture(fn, options = {}) {
       env: { ...process.env, DSH_HOME: home },
     });
   try {
-    fn({ manifest, profile, document, run });
+    fn({ home, manifest, profile, document, run });
   } finally {
     rmSync(home, { recursive: true, force: true });
   }
