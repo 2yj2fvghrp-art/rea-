@@ -66,8 +66,8 @@ These commands are for macOS/Linux terminals. Windows users can use an appropria
 **1. Clone the actual REL work-in-progress branch** (until the draft PR is merged):
 
 ```sh
-git clone --branch rel/first-lab-foundations --single-branch https://github.com/gryszzz/Reverse-Engineering-Life-REL-.git
-cd Reverse-Engineering-Life-REL-
+git clone --branch rel/first-lab-foundations --single-branch https://github.com/gryszzz/Reverse-Engineering-Everything.git
+cd Reverse-Engineering-Everything
 ```
 
 **2. See the interface.** For these preview commands, you need Node.js but not the REA build:
