@@ -7,8 +7,10 @@ import {
 import { parsePeResources } from "./PeResourceParser.js";
 import { peResourceFixture } from "./PeResources.fixture.js";
 
-const parse = async (resources: Parameters<typeof peResourceFixture>[1]) => {
-  const { bytes } = peResourceFixture(false, resources);
+const parse = async (resources: Parameters<typeof peResourceFixture>[1]) =>
+  parseBytes(peResourceFixture(false, resources).bytes);
+
+const parseBytes = async (bytes: Buffer) => {
   const result = peResourcesSchema.parse(
     await parsePeResources(
       bytes,
@@ -233,10 +235,16 @@ describe("PE version payloads", () => {
 
   it("projects repeated payload ranges as independent version records", async () => {
     const payload = versionInfo();
-    const { result } = await parse([
+    const fixture = peResourceFixture(false, [
       { type: 16, name: 1, language: 1033, payload },
       { type: 16, name: 2, language: 1033, payload },
     ]);
+    const [first, second] = fixture.dataOffsets;
+    if (first === undefined || second === undefined)
+      throw new Error("Missing version data entries");
+    // Point the second data entry at the first payload's RVA and size.
+    fixture.bytes.copy(fixture.bytes, second, first, first + 8);
+    const { result } = await parseBytes(fixture.bytes);
     expect(
       result.version_infos.map(({ resource_index }) => resource_index),
     ).toEqual([0, 1]);
