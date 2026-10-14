@@ -51,6 +51,8 @@ const observationFailureMessage = (
     return `${operation} could not reach the selected loopback debugging endpoint. Verify that the target process is running with debugging enabled and that the endpoint's port matches it, then retry.`;
   if (reason === "target_not_found")
     return `${operation} could not find the selected target at the debugging endpoint. Refresh target discovery for that endpoint and retry with a returned target ID.`;
+  if (reason === "service_worker_blocked")
+    return `${operation} was blocked because a service worker controls the selected page or is registered in one of its frames. The configured service-worker policy is block.`;
   if (reason === "disconnected")
     return `${operation} lost its debugging connection. Verify that the target process is still running, refresh target discovery, and retry the observation.`;
   return undefined;
