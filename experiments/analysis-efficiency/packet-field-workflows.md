@@ -210,3 +210,10 @@ unsupported Ethernet protocols. The page diagnostic now derives matches 13–24
 independently before accepting the second page; skipped, reversed and changed-byte
 pages are rejected. Original cohort measurements retain their recorded source
 digests and runtime pin; review checks do not relabel them.
+
+Capture grading keeps authenticated facts by Evidence ID and evaluates the cited
+observations. Four replays using actual first-page and second-page SDK Evidence
+verify that later or reordered pages and repeated reads preserve a correct cited
+answer, while citing only the wrong page fails factual grading. Extra calls still
+fail the fixed workflow plan. Regrading all six original model records preserves
+their outcomes and recorded costs; these replays are not new model trials.

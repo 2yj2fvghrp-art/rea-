@@ -54,7 +54,8 @@ const calls = (await readFile(resolve(values.trial, "events.jsonl"), "utf8"))
   .map((event) => event.item);
 const reasons = [];
 const workflowReasons = [];
-let facts, answer, packetId;
+let answer;
+const captures = new Map();
 try {
   if (oracle.kind !== "postgres")
     throw new Error("This model rubric is the fixed PostgreSQL question only");
@@ -137,12 +138,15 @@ try {
         throw new Error(
           "Capture Evidence differs from the fixed input/byte identity",
         );
-      facts = packetFacts("postgres", report);
-      packetId = evidence.evidence_id;
+      const observed = packetFacts("postgres", report);
+      if (
+        captures.has(evidence.evidence_id) &&
+        !isDeepStrictEqual(captures.get(evidence.evidence_id), observed)
+      )
+        throw new Error("Repeated Evidence identity has inconsistent facts");
+      captures.set(evidence.evidence_id, observed);
     }
   }
-  if (!isDeepStrictEqual(facts, expected))
-    throw new Error("Observed facts differ from independent raw header oracle");
   answer = JSON.parse(
     (await readFile(resolve(values.trial, "answer.txt"), "utf8")).trim(),
   );
@@ -167,11 +171,17 @@ try {
     throw new Error("Final answer is not the exact requested recorded facts");
   if (
     !Array.isArray(answer.evidence_ids) ||
-    !answer.evidence_ids.includes(packetId) ||
     answer.evidence_ids.some((id) => !ids.has(id)) ||
     new Set(answer.evidence_ids).size !== answer.evidence_ids.length
   )
     throw new Error("Final citations lack the authenticated packet Evidence");
+  const supportingFacts = answer.evidence_ids
+    .map((id) => captures.get(id))
+    .find((observed) => isDeepStrictEqual(observed, expected));
+  if (!supportingFacts)
+    throw new Error(
+      "Cited observations differ from independent raw header oracle",
+    );
   const limitations =
     typeof answer.limitations === "string"
       ? [answer.limitations]
