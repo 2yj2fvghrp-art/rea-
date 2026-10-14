@@ -7,6 +7,7 @@ import {
   systemLinuxHopperLauncherCandidates,
   supportsReaHost,
 } from "./LinuxHopper.js";
+import { macHopperLauncherCandidates } from "./MacHopper.js";
 import type {
   DoctorCheck,
   DoctorHost,
@@ -153,7 +154,9 @@ const findHopper = async (host: DoctorHost): Promise<string | undefined> => {
           DEFAULT_HOPPER,
           ...(host.platform === "linux"
             ? linuxHopperLauncherCandidates(host.homeDirectory)
-            : [...systemLinuxHopperLauncherCandidates]),
+            : host.platform === "darwin"
+              ? macHopperLauncherCandidates(host.homeDirectory)
+              : [...systemLinuxHopperLauncherCandidates]),
           ...(await host.manualHopperPaths()),
         ]
       : [host.configuredHopperPath];
