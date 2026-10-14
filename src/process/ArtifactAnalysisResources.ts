@@ -130,8 +130,6 @@ export class ArtifactAnalysisResources {
   }
 
   #resourcesFor(root: ArtifactAnalysisRuntime): readonly string[] {
-    // Recorded launch coordinates identify the retained owner; they do not
-    // establish that a process is alive or authorize signaling that PID.
     const ownership = this.#pending.get(root)?.owner?.launch.ownership;
     return ownership === undefined
       ? [root.path]
@@ -150,16 +148,48 @@ export class ArtifactAnalysisResources {
         const { owner } = retained;
         if (owner !== undefined) {
           const stopped = await owner.stop();
-          if (stopped.status === "incomplete") throw new Error(stopped.reason);
+          if (stopped.status === "incomplete") {
+            const cleanup = stopped.cleanupResult;
+            throw new ProviderCleanupError(
+              this.providerId,
+              this.#resourcesFor(root),
+              {
+                reason: stopped.reason,
+                ...(cleanup?.failures === undefined
+                  ? {}
+                  : {
+                      failures: cleanup.failures.map((failure) => ({
+                        ...failure,
+                      })),
+                    }),
+                ...(cleanup?.unverified === undefined
+                  ? {}
+                  : {
+                      unverified: cleanup.unverified.map((process) => ({
+                        ...process,
+                      })),
+                    }),
+              },
+              { operation: retained.operation },
+            );
+          }
           this.#pending.set(root, { ...retained, owner: undefined });
         }
         await root.close();
         this.#pending.delete(root);
       } catch (cause: unknown) {
+        const diagnostics =
+          cause instanceof ProviderCleanupError ? cause.diagnostics : undefined;
         throw new ProviderCleanupError(
           this.providerId,
           this.#resourcesFor(root),
-          { reason: String(cause) },
+          {
+            ...diagnostics,
+            reason:
+              cause instanceof ProviderCleanupError
+                ? String(diagnostics?.reason ?? cause.message)
+                : String(cause),
+          },
           { operation: retained.operation, cause },
         );
       }
@@ -251,12 +281,18 @@ export class ArtifactAnalysisResources {
       const partialObservation = result.ok
         ? observation(result.value)
         : result.error.partialObservation;
+      const cleanupDiagnostics =
+        cause instanceof ProviderCleanupError ? cause.diagnostics : undefined;
       return err(
         new ProviderCleanupError(
           this.providerId,
           this.#pendingResources,
           {
-            reason: String(cause),
+            ...cleanupDiagnostics,
+            reason:
+              cause instanceof ProviderCleanupError
+                ? String(cleanupDiagnostics?.reason ?? cause.message)
+                : String(cause),
             previous_error: result.ok
               ? null
               : projectAnalysisError(result.error),

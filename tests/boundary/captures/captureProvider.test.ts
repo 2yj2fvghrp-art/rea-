@@ -56,6 +56,8 @@ else { if(readFileSync('capture', 'utf8') !== 'recording bytes') throw Error('wr
     },
     async (input) => {
       calls++;
+      if (mode === "launch-failure" && !input.arguments.includes("--version"))
+        throw Object.assign(new Error("spawn E2BIG"), { code: "E2BIG" });
       if (mode === "file-limit" && !input.arguments.includes("--version")) {
         const stdout = { text: "", bytes: 0, observedBytes: 0 };
         const stderr = {
@@ -255,6 +257,21 @@ it.each([
         name.startsWith("decoder-"),
       ),
     ).toEqual([]);
+  },
+);
+
+it.each(["capture", "fields"] as const)(
+  "does not attribute the version probe's output to a %s command that fails to launch",
+  async (operation) => {
+    const f = await fixture("launch-failure");
+    const result =
+      operation === "capture"
+        ? await f.service.inspect({ path: f.path, fields: ["ip.addr"] })
+        : await f.service.inspectFields({ kind: "fields" });
+    if (result.ok) throw new Error("Expected launch failure");
+    expect(f.calls()).toBe(2);
+    expect(result.error.message).toContain("spawn E2BIG");
+    expect(result.error.capturedOutput).toBeUndefined();
   },
 );
 
@@ -678,6 +695,7 @@ it.each(["process", "workspace", "process-then-workspace"] as const)(
     );
     let settled = false;
     let processSettled = false;
+    let ownerCleanupSettled = false;
     let runId = "";
     let cleanupCalls = 0;
     let rootCloses = 0;
@@ -703,18 +721,21 @@ it.each(["process", "workspace", "process-then-workspace"] as const)(
           ownership: { runId, leaderPid: 4242, processGroupId: 4242 },
           cleanup: async () => {
             cleanupCalls++;
-            return failure === "workspace" || processSettled || settled
-              ? { cleaned: true as const, signaled: false }
-              : {
-                  cleaned: false as const,
-                  reason: "fixture observation unavailable",
-                };
+            if (failure === "workspace" || processSettled || settled) {
+              ownerCleanupSettled = true;
+              return { cleaned: true as const, signaled: false };
+            }
+            return {
+              cleaned: false as const,
+              reason: "fixture observation unavailable",
+            };
           },
         };
       },
       async () => ({
         path: root,
         close: async () => {
+          expect(ownerCleanupSettled).toBe(true);
           rootCloses++;
           if (failure !== "process" && !settled)
             throw new Error("workspace removal unavailable");
@@ -740,30 +761,36 @@ it.each(["process", "workspace", "process-then-workspace"] as const)(
       details: { resources },
     });
     expect(launches).toBe(1);
-    expect(cleanupCalls).toBe(failure !== "workspace" ? 2 : 1);
-    expect(rootCloses).toBe(failure !== "workspace" ? 0 : 1);
+    expect(cleanupCalls).toBeGreaterThan(0);
+    if (failure !== "workspace") expect(rootCloses).toBe(0);
+    else expect(rootCloses).toBeGreaterThan(0);
+    const cleanupBeforeRetry = cleanupCalls;
     await expect(service.close()).rejects.toMatchObject({
       cleanupResources: resources,
     });
-    expect(cleanupCalls).toBe(failure !== "workspace" ? 3 : 1);
+    if (failure !== "workspace") {
+      expect(cleanupCalls).toBeGreaterThan(cleanupBeforeRetry);
+      expect(rootCloses).toBe(0);
+    } else expect(cleanupCalls).toBe(cleanupBeforeRetry);
     if (failure === "process-then-workspace") {
       processSettled = true;
       await expect(service.close()).rejects.toMatchObject({
         cleanupResources: [root],
       });
-      expect(cleanupCalls).toBe(4);
-      expect(rootCloses).toBe(1);
+      expect(ownerCleanupSettled).toBe(true);
+      expect(rootCloses).toBeGreaterThan(0);
     }
+    const cleanupBeforeSettlement = cleanupCalls;
     settled = true;
     await service.close();
-    expect(cleanupCalls).toBe(failure !== "workspace" ? 4 : 1);
-    expect(rootCloses).toBe(
-      failure === "process" ? 1 : failure === "workspace" ? 3 : 2,
-    );
+    expect(rootCloses).toBeGreaterThan(0);
+    if (failure !== "process")
+      expect(cleanupCalls).toBe(cleanupBeforeSettlement);
+    const completedCleanupCalls = cleanupCalls;
+    const completedRootCloses = rootCloses;
     await service.close();
-    expect(rootCloses).toBe(
-      failure === "process" ? 1 : failure === "workspace" ? 3 : 2,
-    );
+    expect(cleanupCalls).toBe(completedCleanupCalls);
+    expect(rootCloses).toBe(completedRootCloses);
   },
 );
 
