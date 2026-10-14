@@ -14,6 +14,7 @@ import { promisify } from "node:util";
 import { Client } from "@modelcontextprotocol/client";
 import { StdioClientTransport } from "@modelcontextprotocol/client/stdio";
 import { parseEvidence } from "../../dist/domain/evidence.js";
+import { resolveGhidraVerifierTimeouts } from "./ghidra-verifier-timeouts.mjs";
 import {
   requireMcpOperationResult,
   requireMcpToolError,
@@ -26,17 +27,22 @@ export async function verifyGhidraFileOffsets(
   entrypoint,
   procedure,
 ) {
+  const environment = {
+    ...process.env,
+    REA_ANALYSIS_PROVIDER: "ghidra",
+    REA_LOG_LEVEL: "silent",
+  };
+  const { publicRequestTimeoutMs: timeoutMs } =
+    resolveGhidraVerifierTimeouts(environment);
   const original = await readFile(targetPath);
   const workspace = await mkdtemp(join(tmpdir(), "rea-file-offsets-"));
   const runtime = join(workspace, "runtime");
   await mkdir(runtime);
   const env = {
-    ...process.env,
+    ...environment,
     TEMP: runtime,
     TMP: runtime,
     TMPDIR: runtime,
-    REA_ANALYSIS_PROVIDER: "ghidra",
-    REA_LOG_LEVEL: "silent",
   };
   const client = new Client({ name: "rea-file-offsets", version: "1" });
   const transport = new StdioClientTransport({
@@ -51,7 +57,7 @@ export async function verifyGhidraFileOffsets(
   const call = async (name, arguments_ = {}) => {
     const result = await client.callTool(
       { name, arguments: arguments_ },
-      { timeout: 240_000 },
+      { timeout: timeoutMs },
     );
     const projected = requireMcpOperationResult(result, name);
     return ["open_binary", "binary_session", "close_binary"].includes(name)
@@ -147,7 +153,7 @@ export async function verifyGhidraFileOffsets(
             "ghidra",
             "--json",
           ],
-          { env, timeout: 240_000, maxBuffer: 16 * 1024 * 1024 },
+          { env, timeout: timeoutMs, maxBuffer: 16 * 1024 * 1024 },
         )
       ).stdout,
     );
@@ -164,7 +170,7 @@ export async function verifyGhidraFileOffsets(
         "ghidra",
         "--json",
       ],
-      { env, timeout: 240_000, maxBuffer: 16 * 1024 * 1024 },
+      { env, timeout: timeoutMs, maxBuffer: 16 * 1024 * 1024 },
     ).then(
       () => {
         throw new Error(
@@ -188,7 +194,7 @@ export async function verifyGhidraFileOffsets(
           name: "procedure_pseudo_code",
           arguments: { procedure: `file-offset:${coordinate}` },
         },
-        { timeout: 240_000 },
+        { timeout: timeoutMs },
       );
       assert.ok(
         JSON.stringify(requireMcpToolError(ambiguous)).includes(
