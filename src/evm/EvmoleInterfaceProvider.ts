@@ -44,6 +44,7 @@ import type { ProviderProcessSupervisor } from "../process/ProviderProcess.js";
 import {
   evmInterfaceFailure,
   capturedEvmOutput,
+  ownedCommandPreviousError,
   type EvmFileSizeFailureEvidence,
 } from "./EvmoleFailures.js";
 import {
@@ -106,6 +107,7 @@ const evmCleanupFailure = (
   reason: string,
   output?: AnalysisCapturedOutput,
   cause?: unknown,
+  commandFailure?: OwnedCommandFailure,
 ): ProviderCleanupError => {
   const partialObservation = result.ok
     ? evmExecutionEvidence(input, result.value)
@@ -118,7 +120,11 @@ const evmCleanupFailure = (
     resources,
     {
       reason,
-      previous_error: result.ok ? null : projectAnalysisError(result.error),
+      previous_error: result.ok
+        ? null
+        : commandFailure === undefined
+          ? projectAnalysisError(result.error)
+          : ownedCommandPreviousError(commandFailure),
       ...(capturedOutput === undefined
         ? {}
         : { captured_output: { ...capturedOutput } }),
@@ -181,6 +187,7 @@ export class EvmoleInterfaceProvider implements EvmInterfacePort {
     if (pending !== undefined) return err(pending);
     let root: Pick<PrivateRuntimeRoot, "path" | "close"> | undefined;
     let processOwner: ProviderProcessSupervisor | undefined;
+    let commandFailure: OwnedCommandFailure | undefined;
     let processCleanup:
       | {
           readonly reason: string;
@@ -446,6 +453,7 @@ export class EvmoleInterfaceProvider implements EvmInterfacePort {
     } catch (cause: unknown) {
       // A failure rethrown after retainCleanup carries no owner of its own;
       // keep the retained worker instead of discarding it.
+      if (cause instanceof OwnedCommandFailure) commandFailure = cause;
       if (
         cause instanceof OwnedCommandFailure &&
         cause.cleanupOwner !== undefined
@@ -542,6 +550,7 @@ export class EvmoleInterfaceProvider implements EvmInterfacePort {
           processCleanup.reason,
           retainedOutput,
           processOwner,
+          commandFailure,
         ),
       );
     }

@@ -25,6 +25,17 @@ import {
 } from "./EvmoleRelease.js";
 
 /** Correlate a reserved exit with the owned worker's actual failure branch. */
+/**
+ * Primary worker failure retained beside a cleanup failure. Its output is
+ * already retained once as captured_output, so it is not repeated here.
+ */
+export const ownedCommandPreviousError = (cause: OwnedCommandFailure) => ({
+  failure_kind: cause.reason,
+  message: cause.message,
+  exit_code: cause.snapshot?.exitCode ?? null,
+  signal: cause.snapshot?.signal ?? null,
+});
+
 export interface EvmFileSizeFailureEvidence {
   readonly verified: boolean;
   readonly failure: string | null;
@@ -57,12 +68,7 @@ export const evmInterfaceFailure = (
           ...(cause.snapshot === null
             ? {}
             : { captured_output: { ...capturedEvmOutput(cause.snapshot) } }),
-          previous_error: {
-            failure_kind: cause.reason,
-            message: cause.message,
-            exit_code: cause.snapshot?.exitCode ?? null,
-            signal: cause.snapshot?.signal ?? null,
-          },
+          previous_error: ownedCommandPreviousError(cause),
         },
         { operation: "inspect_evm_interface", cause },
       );
