@@ -67,8 +67,7 @@ this profile after the existing REA environment, replacing an earlier schema
 profile while preserving other settings. To update an earlier registration,
 rerun `rea setup --client claude_desktop`, or add the setting to
 `mcpServers.rea.env` while preserving other settings, then restart the client.
-Setup behavior and advertised parameter types are covered by automated tests;
-validation in the native Claude Desktop client is pending.
+Verified in automated tests; native Claude Desktop verification is pending.
 
 Quit Claude Desktop fully before approving setup; closing its window is not
 enough. A running Claude Desktop can rewrite its configuration from memory and
