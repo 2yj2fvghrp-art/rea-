@@ -117,6 +117,51 @@ were resolved in this commit.
 - [x] **Rebase.** Branch rebased onto `upstream/main` (`fb28ec153`); the four
       files edited by both sides merged without conflict.
 
+## Phase K — Review response on PR #3090
+
+Two P2 findings from the automated review, both reproduced against the branch and
+fixed at the boundary that owns the fact.
+
+- [x] **Resolved provider versions disappeared** (`AnalysisProviderEvaluation.ts`).
+      Re-attribution lived in `selectedResult`, so it covered only the bound
+      provider: with two or more eligible candidates every other candidate
+      reported the adapter's unresolved declaration (`version: null`) and so did
+      its capabilities and the selection Evidence. The evaluation is what
+      resolved the profile, so `eligibleStatus` now attributes the committed
+      identity there and `selectedResult` only marks the choice. The MCP test
+      asserts the resolved version on both eligible candidates and their
+      capabilities.
+- [x] **Provider advice could not resolve failures** (`CapabilityInventory.ts`).
+      `provider_selection_required` named every eligible provider, including ones
+      that cannot run the requested tool. `SelectionContext` now carries each
+      eligible candidate's declared-and-available operations, and the advisory is
+      filtered per operation (all string requirements, any-of for alternatives).
+      When no eligible candidate declares them the helper returns `undefined`, so
+      the operation keeps the accurate `provider_missing` diagnostic instead of
+      advising a provider that cannot help. Covered by differentiated
+      expectations for an operation both providers declare, one only `alpha`
+      declares, and two no eligible provider declares.
+
+## Phase L — Evidence authority classification
+
+- [x] **Selection Evidence claimed artifact authority** (review round 3).
+      `createEvidence` defaults `authority` to `shipped-artifact`, so the record
+      was indistinguishable from an artifact observation. Verified before
+      changing: `ReconstructionObligationCandidates.ts:388` classified any
+      `shipped-artifact` record as a static `"candidate"`, and
+      `ReconstructionObligationAuthority.ts:98` accepted it as satisfying a
+      `"static"` requirement — both wrong for a provider decision. The record now
+      declares `authority: "analyst-inference"` with `confidence: "derived"`, the
+      repository's existing pairing for REA-computed records
+      (`registerInvestigationTools`, `UnknownEvidence`). The remaining consumers
+      were checked: the artifact-keyed snapshot paths additionally require
+      `predicate_type: "rea.analysis"` and a non-null analysis profile, the
+      JS/managed reconciliation projections require `confidence: "inferred"`, and
+      the bundle `scenarios` manifest requires `controlled-replay`, so none of
+      them admit this record either way.
+      `ProviderSelectionEvidence.test.ts` asserts the classification, including
+      an explicit `not.toBe("shipped-artifact")`.
+
 ## Phase H — Verification
 
 Recorded on Windows 11 with Node.js `26.3.0`, npm `12.0.2`. Baseline comparisons

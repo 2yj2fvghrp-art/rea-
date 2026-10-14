@@ -67,6 +67,14 @@ export const createProviderSelectionEvidence = (
         parameters: { provider_id: selection.requestedProviderId },
         result: selectionObservation(selection),
         confidence: "derived",
+        // This decision is REA's own provider policy applied to local
+        // availability and the parsed target, not a read of the artifact's
+        // contents. Leaving the default would claim `shipped-artifact`, which
+        // static reconstruction treats as an artifact observation and which
+        // unknown resolution accepts as static authority. `analyst-inference`
+        // with `derived` confidence is this repository's class for a
+        // REA-computed record that is not a raw observation.
+        authority: "analyst-inference",
         limitations: [...SELECTION_LIMITATIONS, ...stateLimitation(selection)],
       }),
     );

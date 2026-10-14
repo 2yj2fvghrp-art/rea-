@@ -102,6 +102,10 @@ reason:
   "unevaluated"`. `unevaluated` is an omission, not a rejection: REA resolves
   only the profiles a selection needs, so an unrequested candidate stays
   explicitly unknown instead of being reported as unusable.
+- An `eligible` candidate reports the identity its resolved profile committed,
+  including the concrete version, and every capability it published carries that
+  same identity. An adapter that declares an unresolved version must not hide the
+  version REA actually resolved from a caller comparing candidates.
 - `tool_availability.groups[].reason` accepts the new
   `"provider_selection_required"` value.
 
@@ -128,6 +132,14 @@ unavailable solely because the choice is pending is reported as
 `provider_missing`. Telling a caller to install a provider that is already
 installed and eligible is a wrong, non-actionable diagnostic.
 
+That advice must also be resolvable. Session-level eligibility says nothing about
+a specific operation, so the named providers are the eligible candidates that
+declared every operation the tool requires as available. A provider that is
+eligible for the target but cannot run the requested operation is not offered for
+it. When no eligible candidate declares those operations, the pending choice is
+not the blocker, so the operation keeps the `provider_missing` diagnostic rather
+than sending the caller to pick a provider that cannot help.
+
 ## Evidence requirements
 
 A target admission that resolves a new selection records one deterministic,
@@ -142,6 +154,16 @@ REA-owned Evidence record (`predicate_type: "rea.provider-selection"`,
 - `caller_rationale` — explicitly `null`. REA does not reconstruct or fabricate
   the agent's private reasoning, and an explicit `provider_id` is recorded as a
   caller choice, not as verified engine evidence.
+
+The record is attributed to REA's selection policy with
+`authority: "analyst-inference"` and `confidence: "derived"`. It reports a REA
+decision over local availability and the parsed target, not an observation of the
+artifact's contents, so it must not claim `shipped-artifact`: that class is what
+static reconstruction treats as an artifact observation and what unknown
+resolution accepts as static authority. Its
+`predicate_type: "rea.provider-selection"` and null analysis profile keep it out
+of the artifact-keyed snapshot and obligation paths regardless, and its `derived`
+confidence keeps it out of the `inferred`-only reconciliation projections.
 
 Target identity, format, architecture, and SHA-256 come from the evidence
 subject rather than being duplicated in the payload. Candidate capabilities are
@@ -191,10 +213,14 @@ reopen fast path (same target and same profile) records nothing new.
    required.
 3. Two or more eligible providers: `open_binary` succeeds,
    `analysis_provider_selection_state` is `selection_required`, no provider is
-   bound or started, and candidate metadata is complete.
+   bound or started, and candidate metadata is complete. Every eligible candidate
+   reports the version its resolved profile committed, and its capabilities carry
+   that same identity.
 4. A deep operation before the decision returns a typed `ambiguous` error naming
    the candidate IDs, and the same operations are advertised as
-   `provider_selection_required` with the eligible provider IDs.
+   `provider_selection_required` naming only the eligible providers that declared
+   what the operation needs. An operation no eligible provider can run keeps the
+   `provider_missing` diagnostic.
 5. Reopening the same target with a concrete `provider_id` validates and binds
    exactly that provider, which then appears in `analysis_provider_binding` with
    its resolved version and profile.

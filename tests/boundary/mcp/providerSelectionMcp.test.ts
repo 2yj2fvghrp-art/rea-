@@ -11,6 +11,7 @@ import { createTestTempDirectory } from "../../fixtures/temporaryDirectory.js";
 
 import {
   createAnalysisExecution,
+  type AnalysisOperation,
   type AnalysisProviderCandidate,
   type CapabilityDescriptor,
   type ProviderIdentity,
@@ -28,6 +29,9 @@ import { createServer } from "../../../src/server/createServer.js";
 
 const resources: Array<{ close(): Promise<unknown> }> = [];
 let directory: string | undefined;
+
+type DeclaredOperation = Exclude<AnalysisOperation, "health">;
+
 afterEach(async () => {
   await Promise.all(resources.splice(0).map((resource) => resource.close()));
   if (directory !== undefined)
@@ -43,8 +47,10 @@ const selectionHarness = async () => {
   const starts: string[] = [];
   const session = composeBinarySession(
     new AnalysisProviderRegistry([
-      candidate("beta", starts),
-      candidate("alpha", starts),
+      // Overlapping but different capability sets, so per-operation advice can be
+      // distinguished from session-level eligibility.
+      candidate("beta", starts, ["address_name"]),
+      candidate("alpha", starts, ["address_name", "analyze_function"]),
     ]),
   );
   const server = createServer(
@@ -120,16 +126,21 @@ describe("provider selection over MCP", () => {
       open: true,
       analysis_provider_selection_state: "selection_required",
       analysis_provider_binding: null,
+      // Eligibility resolved each profile to version "1", so the reported
+      // candidates and their capabilities must carry that concrete identity even
+      // though no provider is bound yet.
       analysis_provider_candidates: [
         {
-          provider: { id: "alpha" },
+          provider: { id: "alpha", version: "1" },
           eligibility: "eligible",
           selected: false,
+          capabilities: [{ provider: { id: "alpha", version: "1" } }],
         },
         {
-          provider: { id: "beta" },
+          provider: { id: "beta", version: "1" },
           eligibility: "eligible",
           selected: false,
+          capabilities: [{ provider: { id: "beta", version: "1" } }],
         },
       ],
     });
@@ -177,18 +188,27 @@ describe("provider selection over MCP", () => {
     const availability = new Map(
       expandToolAvailability(inventory).map((entry) => [entry.name, entry]),
     );
-    const expectedRemediation =
-      "Reopen the target with open_binary and provider_id set to one of: alpha, beta.";
-    for (const name of [
-      "address_name",
-      "analyze_function",
-      "binary_overview",
-      "get_navigation_context",
-    ]) {
+    // Both eligible providers declare this operation, so both are offered.
+    expect(availability.get("address_name")).toMatchObject({
+      available: false,
+      reason: "provider_selection_required",
+      remediation:
+        "Reopen the target with open_binary and provider_id set to one of: alpha, beta.",
+    });
+    // Advice must be resolvable: beta cannot run `analyze_function`, so it is not
+    // offered for it even though it is eligible for the target.
+    expect(availability.get("analyze_function")).toMatchObject({
+      available: false,
+      reason: "provider_selection_required",
+      remediation:
+        "Reopen the target with open_binary and provider_id set to one of: alpha.",
+    });
+    for (const name of ["binary_overview", "batch_decompile"]) {
+      // No eligible provider declares what these need, so the pending choice is
+      // not the blocker and the missing capability is reported instead.
       expect(availability.get(name)).toMatchObject({
         available: false,
-        reason: "provider_selection_required",
-        remediation: expectedRemediation,
+        reason: "provider_missing",
       });
     }
     // Admission itself stays available, and auxiliary capabilities are untouched.
@@ -271,7 +291,11 @@ describe("explicit provider selection over MCP", () => {
   });
 });
 
-const candidate = (id: string, starts: string[]): AnalysisProviderCandidate => {
+const candidate = (
+  id: string,
+  starts: string[],
+  operations: readonly DeclaredOperation[],
+): AnalysisProviderCandidate => {
   const identity: ProviderIdentity = {
     id,
     name: `${id} provider`,
@@ -279,7 +303,8 @@ const candidate = (id: string, starts: string[]): AnalysisProviderCandidate => {
   };
   return {
     identity: () => identity,
-    capabilities: () => [capability(identity)],
+    capabilities: () =>
+      operations.map((operation) => capability(identity, operation)),
     inspectAvailability: () => ({
       status: "available",
       code: null,
@@ -319,9 +344,12 @@ const candidate = (id: string, starts: string[]): AnalysisProviderCandidate => {
   };
 };
 
-const capability = (provider: ProviderIdentity): CapabilityDescriptor => ({
+const capability = (
+  provider: ProviderIdentity,
+  operation: DeclaredOperation,
+): CapabilityDescriptor => ({
   provider,
-  operation: "address_name",
+  operation,
   available: true,
   reason: null,
   effects: {

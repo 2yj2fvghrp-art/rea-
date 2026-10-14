@@ -133,6 +133,21 @@ snapshot to report a tie for a target the caller had already opened. The route i
 kept only when it was itself produced by `auto`, so a concrete binding is still
 replaced when the caller asks for automatic selection.
 
+**Attribute the resolved identity only when a provider is selected.** Rejected
+after review. Re-attributing inside `selectedResult` covered the bound case and
+left every other eligible candidate reporting the adapter's unresolved
+declaration, so a `selection_required` caller compared candidates whose real
+versions were invisible and the selection Evidence recorded `null`. The
+evaluation is what resolved the profile, so it now owns the attribution and
+`selectedResult` only marks the choice.
+
+**Advise every eligible provider for an unavailable operation.** Rejected after
+review. Session-level eligibility says nothing about one operation, so naming all
+eligible providers could recommend an engine that cannot run the tool the caller
+asked about. The advisory is filtered to candidates that declared what the tool
+requires; when none does, the pending choice is not the blocker and the operation
+keeps `provider_missing`.
+
 ## Validation strategy
 
 - **Pure policy tests** (`AutoProviderSelectionPolicy.test.ts`): zero, one, two,

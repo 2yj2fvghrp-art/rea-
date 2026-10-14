@@ -142,6 +142,32 @@ describe("provider selection Evidence", () => {
     expect(evidence.parameters).toEqual({ provider_id: "alpha" });
   });
 
+  it("never claims artifact authority for a REA provider decision", () => {
+    for (const value of [
+      boundSelection(),
+      selection(),
+      selection({
+        requestedProviderId: "beta",
+        selectionState: "unbound",
+        candidates: [candidate("beta", "unevaluated")],
+      }),
+    ]) {
+      const evidence = observation(value);
+      // The decision reports REA's own provider policy over local availability
+      // and the parsed target; it is not a read of the artifact's contents.
+      // `shipped-artifact` is what static reconstruction and snapshot logic
+      // treat as an artifact observation, so claiming it would misrepresent the
+      // record as engine-derived evidence about the binary.
+      expect(evidence.authority).not.toBe("shipped-artifact");
+      expect(evidence.authority).toBe("analyst-inference");
+      expect(evidence.confidence).toBe("derived");
+      // The artifact-keyed consumers additionally require this predicate and a
+      // concrete analysis profile, neither of which a decision record has.
+      expect(evidence.predicate_type).not.toBe("rea.analysis");
+      expect(evidence.analysis_profile).toBeNull();
+    }
+  });
+
   it("binds the observation to the validated target identity", () => {
     const evidence = observation(selection());
     expect(evidence.subject).toMatchObject({

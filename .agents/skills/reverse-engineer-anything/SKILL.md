@@ -245,15 +245,21 @@ more are eligible). It is `null` before a target is open. Each entry in
 `eligibility` is `eligible`, `ineligible`, or `unevaluated`. An installed engine
 is not automatically eligible; a provider becomes `eligible` only when the host
 availability, target compatibility, and a resolved analysis profile all hold.
-`unevaluated` means REA did not probe that provider for this selection, which is
+An `eligible` candidate reports the concrete version its profile resolved, and
+its capability groups carry that same version. `unevaluated` means REA did not
+probe that provider for this selection, which is
 an omission rather than a rejection. REA does not rank providers and does not
 know which engine is better for the user's question.
 
 When the state is `selection_required`, no provider is bound and no engine was
 started. Each deep operation then appears in `binary_session`'s
-`tool_availability` as `provider_selection_required` with the eligible provider
-IDs; do not read that as a missing installation, because the providers are
-installed, available, and target-compatible. Decide the provider yourself:
+`tool_availability` as `provider_selection_required`; the eligible provider IDs it
+names are the ones that declared what that operation needs, so use them as a
+starting point rather than the whole candidate list. An operation reported as
+`provider_missing` instead cannot be run by any eligible provider, so selecting
+one will not help. Do not read either reason as a missing installation, because
+the providers are installed, available, and target-compatible. Decide the
+provider yourself:
 
 1. Read the user's requested operations, format, architecture, and any existing
    provider-specific workflow the request implies.

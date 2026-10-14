@@ -367,6 +367,11 @@ distinguishes `provider_missing` (no configured provider declares the operation)
 from `provider_selection_required` (configured and eligible providers exist, but
 the admitted target has no deep binding yet); the latter names the eligible
 provider IDs and tells the caller to select one through `open_binary`. The
+choices it names are resolvable ones: only candidates that declared every
+operation the tool requires are offered, so a provider that is eligible for the
+target but cannot run the requested operation is never recommended for it. When
+no eligible provider declares those operations, the reason stays
+`provider_missing`, because the pending choice is not what blocks the call. The
 optional inputs `expected_package_version`, `expected_catalog_digest`, and
 `expected_server_path` compare the live session with the caller's expectations.
 
@@ -408,6 +413,10 @@ identity-matched analysis profile all hold for that target, `ineligible` when on
 of those was decided against the provider, and `unevaluated` when REA did not
 resolve that candidate's profile for this selection. `unevaluated` is an
 omission, not a rejection, and only the candidates a selection needs are probed.
+An `eligible` candidate reports the identity its resolved profile committed,
+including the concrete version, and every capability it published carries that
+same identity — so a caller comparing candidates before binding one sees the
+version REA actually resolved rather than the adapter's unresolved declaration.
 
 A `selection_required` target is admitted without a binding and without starting
 an analysis engine. REA holds no provider ranking and does not choose when
@@ -416,8 +425,9 @@ target with a concrete `provider_id`, which is validated and bound through the
 existing serialized transition. A deep operation attempted before that choice
 returns a typed `ProviderSelectionError` with `selection_reason: "ambiguous"` and
 the candidate IDs, and `tool_availability` reports those operations as
-`provider_selection_required` with the eligible IDs instead of claiming that no
-provider is installed. Unknown, unavailable, unsupported, or unverifiable choices
+`provider_selection_required` with the eligible IDs that declare them instead of
+claiming that no provider is installed. Unknown, unavailable, unsupported, or
+unverifiable choices
 return typed selection details, and a selected provider is never replaced
 automatically after a runtime failure.
 
@@ -436,7 +446,12 @@ explicit `caller_rationale: null`, because REA does not record or reconstruct th
 caller's reasoning. `parameters.provider_id` records the selector REA applied for
 this operation — the caller's `provider_id` when supplied, otherwise the
 configured default — so `selection_source` distinguishes a caller choice from a
-configured or automatic one. An equivalent reopen resolves the identical
+configured or automatic one. It is attributed to the REA selection policy with
+`analyst-inference` authority and `derived` confidence rather than the default
+`shipped-artifact`, because it reports REA's own provider decision instead of a
+read of the artifact's contents; that keeps static reconstruction and unknown
+resolution from accepting it as artifact evidence. An equivalent reopen resolves
+the identical
 decision, whose Evidence digest already exists, and adds no record. The record
 carries no analysis profile, is attributed to the
 REA selection policy rather than to an engine, is never registered as a snapshot

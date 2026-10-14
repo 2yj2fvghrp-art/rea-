@@ -391,23 +391,18 @@ const selectedResult = (
   evaluated: EligibleAnalysisProviderEvaluation,
   statuses: readonly AnalysisProviderCandidateStatus[],
 ): AnalysisProviderSelection => {
-  const identity = evaluated.profile.provider;
-  const capabilities = evaluated.status.capabilities.map((capability) => ({
-    ...capability,
-    provider: structuredClone(identity),
-  }));
+  // The evaluation already attributes the resolved identity to the candidate and
+  // every capability it published, so selecting one only marks the choice.
+  const capabilities = evaluated.status.capabilities;
   const selectedStatus = {
     ...evaluated.status,
-    provider: structuredClone(identity),
     selected: true,
-    eligibility: "eligible",
-    capabilities,
   } satisfies AnalysisProviderCandidateStatus;
   return {
     requestedProviderId,
     binding: {
       provider: evaluated.candidate,
-      identity: structuredClone(identity),
+      identity: structuredClone(evaluated.profile.provider),
       selectionSource: source,
       profile: structuredClone(evaluated.profile),
       capabilities,
