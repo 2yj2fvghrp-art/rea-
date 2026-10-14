@@ -147,7 +147,11 @@ export const systemSetupHost = (
       ? systemMacHopperInstallHost(homeDirectory, environment)
       : undefined;
   const resources = new ArtifactResourceScope();
-  const linuxHopperHost = systemLinuxHopperInstallHost(environment);
+  const linuxDistribution = () => doctorHost.linuxDistribution();
+  const linuxHopperHost = systemLinuxHopperInstallHost(
+    environment,
+    linuxDistribution,
+  );
   const pendingLinuxHopperCleanup = new LinuxHopperTemporaryCleanupOwner();
   return {
     platform,
@@ -157,7 +161,7 @@ export const systemSetupHost = (
     ...setupRegistration(platform, homeDirectory, environment),
     nodeVersion: process.versions.node,
     macosVersion: () => doctorHost.macosVersion(),
-    linuxDistribution: () => doctorHost.linuxDistribution(),
+    linuxDistribution,
     close: () =>
       closeSetupResources(resources, macHopperHost, doctorHost, () =>
         pendingLinuxHopperCleanup.retry(linuxHopperHost.cleanup),

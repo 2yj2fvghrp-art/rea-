@@ -288,7 +288,7 @@ export const readLinuxDistribution = async (
 
 /** Download, verify, install, and read back the official Hopper Linux package. */
 export const installLinuxHopper = async (
-  host: LinuxHopperInstallHost = systemLinuxHopperInstallHost(process.env),
+  host: LinuxHopperInstallHost,
   options: {
     readonly signal?: AbortSignal;
     readonly releases?: Readonly<
@@ -378,11 +378,16 @@ export const linuxHopperLauncherCandidates = (
   ...systemLinuxHopperLauncherCandidates,
 ];
 
-/** Compose package-manager and linker checks from the selected caller environment. */
+/**
+ * Compose package-manager and linker checks from the selected caller
+ * environment. The distribution comes from the caller's host-fact owner, so
+ * installation follows the same architecture classification as the plan.
+ */
 export const systemLinuxHopperInstallHost = (
   environment: Readonly<NodeJS.ProcessEnv>,
+  distribution: LinuxHopperInstallHost["distribution"],
 ): LinuxHopperInstallHost => ({
-  distribution: () => readLinuxDistribution(process.arch),
+  distribution,
   download: downloadHopperPackage,
   createTemporaryDirectory: () => mkdtemp(join(tmpdir(), "rea-hopper-")),
   writeArchive: (path, bytes) => writeFile(path, bytes, { mode: 0o600 }),
