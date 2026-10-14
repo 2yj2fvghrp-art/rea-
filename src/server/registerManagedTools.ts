@@ -16,6 +16,15 @@ import { registerEvidenceTools } from "./registerEvidenceTools.js";
 import { runManagedProviderExecution } from "../composition/directAnalysis.js";
 import { isManagedToolName } from "../contracts/managed/managedToolContracts.js";
 
+/** Operations whose caller may select a retained summary instead of complete delivery. */
+const summarizesRetainedEvidence = (
+  operation: string,
+  parameters: Readonly<Record<string, unknown>>,
+): boolean =>
+  (operation === "inspect_managed_artifact" ||
+    operation === "inspect_managed_members") &&
+  parameters.detail === "summary";
+
 /** Register execution-free managed PE/CLI inspection. */
 export const registerManagedTools = (
   server: EvidenceMcpServer,
@@ -34,11 +43,8 @@ export const registerManagedTools = (
     execute: async (operation, parameters, executionOptions) => {
       if (!isManagedToolName(operation))
         return analysis.execute(operation, parameters, executionOptions);
-      const { detail: _detail, ...artifactParameters } = parameters;
-      if (
-        operation === "inspect_managed_artifact" &&
-        parameters.detail === "summary"
-      ) {
+      const { detail: _detail, ...providerParameters } = parameters;
+      if (summarizesRetainedEvidence(operation, parameters)) {
         const ready = requireAnalysisViewRetention(operation, {
           recordEvidence: options.recordEvidence,
           evidenceById: options.evidenceById,
@@ -69,9 +75,7 @@ export const registerManagedTools = (
         path,
         operation,
         executionOptions?.signal,
-        operation === "inspect_managed_artifact"
-          ? artifactParameters
-          : parameters,
+        providerParameters,
       );
       if (execution.ok && typeof requestedPath === "string")
         selectedManagedPath = requestedPath;
@@ -82,8 +86,7 @@ export const registerManagedTools = (
     ...options,
     analysisForAdmission,
     projectEvidence: (operation, parameters, evidence) =>
-      operation === "inspect_managed_artifact" &&
-      parameters.detail === "summary"
+      summarizesRetainedEvidence(operation, parameters)
         ? summarizeRetainedAnalysis(evidence, {
             recordEvidence: options.recordEvidence,
             evidenceById: options.evidenceById,

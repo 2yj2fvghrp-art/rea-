@@ -49,16 +49,13 @@ it("returns a first-call overview and pages the unchanged source after its file 
   const ajv = new Ajv2020({ strict: false, validateFormats: false });
   expect(ajv.validateSchema(definition.inputSchema)).toBe(true);
   expect(ajv.validateSchema(outputSchema)).toBe(true);
-  for (const name of [
-    "inspect_managed_members",
-    "inspect_managed_native_boundaries",
-  ])
-    expect(
-      ajv.validate(catalog.find((x) => x.name === name)!.inputSchema, {
-        path,
-        detail: "summary",
-      }),
-    ).toBe(false);
+  expect(
+    ajv.validate(
+      catalog.find((x) => x.name === "inspect_managed_native_boundaries")!
+        .inputSchema,
+      { path, detail: "summary" },
+    ),
+  ).toBe(false);
   const reply = await client.callTool({
     name: "inspect_managed_artifact",
     arguments: { path, detail: "summary" },
@@ -239,11 +236,15 @@ it("refuses selected delivery before file access when the server cannot retain E
   const [a, b] = InMemoryTransport.createLinkedPair();
   await server.connect(b);
   await client.connect(a);
-  const rejected = await client.callTool({
-    name: "inspect_managed_artifact",
-    arguments: { path: join(directory, "absent.dll"), detail: "summary" },
-  });
-  expect(parseMcpToolError(rejected).error.code).toBe("capability_unavailable");
+  for (const name of ["inspect_managed_artifact", "inspect_managed_members"]) {
+    const rejected = await client.callTool({
+      name,
+      arguments: { path: join(directory, "absent.dll"), detail: "summary" },
+    });
+    expect(parseMcpToolError(rejected).error.code).toBe(
+      "capability_unavailable",
+    );
+  }
   const complete = await client.callTool({
     name: "inspect_managed_artifact",
     arguments: { path },
