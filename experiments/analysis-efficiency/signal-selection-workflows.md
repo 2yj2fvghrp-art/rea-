@@ -159,6 +159,11 @@ tests passed. Two additional real focused MCP workflows independently verified
 UART/I2C bytes and intervals on that base. These integration checks are separate
 from the original cost cohort and do not replace or extend its measurements.
 
+A subsequent rebase onto main `3b79af28e80785afce9f5998d8f03289402a1847`
+passed the 17 focused tests, including the upstream-fixed Hopper doctor case,
+and two additional real UART/I2C MCP workflows. Original cohort costs and grades
+remain unchanged; these checks verify integration on the updated main only.
+
 Use `measure.mjs --signal-selection baseline|focused|discovery|pages`, preserving
 runtime/source fingerprints and explicit provider JSON. Generate the exact task
 with `signal-model-prompt.mjs --artifact ID --selection baseline|focused`, run the
