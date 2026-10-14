@@ -123,6 +123,10 @@ const shadowedCases = [
     "call after a write in the same if branch",
     `var require;\nif (condition) { require = localLoader; require("./ghost.cjs"); }`,
   ],
+  [
+    "loader restored by a later createRequire write then shadowed again",
+    `import { createRequire } from "node:module";\nlet require = () => "local";\nrequire = createRequire(import.meta.url);\nrequire = otherLoader;\nrequire("./ghost.cjs");`,
+  ],
 ];
 
 const loaderCases = [
@@ -150,6 +154,16 @@ const loaderCases = [
     "createRequire alias keeps the call before a later write",
     `import { createRequire } from "node:module";\nlet require = createRequire(import.meta.url);\nrequire("./dep.cjs");\nrequire = localLoader;`,
     ["./dep.cjs"],
+  ],
+  [
+    "loader restored by a later createRequire write after a local value",
+    `import { createRequire } from "node:module";\nlet require = () => "local";\nrequire = createRequire(import.meta.url);\nrequire("./dep.cjs");`,
+    ["./dep.cjs"],
+  ],
+  [
+    "calls on either side of a restored createRequire write",
+    `import { createRequire } from "node:module";\nlet require = createRequire(import.meta.url);\nrequire("./before.cjs");\nrequire = () => "local";\nrequire = createRequire(import.meta.url);\nrequire("./after.cjs");`,
+    ["./before.cjs", "./after.cjs"],
   ],
   [
     "createRequire alias established by an assignment",

@@ -343,10 +343,13 @@ const isRetainedRequireLoader = (
  * syntax around the initializer (e.g. `as NodeRequire`) is unwrapped before
  * matching, mirroring the reference-source classifier.
  *
- * The alias holds from its establishing write — the first declaration
- * initializer or assignment — so a later write (`require = localLoader`)
- * only shadows calls at or after it instead of rejecting the binding for
- * the whole file.
+ * The alias holds from its establishing write, so a later write
+ * (`require = localLoader`) only shadows calls at or after it instead of
+ * rejecting the binding for the whole file. A later write can also restore
+ * the loader (`require = createRequire(import.meta.url)` after
+ * `let require = () => "local"`), so the establishing write is the last
+ * direct-alias write that takes effect before the call — not just the first
+ * initializer.
  */
 const isDirectCreateRequireBinding = (
   binding: JavaScriptSemanticBindingState,
@@ -359,39 +362,62 @@ const isDirectCreateRequireBinding = (
     )
   )
     return false;
-  const [establishing] = binding.initializers;
+  const { line, column } = range(node).start;
+  const callFunction = nearestFunctionNode(node, state);
+  const isDirectAliasWrite = (
+    initializer: (typeof binding.initializers)[number],
+  ): boolean => {
+    if (state.conditionalInitializers.has(initializer.node)) return false;
+    // Only a direct alias holds the loader: a destructured property of the
+    // created require (e.g. `const { missing: require } = createRequire(...)`)
+    // keeps a non-empty projection and is not the loader itself.
+    if (initializer.projection.length > 0) return false;
+    const init = unwrapJavaScriptExpression(initializer.node).node;
+    if (!t.isCallExpression(init)) return false;
+    const createRequireArgument = init.arguments[0];
+    if (
+      createRequireArgument === undefined ||
+      !isFileIdentity(unwrapJavaScriptExpression(createRequireArgument).node)
+    )
+      return false;
+    return isCreateRequireCallee(
+      unwrapJavaScriptExpression(init.callee).node,
+      state,
+    );
+  };
+  // A write provably after the call — textually after it in the same
+  // straight-line scope — cannot have taken effect yet, so it can neither
+  // establish nor shadow the loader for this call.
+  const callBeforeWrite = (writeNode: t.Node): boolean => {
+    const fact = requireWriteFact(writeNode, state);
+    return (
+      (fact.endLine > line ||
+        (fact.endLine === line && fact.endColumn > column)) &&
+      fact.functionNode === callFunction
+    );
+  };
+  const establishing = binding.initializers
+    .filter(
+      (initializer) =>
+        isDirectAliasWrite(initializer) && !callBeforeWrite(initializer.node),
+    )
+    .at(-1);
   if (establishing === undefined) return false;
-  if (state.conditionalInitializers.has(establishing.node)) return false;
-  // Only a direct alias holds the loader: a destructured property of the
-  // created require (e.g. `const { missing: require } = createRequire(...)`)
-  // keeps a non-empty projection and is not the loader itself.
-  if (establishing.projection.length > 0) return false;
-  const init = unwrapJavaScriptExpression(establishing.node).node;
-  if (!t.isCallExpression(init)) return false;
-  const createRequireArgument = init.arguments[0];
-  if (
-    createRequireArgument === undefined ||
-    !isFileIdentity(unwrapJavaScriptExpression(createRequireArgument).node)
-  )
-    return false;
-  if (
-    !isCreateRequireCallee(unwrapJavaScriptExpression(init.callee).node, state)
-  )
-    return false;
-  // The establishing write installs the loader; only later writes replace
+  // The establishing write installs the loader; only writes after it replace
   // it, so calls before them still see the loader. A call that provably runs
   // before the establishing write — textually before it in the same
   // straight-line scope — runs before the loader exists: it throws or, for
   // `require?.(...)`, no-ops, so it cannot be a module load and must not
-  // invent a dependency. Any other timing (a call in another function, a
-  // deferred field initializer) is unknowable from source order, so the
-  // loader is treated as installed, keeping the previous behavior there.
+  // invent a dependency. The establishing write is selected above to exclude
+  // exactly those provably-later writes, so this stays true by construction.
+  // Any other timing (a call in another function, a deferred field
+  // initializer) is unknowable from source order, so the loader is treated
+  // as installed, keeping the previous behavior there.
+  const establishingIndex = binding.initializers.indexOf(establishing);
   const laterWrites = binding.initializers
-    .filter((initializer) => initializer !== establishing)
+    .slice(establishingIndex + 1)
     .map((initializer) => requireWriteFact(initializer.node, state));
   const establishingFact = requireWriteFact(establishing.node, state);
-  const { line, column } = range(node).start;
-  const callFunction = nearestFunctionNode(node, state);
   const callBeforeEstablishing =
     establishingFact.endLine > line ||
     (establishingFact.endLine === line && establishingFact.endColumn > column);
