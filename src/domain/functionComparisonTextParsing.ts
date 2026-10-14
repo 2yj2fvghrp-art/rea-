@@ -1,8 +1,5 @@
 import { parseAddress } from "./functionComparisonNormalization.js";
 
-const HEXADECIMAL_ADDRESS = /(?<![0-9A-Za-z_:])0x[0-9a-f]+/giu;
-const ASSEMBLY_ADDRESS_TOKEN = /(?<![0-9A-Za-z_])0x[0-9a-f]+/giu;
-
 export interface TextAddressLocation {
   readonly instructionAddress: bigint | null;
   readonly isInstructionAddress: boolean;
@@ -154,14 +151,7 @@ const parseAssemblyLine = (
 ): Map<number, TextAddressLocation> => {
   const locations = new Map<number, TextAddressLocation>();
   const prefix = /^(\s*)(0x[0-9a-f]+):\s*/iu.exec(line);
-  if (prefix === null) {
-    for (const token of line.matchAll(ASSEMBLY_ADDRESS_TOKEN))
-      locations.set(lineStart + token.index, {
-        ...emptyAddressLocation(),
-        isAddressSpaceQualified: hasAddressSpaceQualifier(line, 0, token.index),
-      });
-    return locations;
-  }
+  if (prefix === null) return locations;
 
   const instructionAddress = parseAddress((prefix[2] ?? "").toLowerCase());
   const instructionStart = prefix[0].length;
@@ -170,10 +160,11 @@ const parseAssemblyLine = (
   const lowerMnemonic = mnemonic?.toLowerCase() ?? "";
   const operandsStart =
     instructionStart + (mnemonic?.length ?? instruction.length);
-  const operandRanges = splitAssemblyOperands(
+  const operands = parseAssemblyOperands(
     line.slice(operandsStart),
     operandsStart,
   );
+  const operandRanges = operands.ranges;
   const finalOperand = operandRanges.at(-1);
   const directOperand =
     finalOperand === undefined
@@ -186,47 +177,53 @@ const parseAssemblyLine = (
   const counts = operandRanges.map(() => new Map<bigint, number>());
   let instructionAddressOccurrences = 0;
   let operandCursor = 0;
-  for (const token of line.matchAll(HEXADECIMAL_ADDRESS)) {
-    if (token.index >= operandsStart) instructionAddressOccurrences += 1;
+  for (const token of operands.addresses) {
     while (
       operandCursor < operandRanges.length &&
-      token.index >= operandRanges[operandCursor]!.end
+      token.offset >= operandRanges[operandCursor]!.end
     )
       operandCursor += 1;
     const range = operandRanges[operandCursor];
     const occurrences = counts[operandCursor];
     if (
       range === undefined ||
-      token.index < range.start ||
+      token.offset < range.start ||
       occurrences === undefined
     )
       continue;
-    const address = parseAddress(token[0].toLowerCase());
-    if (address !== null)
-      occurrences.set(address, (occurrences.get(address) ?? 0) + 1);
+    instructionAddressOccurrences += 1;
+    occurrences.set(token.address, (occurrences.get(token.address) ?? 0) + 1);
   }
+  locations.set(lineStart + (prefix[1] ?? "").length, {
+    instructionAddress,
+    isInstructionAddress: true,
+    isControlFlowTarget: false,
+    isAddressSpaceQualified: false,
+    operandIndex: null,
+    operandAddressOccurrences: 0,
+    instructionAddressOccurrences,
+  });
   operandCursor = 0;
-  for (const token of line.matchAll(ASSEMBLY_ADDRESS_TOKEN)) {
+  for (const token of operands.addresses) {
     while (
       operandCursor < operandRanges.length &&
-      token.index >= operandRanges[operandCursor]!.end
+      token.offset >= operandRanges[operandCursor]!.end
     )
       operandCursor += 1;
     const range = operandRanges[operandCursor];
     const operandIndex =
-      range !== undefined && token.index >= range.start ? operandCursor : null;
-    const address = parseAddress(token[0].toLowerCase());
-    locations.set(lineStart + token.index, {
+      range !== undefined && token.offset >= range.start ? operandCursor : null;
+    locations.set(lineStart + token.offset, {
       instructionAddress,
-      isInstructionAddress: token.index === (prefix[1] ?? "").length,
+      isInstructionAddress: false,
       isControlFlowTarget:
         hasDirectControlFlowTarget && operandIndex === operandRanges.length - 1,
-      isAddressSpaceQualified: hasAddressSpaceQualifier(line, 0, token.index),
+      isAddressSpaceQualified: hasAddressSpaceQualifier(line, 0, token.offset),
       operandIndex,
       operandAddressOccurrences:
-        operandIndex === null || address === null
+        operandIndex === null
           ? 0
-          : (counts[operandIndex]?.get(address) ?? 0),
+          : (counts[operandIndex]?.get(token.address) ?? 0),
       instructionAddressOccurrences,
     });
   }
@@ -243,11 +240,20 @@ const emptyAddressLocation = (): TextAddressLocation => ({
   instructionAddressOccurrences: 0,
 });
 
-const splitAssemblyOperands = (
+interface AssemblyOperands {
+  readonly ranges: readonly { readonly start: number; readonly end: number }[];
+  readonly addresses: readonly {
+    readonly offset: number;
+    readonly address: bigint;
+  }[];
+}
+
+const parseAssemblyOperands = (
   text: string,
   offset: number,
-): { readonly start: number; readonly end: number }[] => {
+): AssemblyOperands => {
   const ranges: { start: number; end: number }[] = [];
+  const addresses: { offset: number; address: bigint }[] = [];
   const stack: string[] = [];
   let quote: string | null = null;
   let start = 0;
@@ -256,7 +262,7 @@ const splitAssemblyOperands = (
     const current = text[index];
     if (quote !== null) {
       if (current === "\\") {
-        if (index + 1 >= text.length) return [];
+        if (index + 1 >= text.length) return { ranges: [], addresses: [] };
         index += 1;
       } else if (current === quote) quote = null;
       continue;
@@ -266,23 +272,46 @@ const splitAssemblyOperands = (
       stack.push(current);
     else if (current === "]" || current === ")" || current === "}") {
       const expected = { "]": "[", ")": "(", "}": "{" }[current];
-      if (stack.pop() !== expected) return [];
+      if (stack.pop() !== expected) return { ranges: [], addresses: [] };
     } else if (
-      (current === ";" ||
-        (current === "/" &&
-          (text[index + 1] === "/" || text[index + 1] === "*"))) &&
-      stack.length === 0
+      current === ";" ||
+      (current === "/" &&
+        (text[index + 1] === "/" ||
+          (text[index + 1] === "*" && stack.length === 0)))
     ) {
       end = index;
       break;
     } else if (current === "," && stack.length === 0) {
       addOperandRange(ranges, text, offset, start, index);
       start = index + 1;
+    } else if (current === "/" && text[index + 1] === "*") {
+      const close = text.indexOf("*/", index + 2);
+      if (close < 0) return { ranges: [], addresses: [] };
+      index = close + 1;
+    } else if (
+      current === "0" &&
+      text[index + 1]?.toLowerCase() === "x" &&
+      !isIdentifierCharacter(text[index - 1])
+    ) {
+      let numericEnd = index + 2;
+      while (
+        numericEnd < text.length &&
+        /[0-9a-f]/iu.test(text[numericEnd] ?? "")
+      )
+        numericEnd += 1;
+      if (numericEnd > index + 2) {
+        const address = parseAddress(
+          text.slice(index, numericEnd).toLowerCase(),
+        );
+        if (address !== null)
+          addresses.push({ offset: offset + index, address });
+        index = numericEnd - 1;
+      }
     }
   }
-  if (quote !== null || stack.length > 0) return [];
+  if (quote !== null || stack.length > 0) return { ranges: [], addresses: [] };
   addOperandRange(ranges, text, offset, start, end);
-  return ranges;
+  return { ranges, addresses };
 };
 
 const addOperandRange = (

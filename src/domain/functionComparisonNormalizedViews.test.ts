@@ -466,6 +466,49 @@ describe("normalized view edge cases", () => {
   });
 });
 
+describe("normalized view operand address coverage", () => {
+  it.each([
+    ["semicolon comment", "EAX, [{target}] ; 0x30 bytes", "unchanged"],
+    ["line comment", "EAX, [{target}] // 0x30 bytes", "unchanged"],
+    ["block comment", "EAX, [{target}] /* 0x30 bytes */", "unchanged"],
+    [
+      "multiline block comment",
+      "EAX, [{target}] /* 0x30\nbytes */",
+      "unchanged",
+    ],
+    ["quoted operand", 'EAX, "0x30", [{target}]', "unchanged"],
+    ["escaped quote", 'EAX, "escaped \\"0x30\\"", [{target}]', "unchanged"],
+    ["comment inside operand", "EAX, [{target} /* 0x30 bytes */]", "unchanged"],
+    ["same address in comment", "EAX, [{target}] ; 0x9000", "unchanged"],
+    ["additional numeric use", "EAX, [{target} + 0x30] ; comment", "changed"],
+    ["repeated numeric use", "EAX, [{target} + {target}]", "changed"],
+  ] as const)(
+    "counts instruction uses independently of %s",
+    (_name, operands, status) => {
+      const make = (base: string, target: string) =>
+        syntheticDossier({
+          base,
+          name: `FUN_${BigInt(base).toString(16)}`,
+          pseudocode: "void f(void) {}",
+          assembly: [`${base}: MOV ${operands.replaceAll("{target}", target)}`],
+          referencedNames: [
+            { address: target, source_address: base, value: "name" },
+          ],
+        });
+      const [left, right] = syntheticPair(
+        make("0x411700", "0x9000"),
+        make("0x511700", "0xa000"),
+      );
+      expect(
+        view(
+          compareFunctions(left, right, { includeNormalizedViews: true }),
+          "assembly_normalized",
+        )?.status,
+      ).toBe(status);
+    },
+  );
+});
+
 describe("normalized view long assembly lines", () => {
   it.each([
     ["many operands", false],
