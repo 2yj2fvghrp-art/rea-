@@ -118,6 +118,7 @@ export class JebProvider implements JebAnalysisPort {
     signal?: AbortSignal,
   ): Promise<ProviderAvailability> {
     try {
+      const advertised = await this.#connection.connect(signal);
       await this.#refreshClientInformation(signal);
       return {
         status: "available",
@@ -126,6 +127,7 @@ export class JebProvider implements JebAnalysisPort {
         diagnostics: {
           endpoint: this.#endpoint.toString(),
           engine_version: this.#identity.version,
+          advertised_tools: [...advertised],
         },
       };
     } catch (cause) {

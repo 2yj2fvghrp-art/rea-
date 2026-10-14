@@ -54,6 +54,8 @@ export type AvailabilityPolicy = {
   readonly firmwareInspectionEnabled?: boolean;
   readonly firmwareExtractionEnabled?: boolean;
   readonly androidAnalysisAvailability?: ProviderAvailability;
+  readonly adbAnalysisAvailability?: ProviderAvailability;
+  readonly apktoolAnalysisAvailability?: ProviderAvailability;
   readonly jebAnalysisAvailability?: ProviderAvailability;
   readonly javascriptRecoveryEnabled?: boolean;
   readonly webModuleResolutionEnabled?: boolean;
@@ -459,29 +461,21 @@ const workflowAvailabilityFor = ({
         };
   }
   if (kind === "android-provider")
-    return policy.androidAnalysisAvailability?.status === "available"
-      ? { reason: "available", remediation: null }
-      : {
-          reason:
-            policy.androidAnalysisAvailability?.code === "unsupported_host"
-              ? "unsupported_host"
-              : policy.androidAnalysisAvailability?.code ===
-                  "runtime_unavailable"
-                ? "provider_unavailable"
-                : "provider_missing",
-          remediation:
-            policy.androidAnalysisAvailability?.reason ??
-            "Set REA_JADX_MCP_JAR to a caller-supplied jadx-headless-mcp 0.7.1 JAR and provide a full JDK on Linux, macOS, or Windows x64 with its matching bundled native controls.",
-        };
-  if (kind === "jeb-provider")
-    return policy.jebAnalysisAvailability?.status === "available"
-      ? { reason: "available", remediation: null }
-      : {
-          reason: "provider_missing",
-          remediation:
-            policy.jebAnalysisAvailability?.reason ??
-            "Start a JEB client serving MCP (GUI client, or headless via its programmatic launcher) and point REA_JEB_MCP_URL at it (default http://127.0.0.1:8425/mcp). REA does not install or launch JEB.",
-        };
+    return configuredEngineAvailability(
+      policy.androidAnalysisAvailability,
+      "Set REA_JADX_MCP_JAR to a caller-supplied jadx-headless-mcp 0.7.1 JAR and provide a full JDK on Linux, macOS, or Windows x64 with its matching bundled native controls.",
+    );
+  if (kind === "adb-provider")
+    return configuredEngineAvailability(
+      policy.adbAnalysisAvailability,
+      "Set REA_ADB_PATH to an absolute adb binary, or put adb on PATH. REA does not install platform tools.",
+    );
+  if (kind === "apktool-provider")
+    return configuredEngineAvailability(
+      policy.apktoolAnalysisAvailability,
+      "Set REA_APKTOOL_COMMAND to an absolute apktool launcher, or put apktool on PATH. REA does not install Apktool.",
+    );
+  if (kind === "jeb-provider") return jebProviderAvailability(name, policy);
   const browser = browserProviderAvailability(name, kind, policy);
   if (browser !== null) return browser;
   if (name === "capture_process_scenario" && !policy.processCaptureEnabled)
@@ -504,6 +498,63 @@ const workflowAvailabilityFor = ({
         };
   if (kind === "session") return { reason: "available", remediation: null };
   return null;
+};
+
+const JEB_ADVERTISED_TOOLS: Readonly<Record<string, string>> = {
+  open_jeb_project: "open_project",
+  list_jeb_units: "list_units",
+  decompile_jeb_item: "decompile_code_item",
+};
+
+const configuredEngineAvailability = (
+  availability: ProviderAvailability | undefined,
+  fallback: string,
+): Availability =>
+  availability?.status === "available"
+    ? { reason: "available", remediation: null }
+    : {
+        reason:
+          availability?.code === "unsupported_host"
+            ? "unsupported_host"
+            : availability?.code === "runtime_unavailable" ||
+                availability?.code === "version_unresolved"
+              ? "provider_unavailable"
+              : "provider_missing",
+        remediation: availability?.reason ?? fallback,
+      };
+
+const JEB_SETUP_GUIDANCE =
+  "Start a JEB client serving MCP (GUI client, or headless via its programmatic launcher) and point REA_JEB_MCP_URL at it (default http://127.0.0.1:8425/mcp). REA does not install or launch JEB.";
+
+const jebProviderAvailability = (
+  name: string,
+  policy: AvailabilityPolicy,
+): Availability => {
+  const availability = configuredEngineAvailability(
+    policy.jebAnalysisAvailability,
+    JEB_SETUP_GUIDANCE,
+  );
+  if (availability.reason !== "available") {
+    if (availability.remediation?.includes("REA_JEB_MCP_URL") === true)
+      return availability;
+    return {
+      reason: availability.reason,
+      remediation:
+        availability.remediation === null
+          ? JEB_SETUP_GUIDANCE
+          : `${availability.remediation} ${JEB_SETUP_GUIDANCE}`,
+    };
+  }
+  if (name === "inspect_jeb_client") return availability;
+  const required = JEB_ADVERTISED_TOOLS[name];
+  const advertised =
+    policy.jebAnalysisAvailability?.diagnostics.advertised_tools;
+  if (required === undefined || !Array.isArray(advertised)) return availability;
+  if (advertised.includes(required)) return availability;
+  return {
+    reason: "provider_unavailable",
+    remediation: `The JEB client does not advertise ${required}. Headless builds often omit open_project; use a client that exposes this tool.`,
+  };
 };
 
 const electronProviderAvailability = (

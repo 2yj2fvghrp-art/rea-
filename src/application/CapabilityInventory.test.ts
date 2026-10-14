@@ -98,6 +98,102 @@ const entry = (
 };
 
 describe("capability failure reasons", () => {
+  it("reports a configured adb client instead of a missing provider", () => {
+    const inventory = buildCapabilityInventory(status(), {
+      ...enabledPolicy,
+      adbAnalysisAvailability: {
+        status: "available",
+        code: null,
+        reason: null,
+        diagnostics: {},
+      },
+    });
+    expect(
+      inventory.find(({ name }) => name === "inspect_adb_client"),
+    ).toMatchObject({ available: true, reason: "available" });
+  });
+
+  it("names the adb prerequisite when the binary is missing", () => {
+    const found = buildCapabilityInventory(status(), enabledPolicy).find(
+      ({ name }) => name === "inspect_adb_client",
+    );
+    expect(found).toMatchObject({
+      available: false,
+      reason: "provider_missing",
+    });
+    expect(found?.remediation).toContain("REA_ADB_PATH");
+  });
+
+  it("reports a configured apktool launcher instead of a missing provider", () => {
+    const inventory = buildCapabilityInventory(status(), {
+      ...enabledPolicy,
+      apktoolAnalysisAvailability: {
+        status: "available",
+        code: null,
+        reason: null,
+        diagnostics: {},
+      },
+    });
+    expect(
+      inventory.find(({ name }) => name === "inspect_apktool_client"),
+    ).toMatchObject({ available: true, reason: "available" });
+    expect(
+      inventory.find(({ name }) => name === "decode_android_resources"),
+    ).toMatchObject({ available: true, reason: "available" });
+  });
+
+  it("keeps JEB setup guidance when the endpoint probe fails", () => {
+    const found = buildCapabilityInventory(status(), {
+      ...enabledPolicy,
+      jebAnalysisAvailability: {
+        status: "unavailable",
+        code: "not_configured",
+        reason: "connect ECONNREFUSED 127.0.0.1:8425",
+        diagnostics: {},
+      },
+    }).find(({ name }) => name === "inspect_jeb_client");
+    expect(found).toMatchObject({
+      available: false,
+      reason: "provider_missing",
+    });
+    expect(found?.remediation).toContain("ECONNREFUSED");
+    expect(found?.remediation).toContain("REA_JEB_MCP_URL");
+  });
+
+  it("keeps JEB tools unavailable until the endpoint answers", () => {
+    const found = buildCapabilityInventory(status(), enabledPolicy).find(
+      ({ name }) => name === "inspect_jeb_client",
+    );
+    expect(found).toMatchObject({
+      available: false,
+      reason: "provider_missing",
+    });
+    expect(found?.remediation).toContain("REA_JEB_MCP_URL");
+  });
+
+  it("hides JEB operations the running client does not advertise", () => {
+    const inventory = buildCapabilityInventory(status(), {
+      ...enabledPolicy,
+      jebAnalysisAvailability: {
+        status: "available",
+        code: null,
+        reason: null,
+        diagnostics: {
+          advertised_tools: ["get_client_information", "list_units"],
+        },
+      },
+    });
+    expect(
+      inventory.find(({ name }) => name === "inspect_jeb_client"),
+    ).toMatchObject({ available: true });
+    expect(
+      inventory.find(({ name }) => name === "list_jeb_units"),
+    ).toMatchObject({ available: true });
+    expect(
+      inventory.find(({ name }) => name === "open_jeb_project"),
+    ).toMatchObject({ available: false, reason: "provider_unavailable" });
+  });
+
   it("keeps an unavailable Android runtime distinct from a missing provider", () => {
     const inventory = buildCapabilityInventory(status(), {
       ...enabledPolicy,

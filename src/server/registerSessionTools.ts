@@ -155,6 +155,15 @@ export interface LifecycleToolRegistration {
   readonly androidAnalysisAvailability: (
     signal: AbortSignal,
   ) => Promise<ProviderAvailability>;
+  readonly adbAnalysisAvailability: (
+    signal: AbortSignal,
+  ) => Promise<ProviderAvailability>;
+  readonly apktoolAnalysisAvailability: (
+    signal: AbortSignal,
+  ) => Promise<ProviderAvailability>;
+  readonly jebAnalysisAvailability: (
+    signal: AbortSignal,
+  ) => Promise<ProviderAvailability>;
   readonly closeProcessResources: () => Promise<Result<null, AnalysisError>>;
 }
 
@@ -169,6 +178,9 @@ const registerLifecycleTools = (
     startedAt,
     availabilityPolicy,
     androidAnalysisAvailability,
+    adbAnalysisAvailability,
+    apktoolAnalysisAvailability,
+    jebAnalysisAvailability,
   } = registration;
   registerOpenLifecycleTool(registration, artifactResources);
   registerCloseLifecycleTool(registration);
@@ -179,6 +191,9 @@ const registerLifecycleTools = (
     startedAt,
     availabilityPolicy,
     androidAnalysisAvailability,
+    adbAnalysisAvailability,
+    apktoolAnalysisAvailability,
+    jebAnalysisAvailability,
   });
 };
 
@@ -236,6 +251,15 @@ export interface SessionToolOptions {
   readonly startedAt?: string;
   readonly availabilityPolicy?: () => AvailabilityPolicy;
   readonly androidAnalysisAvailability?: (
+    signal: AbortSignal,
+  ) => Promise<ProviderAvailability>;
+  readonly adbAnalysisAvailability?: (
+    signal: AbortSignal,
+  ) => Promise<ProviderAvailability>;
+  readonly apktoolAnalysisAvailability?: (
+    signal: AbortSignal,
+  ) => Promise<ProviderAvailability>;
+  readonly jebAnalysisAvailability?: (
     signal: AbortSignal,
   ) => Promise<ProviderAvailability>;
 }
@@ -317,6 +341,12 @@ export const registerSessionTools = (
       ),
       androidAnalysisAvailability:
         options.androidAnalysisAvailability ?? missingAndroidAvailability,
+      adbAnalysisAvailability:
+        options.adbAnalysisAvailability ?? missingAdbAvailability,
+      apktoolAnalysisAvailability:
+        options.apktoolAnalysisAvailability ?? missingApktoolAvailability,
+      jebAnalysisAvailability:
+        options.jebAnalysisAvailability ?? missingJebAvailability,
       closeProcessResources: async () => {
         try {
           await processResources.retryCleanup();
@@ -400,5 +430,29 @@ const missingAndroidAvailability = async (): Promise<ProviderAvailability> => ({
   code: "not_configured",
   reason:
     "Set REA_JADX_MCP_JAR to a caller-supplied jadx-headless-mcp 0.7.1 JAR and provide a full JDK on Linux, macOS, or Windows x64 with its matching bundled native controls.",
+  diagnostics: { configured: false },
+});
+
+const missingAdbAvailability = async (): Promise<ProviderAvailability> => ({
+  status: "unavailable",
+  code: "not_configured",
+  reason:
+    "Set REA_ADB_PATH to an absolute adb binary, or put adb on PATH. REA does not install platform tools.",
+  diagnostics: { configured: false },
+});
+
+const missingApktoolAvailability = async (): Promise<ProviderAvailability> => ({
+  status: "unavailable",
+  code: "not_configured",
+  reason:
+    "Set REA_APKTOOL_COMMAND to an absolute apktool launcher, or put apktool on PATH. REA does not install Apktool.",
+  diagnostics: { configured: false },
+});
+
+const missingJebAvailability = async (): Promise<ProviderAvailability> => ({
+  status: "unavailable",
+  code: "not_configured",
+  reason:
+    "Start a JEB client serving MCP (GUI client, or headless via its programmatic launcher) and point REA_JEB_MCP_URL at it (default http://127.0.0.1:8425/mcp). REA does not install or launch JEB.",
   diagnostics: { configured: false },
 });
