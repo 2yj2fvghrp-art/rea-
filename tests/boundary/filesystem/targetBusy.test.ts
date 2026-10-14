@@ -4,6 +4,11 @@ import { join } from "node:path";
 import { expect, it, onTestFinished, vi } from "vitest";
 
 import { parseBinaryTarget } from "../../../src/application/BinaryTargetResolver.js";
+import {
+  systemDoctorHost,
+  type DoctorCheck,
+  type DoctorHost,
+} from "../../../src/application/Doctor.js";
 import { createPeResourcesService } from "../../../src/composition/binaryDiagnostics.js";
 import { projectAnalysisError } from "../../../src/domain/analysisErrorProjection.js";
 import { pe } from "../../../src/domain/binaryTarget.fixture.js";
@@ -68,6 +73,24 @@ const expectRetryableBusyPeImage = (
     },
   });
 
+const inspectDoctorTarget = (host: DoctorHost, path: string) => {
+  if (host.inspectTarget === undefined)
+    throw new Error("The system doctor host must inspect targets");
+  return host.inspectTarget(path);
+};
+
+// A busy target is a supported file whose current read failed, not an unsupported format.
+const expectBusyDoctorTarget = (check: DoctorCheck, path: string) =>
+  expect(check).toMatchObject({
+    name: "target",
+    ok: false,
+    classification: "runtime_failure",
+    detail: path,
+    details: { constraint: "target_in_use" },
+    remediation:
+      "The selected target is held open by another process without read sharing. Close that application or select a copy, then retry.",
+  });
+
 const stopHolder = async (holder: ChildProcess) => {
   // A holder that never started has no pid and emits only "error", never "exit".
   if (
@@ -83,8 +106,16 @@ const stopHolder = async (holder: ChildProcess) => {
   await exited;
 };
 
-/** Hold the file open from another Windows process without read sharing. */
-const holdWithoutSharing = async (path: string): Promise<ChildProcess> => {
+const HOLDER_READY_TIMEOUT_MS = 10_000;
+
+/**
+ * Hold the file open from another Windows process without read sharing. The holder joins
+ * `holders` as soon as it is spawned, so cleanup stops it even when readiness never arrives.
+ */
+const holdWithoutSharing = async (
+  path: string,
+  holders: ChildProcess[],
+): Promise<void> => {
   const literal = path.replaceAll("'", "''");
   const holder = spawn(
     "powershell.exe",
@@ -95,18 +126,32 @@ const holdWithoutSharing = async (path: string): Promise<ChildProcess> => {
     ],
     { stdio: ["ignore", "pipe", "ignore"], windowsHide: true },
   );
-  await new Promise<void>((resolve, reject) => {
-    holder.stdout?.once("data", () => resolve());
-    holder.once("error", (error) =>
-      reject(new Error("Holder did not start", { cause: error })),
-    );
-    holder.once("exit", (code) =>
-      reject(
-        new Error(`Holder exited before opening the file (${String(code)})`),
-      ),
-    );
-  });
-  return holder;
+  holders.push(holder);
+  let timer: NodeJS.Timeout | undefined;
+  try {
+    await new Promise<void>((resolve, reject) => {
+      timer = setTimeout(
+        () =>
+          reject(
+            new Error(
+              `Holder did not open the file within ${String(HOLDER_READY_TIMEOUT_MS)} ms`,
+            ),
+          ),
+        HOLDER_READY_TIMEOUT_MS,
+      );
+      holder.stdout?.once("data", () => resolve());
+      holder.once("error", (error) =>
+        reject(new Error("Holder did not start", { cause: error })),
+      );
+      holder.once("exit", (code) =>
+        reject(
+          new Error(`Holder exited before opening the file (${String(code)})`),
+        ),
+      );
+    });
+  } finally {
+    clearTimeout(timer);
+  }
 };
 
 it("reports a selected target held by another process as retryable and unavailable", async () => {
@@ -127,6 +172,27 @@ it("reports a selected target held by another process as retryable and unavailab
   expect((await parseBinaryTarget(path, { cwd: workspace.root })).ok).toBe(
     true,
   );
+});
+
+it("classifies a busy doctor target as a runtime failure, not an unsupported target", async () => {
+  const workspace = await createTestWorkspace("rea-doctor-target-busy-");
+  const path = join(workspace.root, "busy.exe");
+  await writeFile(path, pe(0x8664));
+  const doctor = systemDoctorHost();
+  onTestFinished(async () => {
+    busy.path = "";
+    await doctor.close?.();
+    await removeTestWorkspace(workspace.root);
+  });
+  busy.path = path;
+
+  expectBusyDoctorTarget(await inspectDoctorTarget(doctor, path), path);
+
+  busy.path = "";
+  expect(await inspectDoctorTarget(doctor, path)).toMatchObject({
+    ok: true,
+    classification: "healthy",
+  });
 });
 
 it("reports a selected PE image held by another process as retryable and unavailable", async () => {
@@ -158,19 +224,22 @@ it.runIf(process.platform === "win32")(
     await writeFile(target, pe(0x8664));
     await writeFile(image, peResourceFixture().bytes);
     const service = createPeResourcesService();
+    const doctor = systemDoctorHost();
     const holders: ChildProcess[] = [];
     // One ordered cleanup: the holders must release the files before the workspace is removed.
     onTestFinished(async () => {
       await Promise.all(holders.map(stopHolder));
       await service.close();
+      await doctor.close?.();
       await removeTestWorkspace(workspace.root);
     });
-    holders.push(await holdWithoutSharing(target));
-    holders.push(await holdWithoutSharing(image));
+    await holdWithoutSharing(target, holders);
+    await holdWithoutSharing(image, holders);
 
     const resolved = await parseBinaryTarget(target, { cwd: workspace.root });
     if (resolved.ok) throw new Error("Expected a busy target rejection");
     expectRetryableBusyTarget(resolved.error, target);
+    expectBusyDoctorTarget(await inspectDoctorTarget(doctor, target), target);
 
     const inspected = await service.inspect({ path: image });
     if (inspected.ok) throw new Error("Expected a busy PE image rejection");
