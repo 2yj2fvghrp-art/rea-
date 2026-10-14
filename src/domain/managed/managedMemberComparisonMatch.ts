@@ -540,9 +540,11 @@ export const keyMembers = (
     );
     return (item) => {
       if (inspection.nesting_read === false) return null;
+      const digest = names.get(item.declaring_type_token ?? "");
+      // A historical counterpart cannot repair an observed current name gap.
+      if (inspection.nesting_read !== null && digest == null) return null;
       // Historical observations retain their explicitly limited bare-name mode.
       if (!modern) return item.declaring_type;
-      const digest = names.get(item.declaring_type_token ?? "");
       return digest == null ? null : ["nominal-name-sha256", digest];
     };
   };

@@ -162,6 +162,30 @@ const pairs = (comparison: ReturnType<typeof compare>) => {
 const original = nestedInspection();
 const swapped = nestedInspection({ swapEnclosing: true });
 
+it.each(["left", "right"] as const)(
+  "preserves a current enclosing-cycle gap beside %s historical Evidence",
+  (historicalSide) => {
+    const cyclic = nestedInspection({
+      nestedClassRows: [
+        [4, 5],
+        [5, 4],
+        [6, 4],
+      ],
+    });
+    expect(cyclic.inspection.nesting_read).toBe(true);
+    const result =
+      historicalSide === "left"
+        ? compare(original, cyclic, { left: recordedBefore })
+        : compare(cyclic, original, { right: recordedBefore });
+    expect(result.summary.unchanged).toBe(0);
+    expect(
+      [...result.methods, ...result.fields].every(
+        ({ status }) => status === "unknown",
+      ),
+    ).toBe(true);
+  },
+);
+
 describe("managed member comparison of nested types", () => {
   it("uses owned type identity while preserving omitted display labels", () => {
     const result = compare(original, swapped, {

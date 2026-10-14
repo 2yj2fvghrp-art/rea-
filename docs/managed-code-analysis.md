@@ -256,7 +256,8 @@ types in different enclosing types stay distinct even in selected inventories.
 Malformed, missing, cyclic or over-deep enclosing identity remains unknown;
 the comparison preserves display names without using them to repair that gap.
 Historical observations retain an explicitly limited bare-name mode when either
-side predates the identity facts. Matching then pairs
+side predates the identity facts. A known current identity gap still remains
+unknown beside a historical observation. Matching then pairs
 methods by exact CIL/signature identity, then by signature, then by
 structural body shape; fields by signature. Exact CIL/signature identity
 requires equal raw CIL digests and decoded fingerprints. Equal decoded
