@@ -70,11 +70,15 @@ const compareDimension = (
   after: ReadonlyMap<string, string>,
   complete: boolean,
   reason: string,
-  inventoryComplete = complete,
+  inventoryComplete: boolean | ((identity: string) => boolean) = complete,
 ): Dimension => {
   // Membership evidence can be complete even when selected content is unknown.
   const all = compareIdentities(before, after).filter(
-    ({ change }) => inventoryComplete || change === "modified",
+    ({ identity, change }) =>
+      change === "modified" ||
+      (typeof inventoryComplete === "boolean"
+        ? inventoryComplete
+        : inventoryComplete(identity)),
   );
   if (all.length > 0)
     return {
@@ -274,6 +278,12 @@ const networkDimension = (
   before: WebPageInspection,
   after: WebPageInspection,
 ): Dimension => {
+  const requestsComplete = [before, after].every((inspection) =>
+    sectionsComplete(inspection, ["network_requests"]),
+  );
+  const webSocketInventoryComplete = [before, after].every((inspection) =>
+    sectionsComplete(inspection, ["websocket_connections", "websocket_frames"]),
+  );
   const responseFields = sharedNetworkResponseFields(before, after);
   const responseFieldsComplete = [...responseFields.values()].every(
     (fields) => fields.size === networkResponseFields.length,
@@ -349,17 +359,18 @@ const networkDimension = (
       ...webSocketMetadataMap(afterWebSockets),
       ...afterWebSocketPayload,
     ]),
-    [before, after].every((inspection) =>
-      sectionsComplete(inspection, [
-        "network_requests",
-        "websocket_connections",
-        "websocket_frames",
-      ]),
-    ) &&
+    requestsComplete &&
+      webSocketInventoryComplete &&
       shapesComplete &&
       webSocketPayloadBytesComplete &&
       webSocketShapesComplete,
     "Network capture or selected HTTP/WebSocket payload-shape coverage is attach-window limited, unavailable, or incomplete.",
+    // HTTP and WebSocket identities have independent inventory coverage. Shape
+    // selection can prevent equality without erasing proven membership changes.
+    (identity) =>
+      identity.startsWith("net_")
+        ? requestsComplete
+        : identity.startsWith("ws_") && webSocketInventoryComplete,
   );
   return compared.status === "unchanged" && !responseFieldsComplete
     ? {

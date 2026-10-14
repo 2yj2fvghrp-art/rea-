@@ -1,0 +1,235 @@
+import { describe, expect, it } from "vitest";
+
+import { passiveNetworkCapture } from "../../tests/fixtures/passiveNetworkCapture.js";
+import {
+  browserCaptureComparisonInputSchema,
+  compareBrowserCaptures,
+} from "./browserCaptureComparison.js";
+import type { WebPageInspection } from "./browserObservationSchemas.js";
+import { webCaptureDiffSchema } from "./webCaptureDiffSchemas.js";
+
+const compare = (before: WebPageInspection, after: WebPageInspection) =>
+  webCaptureDiffSchema.parse(
+    compareBrowserCaptures(
+      browserCaptureComparisonInputSchema.parse({
+        before: { inspection: before },
+        after: { inspection: after },
+      }),
+    ),
+  ).dimensions.network;
+
+describe("passive network inventory changes", () => {
+  it.each(["unavailable", "partial", "truncated"] as const)(
+    "retains complete request additions/removals with %s selected shapes",
+    (coverage) => {
+      const before = passiveNetworkCapture(["/a"]);
+      const after = passiveNetworkCapture(["/a", "/b"]);
+      for (const capture of [before, after]) {
+        if (coverage === "truncated")
+          capture.completeness.truncated_sections.push("json_body_shapes");
+        else capture.completeness.unavailable_sections.push("json_body_shapes");
+        for (const request of capture.network.requests) {
+          const shape = {
+            root_type: "object" as const,
+            node_count: 1,
+            max_depth_observed: 0,
+            properties: [],
+          };
+          if (coverage !== "unavailable") request.body_shapes.request = shape;
+          if (coverage === "truncated") request.body_shapes.response = shape;
+          request.body_shapes.status =
+            coverage === "truncated" ? "included" : coverage;
+        }
+      }
+      for (const [left, right, change] of [
+        [before, after, "added"],
+        [after, before, "removed"],
+      ] as const)
+        expect(compare(left, right)).toEqual({
+          status: "changed",
+          total_changes: 1,
+          changes: [{ identity: expect.stringMatching(/^net_/u), change }],
+          reason: null,
+        });
+      expect(compare(after, after)).toMatchObject({
+        status: "unknown",
+        total_changes: 0,
+      });
+    },
+  );
+
+  it("keeps request absence proof independent of WebSocket inventory and response metadata", () => {
+    const before = passiveNetworkCapture([]);
+    const after = passiveNetworkCapture(["/added"]);
+    for (const capture of [before, after]) {
+      capture.completeness.attach_limited_sections.push(
+        "websocket_connections",
+        "websocket_frames",
+      );
+      for (const request of capture.network.requests) {
+        request.status = null;
+        request.mime_type = null;
+        request.encoded_data_length = null;
+      }
+    }
+    for (const [left, right, change] of [
+      [before, after, "added"],
+      [after, before, "removed"],
+    ] as const)
+      expect(compare(left, right)).toMatchObject({
+        status: "changed",
+        total_changes: 1,
+        changes: [{ change }],
+      });
+    expect(compare(after, after)).toMatchObject({
+      status: "unknown",
+      total_changes: 0,
+    });
+  });
+});
+
+describe("passive network coverage uncertainty", () => {
+  it.each([
+    "attach_limited_sections",
+    "unavailable_sections",
+    "truncated_sections",
+    "policy_filtered_sections",
+  ] as const)(
+    "does not infer request absence when its inventory is %s",
+    (section) => {
+      const before = passiveNetworkCapture();
+      const after = passiveNetworkCapture(["/a", "/b"]);
+      after.completeness[section].push("network_requests");
+      for (const [left, right] of [
+        [before, after],
+        [after, before],
+      ])
+        expect(compare(left!, right!)).toMatchObject({
+          status: "unknown",
+          total_changes: 0,
+        });
+      after.network.requests[0]!.status = 503;
+      expect(compare(before, after)).toMatchObject({
+        status: "changed",
+        total_changes: 1,
+        changes: [{ change: "modified" }],
+      });
+    },
+  );
+
+  it("does not promote unavailable shapes to a modification and preserves unselected-shape behavior", () => {
+    const before = passiveNetworkCapture();
+    const after = structuredClone(before);
+    after.network.requests[0]!.body_shapes = {
+      status: "included",
+      request: {
+        root_type: "object",
+        node_count: 1,
+        max_depth_observed: 0,
+        properties: [],
+      },
+      response: {
+        root_type: "string",
+        node_count: 1,
+        max_depth_observed: 0,
+        properties: [],
+      },
+    };
+    expect(compare(before, after)).toMatchObject({
+      status: "unknown",
+      total_changes: 0,
+    });
+    before.completeness.excluded.push({
+      section: "json_body_shapes",
+      reason: "not_approved",
+      count: null,
+    });
+    expect(compare(before, after)).toMatchObject({
+      status: "unchanged",
+      total_changes: 0,
+    });
+  });
+});
+
+describe("independent WebSocket inventory evidence", () => {
+  it("does not use complete HTTP inventory to infer an unobserved WebSocket connection", () => {
+    const before = passiveNetworkCapture();
+    const after = structuredClone(before);
+    after.network.websocket_connections.push({
+      request_id: "ws",
+      url: "wss://app.example.test/live",
+      events: [],
+    });
+    before.completeness.attach_limited_sections.push("websocket_connections");
+    expect(compare(before, after)).toMatchObject({
+      status: "unknown",
+      total_changes: 0,
+    });
+    expect(compare(after, before)).toMatchObject({
+      status: "unknown",
+      total_changes: 0,
+    });
+    after.network.requests.push({
+      ...passiveNetworkCapture(["/b"]).network.requests[0]!,
+      request_id: "request-b",
+    });
+    expect(compare(before, after)).toMatchObject({
+      status: "changed",
+      total_changes: 1,
+      changes: [{ identity: expect.stringMatching(/^net_/u), change: "added" }],
+    });
+  });
+
+  it("retains complete WebSocket membership changes when HTTP inventory is limited", () => {
+    const before = passiveNetworkCapture();
+    before.completeness.attach_limited_sections.push("network_requests");
+    const after = structuredClone(before);
+    after.network.websocket_connections.push({
+      request_id: "ws",
+      url: "wss://app.example.test/live",
+      events: [],
+    });
+    for (const [left, right, change] of [
+      [before, after, "added"],
+      [after, before, "removed"],
+    ] as const)
+      expect(compare(left, right)).toMatchObject({
+        status: "changed",
+        total_changes: 1,
+        changes: [{ identity: expect.stringMatching(/^ws_/u), change }],
+      });
+  });
+
+  it("does not turn missing WebSocket payload facts into membership changes", () => {
+    const before = passiveNetworkCapture();
+    before.network.websocket_connections.push({
+      request_id: "ws",
+      url: "wss://app.example.test/live",
+      events: [
+        {
+          direction: "sent",
+          opcode: 1,
+          payload_bytes: 4,
+          payload_shape: { format: "text", json_shape: null },
+        },
+      ],
+    });
+    const after = structuredClone(before);
+    const event = after.network.websocket_connections[0]!.events[0]!;
+    event.payload_bytes = null;
+    event.payload_shape = null;
+    expect(compare(before, after)).toMatchObject({
+      status: "unknown",
+      total_changes: 0,
+    });
+    after.network.requests.push({
+      ...passiveNetworkCapture(["/b"]).network.requests[0]!,
+      request_id: "request-b",
+    });
+    expect(compare(before, after)).toMatchObject({
+      status: "changed",
+      total_changes: 1,
+      changes: [{ identity: expect.stringMatching(/^net_/u), change: "added" }],
+    });
+  });
+});
