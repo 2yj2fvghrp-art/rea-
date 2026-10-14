@@ -84,21 +84,21 @@ try {
   // Sources are repository-relative, so diagnostics name bridge/ghidra/<file>:<line>.
   const result = run(javac, ["-J-Xmx1g", `@${argumentFile}`]);
   if (result.error || result.status !== 0) {
+    // Set the status instead of exiting so the scratch directory is removed.
     process.stderr.write(
-      `${output(result) || result.error?.message || "javac failed"}\n`,
+      `${output(result) || result.error?.message || "javac failed"}\nGhidra ${version} could not compile the packaged bridge sources; the provider would fail at session start.\n`,
     );
-    fail(
-      `Ghidra ${version} could not compile the packaged bridge sources; the provider would fail at session start.`,
+    process.exitCode = 1;
+  } else {
+    console.log(
+      JSON.stringify({
+        ghidra_version: version,
+        javac: output(banner),
+        class_path_jars: jars.length,
+        sources,
+      }),
     );
   }
-  console.log(
-    JSON.stringify({
-      ghidra_version: version,
-      javac: output(banner),
-      class_path_jars: jars.length,
-      sources,
-    }),
-  );
 } finally {
   await rm(scratch, { recursive: true, force: true });
 }
