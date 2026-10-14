@@ -199,11 +199,10 @@ export class AnalysisProviderRegistry {
         ({ targetSupport }) => targetSupport.status === "unsupported",
       )
     )
-      return ok({
-        requestedProviderId: selector,
-        binding: null,
-        selectionState: "unbound",
-        candidates: baseline,
+        candidates: baseline.map((status) => ({
+          ...status,
+          eligibility: "ineligible" as const,
+        })),
       });
     if (selector !== "auto")
       return this.#selectConcrete(
