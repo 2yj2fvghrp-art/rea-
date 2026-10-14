@@ -89,7 +89,16 @@ export const captureResources = (
   for (const tree of walkFrameTrees(root, () =>
     completeness?.exclude("resources", "invalid_protocol_value"),
   )) {
-    for (const resource of recordsValue(tree.resources)) {
+    if (!Array.isArray(tree.resources)) {
+      completeness?.exclude("resources", "invalid_protocol_value", null);
+      continue;
+    }
+    for (const entry of tree.resources) {
+      const resource = recordValue(entry);
+      if (resource === undefined) {
+        completeness?.exclude("resources", "invalid_protocol_value");
+        continue;
+      }
       const url = allowedSanitizedUrl(resource.url, allowedOrigins);
       if (url === undefined || url.origin === null) {
         completeness?.exclude(
