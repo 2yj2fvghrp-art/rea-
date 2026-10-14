@@ -323,16 +323,33 @@ const sharedNetworkResponseFields = (
   return shared;
 };
 
+/** Section lists and per-kind dropped counts independently limit absence evidence. */
+const networkInventoryComplete = (
+  inspection: WebPageInspection,
+  sections: readonly (
+    | "network_requests"
+    | "websocket_connections"
+    | "websocket_frames"
+  )[],
+): boolean =>
+  sectionsComplete(inspection, sections) &&
+  sections.every(
+    (section) => inspection.completeness.dropped_events[section] === 0,
+  );
+
 const networkDimension = (
   before: WebPageInspection,
   after: WebPageInspection,
 ): Dimension => {
   const requestsComplete = [before, after].every((inspection) =>
-    sectionsComplete(inspection, ["network_requests"]),
+    networkInventoryComplete(inspection, ["network_requests"]),
   );
   const requestIdentities = networkIdentityCoverage(before, after);
   const webSocketInventoryComplete = [before, after].every((inspection) =>
-    sectionsComplete(inspection, ["websocket_connections", "websocket_frames"]),
+    networkInventoryComplete(inspection, [
+      "websocket_connections",
+      "websocket_frames",
+    ]),
   );
   const responseFields = sharedNetworkResponseFields(before, after);
   const responseFieldsComplete = [...responseFields.values()].every(
@@ -416,7 +433,7 @@ const networkDimension = (
       webSocketPayloadBytesComplete &&
       webSocketShapesComplete,
     requestIdentities.complete
-      ? "Network capture or selected HTTP/WebSocket payload-shape coverage is attach-window limited, unavailable, or incomplete."
+      ? "Network capture or selected HTTP/WebSocket payload-shape coverage is limited, unavailable, incomplete, or includes dropped network events."
       : "HTTP request identity is incomplete because a resource type is unavailable; absence of a potentially matching request and complete network equality cannot be established.",
     // HTTP and WebSocket identities have independent inventory coverage. Shape
     // selection can prevent equality without erasing proven membership changes.

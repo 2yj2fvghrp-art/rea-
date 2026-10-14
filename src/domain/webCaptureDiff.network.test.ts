@@ -1,6 +1,9 @@
 import { describe, expect, it } from "vitest";
 
-import { passiveNetworkCapture } from "../../tests/fixtures/passiveNetworkCapture.js";
+import {
+  passiveNetworkCapture,
+  withPassiveDroppedEvents,
+} from "../../tests/fixtures/passiveNetworkCapture.js";
 import {
   browserCaptureComparisonInputSchema,
   compareBrowserCaptures,
@@ -17,6 +20,17 @@ const compare = (before: WebPageInspection, after: WebPageInspection) =>
       }),
     ),
   ).dimensions.network;
+
+const unselectedShapes = (capture: WebPageInspection): WebPageInspection => {
+  capture.completeness.excluded.push({
+    section: "json_body_shapes",
+    reason: "not_approved",
+    count: null,
+  });
+  for (const request of capture.network.requests)
+    request.body_shapes.status = "not_approved";
+  return capture;
+};
 
 describe("passive network inventory changes", () => {
   it.each(["unavailable", "partial", "truncated"] as const)(
@@ -235,17 +249,6 @@ describe("independent WebSocket inventory evidence", () => {
 });
 
 describe("nullable HTTP request identities", () => {
-  const unselectedShapes = (capture: WebPageInspection): WebPageInspection => {
-    capture.completeness.excluded.push({
-      section: "json_body_shapes",
-      reason: "not_approved",
-      count: null,
-    });
-    for (const request of capture.network.requests)
-      request.body_shapes.status = "not_approved";
-    return capture;
-  };
-
   it.each([true, false])(
     "keeps known/unknown resource-type matches uncertain (shapes selected=%s)",
     (selected) => {
@@ -357,4 +360,149 @@ describe("nullable HTTP request identities", () => {
       changes: [{ change: "modified" }],
     });
   });
+});
+
+describe("passive dropped-event inventory coverage", () => {
+  it("does not infer request absence from a capture with independently counted drops", () => {
+    const before = withPassiveDroppedEvents(passiveNetworkCapture(), {
+      network_requests: 1,
+    });
+    const after = passiveNetworkCapture(["/a", "/b"]);
+    expect(before.completeness).toMatchObject({
+      status: "truncated",
+      truncated_sections: [],
+      unavailable_sections: [],
+      attach_limited_sections: [],
+      policy_filtered_sections: [],
+      dropped_events: { network_requests: 1, total: 1 },
+    });
+    for (const [left, right] of [
+      [before, after],
+      [after, before],
+    ] as const)
+      expect(compare(left, right)).toMatchObject({
+        status: "unknown",
+        total_changes: 0,
+      });
+    const changed = structuredClone(before);
+    changed.network.requests[0]!.status = 503;
+    expect(compare(before, changed)).toMatchObject({
+      status: "changed",
+      total_changes: 1,
+      changes: [{ change: "modified" }],
+    });
+  });
+
+  it.each([
+    "network_requests",
+    "websocket_connections",
+    "websocket_frames",
+  ] as const)(
+    "cannot prove network equality after dropped %s even when shapes are unselected",
+    (kind) => {
+      const before = withPassiveDroppedEvents(
+        unselectedShapes(passiveNetworkCapture()),
+        { [kind]: 1 },
+      );
+      expect(before.completeness.truncated_sections).toEqual([]);
+      expect(compare(before, structuredClone(before))).toMatchObject({
+        status: "unknown",
+        total_changes: 0,
+      });
+    },
+  );
+
+  it.each(["websocket_connections", "websocket_frames"] as const)(
+    "keeps %s drops separate from HTTP inventory",
+    (kind) => {
+      const before = withPassiveDroppedEvents(passiveNetworkCapture(), {
+        [kind]: 1,
+      });
+      const after = structuredClone(before);
+      after.network.websocket_connections.push({
+        request_id: "ws",
+        url: "wss://app.example.test/live",
+        events: [],
+      });
+      for (const [left, right] of [
+        [before, after],
+        [after, before],
+      ] as const)
+        expect(compare(left, right)).toMatchObject({
+          status: "unknown",
+          total_changes: 0,
+        });
+      after.network.requests.push({
+        ...passiveNetworkCapture(["/b"]).network.requests[0]!,
+        request_id: "request-b",
+      });
+      for (const [left, right, change] of [
+        [before, after, "added"],
+        [after, before, "removed"],
+      ] as const)
+        expect(compare(left, right)).toMatchObject({
+          status: "changed",
+          total_changes: 1,
+          changes: [{ identity: expect.stringMatching(/^net_/u), change }],
+        });
+    },
+  );
+
+  it("retains complete WebSocket membership despite HTTP drops", () => {
+    const before = withPassiveDroppedEvents(passiveNetworkCapture(), {
+      network_requests: 1,
+    });
+    const after = structuredClone(before);
+    after.network.websocket_connections.push({
+      request_id: "ws",
+      url: "wss://app.example.test/live",
+      events: [],
+    });
+    expect(compare(before, after)).toMatchObject({
+      status: "changed",
+      total_changes: 1,
+      changes: [{ identity: expect.stringMatching(/^ws_/u), change: "added" }],
+    });
+    expect(compare(after, before)).toMatchObject({
+      status: "changed",
+      total_changes: 1,
+      changes: [
+        { identity: expect.stringMatching(/^ws_/u), change: "removed" },
+      ],
+    });
+  });
+
+  it.each([
+    "console_events",
+    "scripts",
+    "timeline_events",
+    "webmcp_tools",
+  ] as const)(
+    "does not use the total or unrelated %s drops as HTTP absence limits",
+    (kind) => {
+      const before = withPassiveDroppedEvents(
+        unselectedShapes(passiveNetworkCapture()),
+        { [kind]: 2 },
+      );
+      expect(before.completeness).toMatchObject({
+        status: "truncated",
+        dropped_events: { total: 2 },
+      });
+      expect(compare(before, structuredClone(before))).toMatchObject({
+        status: "unchanged",
+        total_changes: 0,
+      });
+      const after = unselectedShapes(passiveNetworkCapture(["/a", "/b"]));
+      expect(compare(before, after)).toMatchObject({
+        status: "changed",
+        total_changes: 1,
+        changes: [{ change: "added" }],
+      });
+      expect(compare(after, before)).toMatchObject({
+        status: "changed",
+        total_changes: 1,
+        changes: [{ change: "removed" }],
+      });
+    },
+  );
 });

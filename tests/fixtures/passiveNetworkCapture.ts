@@ -1,4 +1,9 @@
 import { webPageInspectionSchema } from "../../src/domain/browserObservationSchemas.js";
+import type { WebPageInspection } from "../../src/domain/browserObservationSchemas.js";
+import {
+  classifyBrowserCompleteness,
+  type BrowserDroppedEventKind,
+} from "../../src/domain/browserCompleteness.js";
 
 /** Owned normalized comparison input, not a claim about live CDP inventory coverage. */
 export const passiveNetworkCapture = (paths: readonly string[] = ["/a"]) => {
@@ -101,4 +106,24 @@ export const passiveNetworkCapture = (paths: readonly string[] = ["/a"]) => {
       "Synthetic normalized inventory for offline comparison tests; not recorded from a live browser.",
     ],
   });
+};
+
+/** Use the production completeness classifier without inventing section-list entries. */
+export const withPassiveDroppedEvents = (
+  capture: WebPageInspection,
+  dropped: Partial<Record<BrowserDroppedEventKind, number>>,
+): WebPageInspection => {
+  const { completeness } = capture;
+  const { total: _total, ...counts } = completeness.dropped_events;
+  return {
+    ...capture,
+    completeness: classifyBrowserCompleteness({
+      policyFilteredSections: new Set(completeness.policy_filtered_sections),
+      attachLimitedSections: new Set(completeness.attach_limited_sections),
+      truncatedSections: new Set(completeness.truncated_sections),
+      unavailableSections: new Set(completeness.unavailable_sections),
+      excluded: completeness.excluded,
+      droppedEvents: { ...counts, ...dropped },
+    }),
+  };
 };

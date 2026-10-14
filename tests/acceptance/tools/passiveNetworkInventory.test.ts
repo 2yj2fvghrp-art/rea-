@@ -5,7 +5,10 @@ import { expect } from "vitest";
 import { parseEvidence } from "../../../src/domain/evidence.js";
 import { webCaptureDiffSchema } from "../../../src/domain/webCaptureDiffSchemas.js";
 import { connectLocalToolsMcp } from "../../fixtures/localToolsMcp.js";
-import { passiveNetworkCapture } from "../../fixtures/passiveNetworkCapture.js";
+import {
+  passiveNetworkCapture,
+  withPassiveDroppedEvents,
+} from "../../fixtures/passiveNetworkCapture.js";
 import { createTestTempDirectory } from "../../fixtures/temporaryDirectory.js";
 import { cliTest } from "../../support/cli/cliFixture.js";
 
@@ -45,6 +48,26 @@ cliTest.for(["CLI", "stdio MCP"] as const)(
     });
     unselectedUnknownIdentity.network.requests[0]!.body_shapes.status =
       "not_approved";
+    const droppedRequest = withPassiveDroppedEvents(before, {
+      network_requests: 1,
+    });
+    const droppedWebSocket = withPassiveDroppedEvents(before, {
+      websocket_connections: 1,
+      websocket_frames: 1,
+    });
+    const unrelatedDrop = withPassiveDroppedEvents(before, {
+      console_events: 1,
+    });
+    const droppedUnselected = withPassiveDroppedEvents(
+      structuredClone(before),
+      { network_requests: 1 },
+    );
+    droppedUnselected.completeness.excluded.push({
+      section: "json_body_shapes",
+      reason: "not_approved",
+      count: null,
+    });
+    droppedUnselected.network.requests[0]!.body_shapes.status = "not_approved";
     const mcp =
       surface === "stdio MCP" ? await connectLocalToolsMcp() : undefined;
     for (const [name, left, right, change] of [
@@ -65,6 +88,26 @@ cliTest.for(["CLI", "stdio MCP"] as const)(
         "different URL beside unknown identity",
         before,
         unknownIdentityAdded,
+        "added",
+      ],
+      ["dropped request count", droppedRequest, after, null],
+      ["dropped request count reversed", after, droppedRequest, null],
+      [
+        "dropped request with shapes unselected",
+        droppedUnselected,
+        droppedUnselected,
+        null,
+      ],
+      [
+        "WebSocket drops do not hide HTTP additions",
+        droppedWebSocket,
+        after,
+        "added",
+      ],
+      [
+        "unrelated drops do not hide HTTP additions",
+        unrelatedDrop,
+        after,
         "added",
       ],
     ] as const) {
