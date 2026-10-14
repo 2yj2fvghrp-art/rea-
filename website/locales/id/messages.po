@@ -3406,7 +3406,7 @@ msgstr "{ph0}Mendapatkan bantuan{ph1}"
 #, python-brace-format
 msgctxt "page:get-started/index.html"
 msgid "{ph0}{ph1}{ph2}{ph3}{ph4}{ph5}{ph6}{ph7}Your coding agent"
-msgstr "{ph0}{ph1}{ph2}{ph3}{ph4}{ph5}{ph6}{ph7}Agen pengkodean Anda"
+msgstr "{ph0}{ph1}{ph2}{ph3}{ph4}{ph5}{ph6}{ph7}Agen pemrogramanmu"
 
 #: website/public/get-started/index.html:790
 msgctxt "page:get-started/index.html"
@@ -3444,7 +3444,7 @@ msgctxt "page:get-started/index.html"
 msgid ""
 "{ph0}macOS:{ph1} press {ph2} {ph3}, type {ph4}Terminal{ph5} and press Enter."
 msgstr ""
-"{ph0} macOS :{ph1} pers {ph2} {ph3}, ketik {ph4}Terminal{ph5} dan tekan "
+"{ph0}macOS:{ph1} tekan {ph2} {ph3}, ketik {ph4}Terminal{ph5}, lalu tekan "
 "Enter."
 
 #. {ph0}: <strong>
@@ -3456,7 +3456,9 @@ msgstr ""
 #, python-brace-format
 msgctxt "page:get-started/index.html"
 msgid "{ph0}Linux:{ph1} press {ph2} {ph3} {ph4} on most desktops."
-msgstr "{ph0} Linux :{ph1} pers {ph2} {ph3} {ph4} di sebagian besar desktop."
+msgstr ""
+"{ph0}Linux:{ph1} tekan {ph2} {ph3} {ph4} di sebagian besar lingkungan "
+"desktop."
 
 #. {ph0}: <kbd>Ctrl</kbd>
 #. {ph1}: <kbd>V</kbd>
@@ -3505,8 +3507,8 @@ msgid ""
 "is one."
 msgstr ""
 "{ph0}Aplikasi desktop{ph1} (Claude Desktop, Cursor, Windsurf, VS Code): "
-"keluar dari aplikasi sepenuhnya, lalu buka lagi. Menutup jendela saja tidak "
-"cukup. Pada pers macOS {ph2} {ph3}; pada Windows, keluar juga dari ikon baki"
+"tutup aplikasi sepenuhnya lalu buka kembali. Menutup jendela saja tidak "
+"cukup. Di macOS tekan {ph2} {ph3}; di Windows, keluar juga melalui ikon tray"
 " jika ada."
 
 #. {ph0}: <strong>
@@ -3552,8 +3554,8 @@ msgid ""
 "{ph0}macOS:{ph1} in Finder, right-click the folder, hold Option and choose "
 "{ph2}Copy \"…\" as Pathname{ph3}."
 msgstr ""
-"{ph0} macOS :{ph1} di Finder, klik kanan folder, tahan Opsi, dan pilih "
-"{ph2}Salin \" ... \" sebagai Nama Jalur{ph3}."
+"{ph0}macOS:{ph1} di Finder, klik kanan folder, tahan tombol Option, lalu "
+"pilih {ph2}Copy \"…\" as Pathname{ph3}."
 
 #. {ph0}: <strong>
 #. {ph1}: </strong>
@@ -3602,7 +3604,7 @@ msgstr ""
 #: website/public/get-started/index.html:1562
 msgctxt "page:get-started/index.html"
 msgid "Where do I find an app's .asar file?"
-msgstr "Di mana saya menemukan aplikasi .berkas asar?"
+msgstr "Di mana berkas .asar suatu aplikasi?"
 
 #. {ph0}: <code>resources</code>
 #: website/public/get-started/index.html:1563
@@ -3703,9 +3705,10 @@ msgid ""
 "applications and DLLs on fixed local NTFS drives. Use an existing Ghidra "
 "12.1.x installation and a 64-bit JDK 21 or newer:"
 msgstr ""
-"Windows x64 memiliki dukungan eksperimental hanya-baca untuk aplikasi PE x86"
-" dan x64 asli dan DLL pada drive NTFS lokal tetap. Gunakan Ghidra 12.1 yang "
-"ada.instalasi x dan JDK 64-bit 21 atau yang lebih baru:"
+"Windows x64 memiliki dukungan eksperimental hanya-baca untuk aplikasi dan "
+"DLL native x86 dan x64 berformat PE pada drive NTFS lokal tetap. Gunakan "
+"instalasi Ghidra 12.1.x yang sudah ada dan JDK 64-bit versi 21 atau lebih "
+"baru:"
 
 #: website/public/get-started/index.html:1141
 msgctxt "page:get-started/index.html"
@@ -3825,7 +3828,7 @@ msgstr ""
 #: website/public/get-started/index.html:6
 msgctxt "page:get-started/index.html"
 msgid "Install REA and Set Up Your Coding Agent"
-msgstr "Instal REA dan Siapkan Agen Pengkodean Anda"
+msgstr "Instal REA dan Siapkan Agen Pemrogramanmu"
 
 #: website/public/get-started/index.html:7
 msgctxt "page:get-started/index.html"
@@ -11683,9 +11686,9 @@ msgid ""
 "older version or \"not recognized\" / \"command not found\", install {ph1} "
 "24 LTS:"
 msgstr ""
-"Jika {ph0} mencetak v22. 19+, v24. 11+ atau v26+, Anda sudah siap. Jika "
-"mencetak versi yang lebih lama atau\" tidak dikenali \" / \"perintah tidak "
-"ditemukan\", instal {ph1} 24 PT:"
+"Jika {ph0} menampilkan v22.19+, v24.11+, atau v26+, kamu sudah siap. Jika "
+"menampilkan versi lebih lama atau \"not recognized\" / \"command not "
+"found\", instal {ph1} 24 LTS:"
 
 #. {ph0}: <span translate="no">export.js</span>
 #: website/public/guides/browser/index.html:441
@@ -13315,6 +13318,8 @@ msgid ""
 "Set up your computer and coding agent, connect REA, then investigate a small"
 " app."
 msgstr ""
+"Siapkan komputer dan agen pemrogramanmu, hubungkan REA, lalu selidiki "
+"aplikasi kecil."
 
 #. {ph0}: <a href="#agent">
 #. {ph1}: </a>
@@ -13325,6 +13330,8 @@ msgid ""
 "New to this? Follow the four steps below. Already have an agent? Go straight"
 " to {ph0}Connect REA{ph1}."
 msgstr ""
+"Baru pertama kali? Ikuti empat langkah di bawah. Sudah punya agen? Langsung "
+"ke {ph0}Hubungkan REA{ph1}."
 
 #. {ph0}: <a href="#computer">
 #. {ph1}: </a>
@@ -13332,7 +13339,7 @@ msgstr ""
 #, python-brace-format
 msgctxt "page:get-started/index.html"
 msgid "{ph0}1. Prepare your computer{ph1}"
-msgstr ""
+msgstr "{ph0}1. Siapkan komputermu{ph1}"
 
 #. {ph0}: <a href="#choose-agent">
 #. {ph1}: </a>
@@ -13340,7 +13347,7 @@ msgstr ""
 #, python-brace-format
 msgctxt "page:get-started/index.html"
 msgid "{ph0}2. Choose an agent{ph1}"
-msgstr ""
+msgstr "{ph0}2. Pilih agen{ph1}"
 
 #. {ph0}: <a href="#agent">
 #. {ph1}: </a>
@@ -13348,7 +13355,7 @@ msgstr ""
 #, python-brace-format
 msgctxt "page:get-started/index.html"
 msgid "{ph0}3. Connect REA{ph1}"
-msgstr ""
+msgstr "{ph0}3. Hubungkan REA{ph1}"
 
 #. {ph0}: <a href="#first-task">
 #. {ph1}: </a>
@@ -13356,7 +13363,7 @@ msgstr ""
 #, python-brace-format
 msgctxt "page:get-started/index.html"
 msgid "{ph0}4. Try an investigation{ph1}"
-msgstr ""
+msgstr "{ph0}4. Coba penyelidikan{ph1}"
 
 #. {ph0}: <a href="#native">
 #. {ph1}: </a>
@@ -13364,12 +13371,12 @@ msgstr ""
 #, python-brace-format
 msgctxt "page:get-started/index.html"
 msgid "{ph0}Other targets and providers{ph1}"
-msgstr ""
+msgstr "{ph0}Target dan penyedia analisis lainnya{ph1}"
 
 #: website/public/get-started/index.html:220
 msgctxt "page:get-started/index.html"
 msgid "1. Prepare your computer"
-msgstr ""
+msgstr "1. Siapkan komputermu"
 
 #: website/public/get-started/index.html:221
 msgctxt "page:get-started/index.html"
@@ -13377,6 +13384,8 @@ msgid ""
 "Use the computer where your target files are stored. A local coding agent "
 "can read those files and run tools for you."
 msgstr ""
+"Gunakan komputer tempat berkas target disimpan. Agen pemrograman lokal bisa "
+"membaca berkas itu dan menjalankan alat untukmu."
 
 #: website/public/get-started/index.html:246
 msgctxt "page:get-started/index.html"
@@ -13384,6 +13393,8 @@ msgid ""
 "Commands go in the terminal. Prompts labeled “Your coding agent” go in the "
 "agent's chat."
 msgstr ""
+"Masukkan perintah di terminal. Prompt berlabel “Agen pemrogramanmu” "
+"dimasukkan ke percakapan agen."
 
 #. {ph0}: <a href="https://nodejs.org/en/download" >
 #. {ph1}: </a >
@@ -13391,7 +13402,7 @@ msgstr ""
 #, python-brace-format
 msgctxt "page:get-started/index.html"
 msgid "{ph0}Download the Node.js installer{ph1} if winget is unavailable."
-msgstr ""
+msgstr "{ph0}Unduh penginstal Node.js{ph1} jika winget tidak tersedia."
 
 #. {ph0}: <em>
 #. {ph1}: </em>
@@ -13405,16 +13416,19 @@ msgid ""
 "If PowerShell later says {ph0}\"running scripts is disabled on this "
 "system\"{ph1} when you run {ph2}, use {ph3} instead. For npm, use {ph4}:"
 msgstr ""
+"Jika nanti PowerShell menampilkan {ph0}\"running scripts is disabled on this"
+" system\"{ph1} saat kamu menjalankan {ph2}, gunakan {ph3} sebagai gantinya. "
+"Untuk npm, gunakan {ph4}:"
 
 #: website/public/get-started/index.html:406
 msgctxt "page:get-started/index.html"
 msgid "Make a working folder for your agent"
-msgstr ""
+msgstr "Buat folder kerja untuk agenmu"
 
 #: website/public/get-started/index.html:407
 msgctxt "page:get-started/index.html"
 msgid "In your terminal, make a folder for the exercise, then move into it:"
-msgstr ""
+msgstr "Di terminal, buat folder untuk latihan ini lalu masuk ke dalamnya:"
 
 #: website/public/get-started/index.html:426
 msgctxt "page:get-started/index.html"
@@ -13422,11 +13436,13 @@ msgid ""
 "Keep this terminal open for the next step. If you already have a working "
 "folder, open it instead."
 msgstr ""
+"Biarkan terminal ini terbuka untuk langkah berikutnya. Jika sudah punya "
+"folder kerja, buka folder itu saja."
 
 #: website/public/get-started/index.html:433
 msgctxt "page:get-started/index.html"
 msgid "2. Choose a coding agent"
-msgstr ""
+msgstr "2. Pilih agen pemrograman"
 
 #: website/public/get-started/index.html:434
 msgctxt "page:get-started/index.html"
@@ -13434,11 +13450,14 @@ msgid ""
 "Your agent is the AI you talk to. REA supplies the inspection tools it uses."
 " Pick one client below; open its instructions if you haven't used it before."
 msgstr ""
+"Agenmu adalah AI yang kamu ajak bicara. REA menyediakan alat pemeriksaan "
+"yang digunakannya. Pilih satu aplikasi di bawah; buka petunjuknya jika belum"
+" pernah menggunakannya."
 
 #: website/public/get-started/index.html:440
 msgctxt "page:get-started/index.html"
 msgid "Codex · use your ChatGPT account"
-msgstr ""
+msgstr "Codex · gunakan akun ChatGPT-mu"
 
 #: website/public/get-started/index.html:488
 msgctxt "page:get-started/index.html"
@@ -13446,6 +13465,8 @@ msgid ""
 "Choose “Sign in with ChatGPT”, complete the browser sign-in, then return to "
 "the terminal. When the message box appears, continue to step 3."
 msgstr ""
+"Pilih “Sign in with ChatGPT”, selesaikan proses masuk di browser, lalu "
+"kembali ke terminal. Saat kotak pesan muncul, lanjutkan ke langkah 3."
 
 #. {ph0}: <a href="https://learn.chatgpt.com/docs/codex/cli" >
 #. {ph1}: </a >
@@ -13453,32 +13474,32 @@ msgstr ""
 #, python-brace-format
 msgctxt "page:get-started/index.html"
 msgid "{ph0}Codex installation and sign-in{ph1}"
-msgstr ""
+msgstr "{ph0}Instalasi Codex dan masuk akun{ph1}"
 
 #: website/public/get-started/index.html:500
 msgctxt "page:get-started/index.html"
 msgid "Cursor, Windsurf or VS Code · use an editor"
-msgstr ""
+msgstr "Cursor, Windsurf, atau VS Code · gunakan editor"
 
 #: website/public/get-started/index.html:502
 msgctxt "page:get-started/index.html"
 msgid "Install the editor for your operating system and sign in."
-msgstr ""
+msgstr "Instal editor untuk sistem operasimu dan masuk ke akun."
 
 #: website/public/get-started/index.html:505
 msgctxt "page:get-started/index.html"
 msgid "Open the rea-work folder you made in step 1."
-msgstr ""
+msgstr "Buka folder rea-work yang kamu buat pada langkah 1."
 
 #: website/public/get-started/index.html:524
 msgctxt "page:get-started/index.html"
 msgid "Claude Code · use your Claude account"
-msgstr ""
+msgstr "Claude Code · gunakan akun Claude-mu"
 
 #: website/public/get-started/index.html:525
 msgctxt "page:get-started/index.html"
 msgid "Install using the command for your operating system:"
-msgstr ""
+msgstr "Instal dengan perintah untuk sistem operasimu:"
 
 #. {ph0}: <code>claude</code>
 #: website/public/get-started/index.html:554
@@ -13489,6 +13510,9 @@ msgid ""
 "the sign-in prompts. Access uses an eligible Claude subscription or a "
 "configured API account."
 msgstr ""
+"Buka kembali terminal, masuk ke folder kerja, lalu jalankan {ph0}. Ikuti "
+"petunjuk masuk akun. Akses memerlukan langganan Claude yang memenuhi syarat "
+"atau akun API yang sudah dikonfigurasi."
 
 #. {ph0}: <a href="https://code.claude.com/docs/en/setup" >
 #. {ph1}: </a >
@@ -13496,12 +13520,12 @@ msgstr ""
 #, python-brace-format
 msgctxt "page:get-started/index.html"
 msgid "{ph0}Claude Code installation and account options{ph1}"
-msgstr ""
+msgstr "{ph0}Instalasi Claude Code dan pilihan akun{ph1}"
 
 #: website/public/get-started/index.html:566
 msgctxt "page:get-started/index.html"
 msgid "Claude Desktop · use a desktop chat"
-msgstr ""
+msgstr "Claude Desktop · gunakan aplikasi percakapan desktop"
 
 #. {ph0}: <a href="https://claude.ai/download">
 #. {ph1}: </a>
@@ -13515,6 +13539,7 @@ msgid ""
 "{ph0}Download Claude Desktop{ph1} · {ph2}Claude Desktop connection "
 "details{ph3}"
 msgstr ""
+"{ph0}Unduh Claude Desktop{ph1} · {ph2}Detail koneksi Claude Desktop{ph3}"
 
 #. {ph0}: <code>opencode</code>
 #. {ph1}: <code>/connect</code>
@@ -13525,6 +13550,8 @@ msgid ""
 "Run {ph0} in your working folder. Use {ph1} in its chat to connect your "
 "model account, then select a model."
 msgstr ""
+"Jalankan {ph0} di folder kerja. Gunakan {ph1} dalam percakapannya untuk "
+"menghubungkan akun modelmu, lalu pilih model."
 
 #. {ph0}: <a href="https://opencode.ai/docs/" >
 #. {ph1}: </a >
@@ -13532,12 +13559,12 @@ msgstr ""
 #, python-brace-format
 msgctxt "page:get-started/index.html"
 msgid "{ph0}OpenCode installation and model setup{ph1}"
-msgstr ""
+msgstr "{ph0}Instalasi OpenCode dan penyiapan model{ph1}"
 
 #: website/public/get-started/index.html:627
 msgctxt "page:get-started/index.html"
 msgid "All supported clients and setup IDs"
-msgstr ""
+msgstr "Semua aplikasi yang didukung dan ID penyiapannya"
 
 #. {ph0}: <code>--client</code>
 #: website/public/get-started/index.html:628
@@ -13547,16 +13574,18 @@ msgid ""
 "The npm 6.4.0 release supports the clients below. Use the ID with {ph0} when"
 " choosing a client explicitly."
 msgstr ""
+"Rilis npm 6.4.0 mendukung aplikasi di bawah. Gunakan ID bersama {ph0} saat "
+"memilih aplikasi secara eksplisit."
 
 #: website/public/get-started/index.html:636
 msgctxt "page:get-started/index.html"
 msgid "Client"
-msgstr ""
+msgstr "Aplikasi"
 
 #: website/public/get-started/index.html:637
 msgctxt "page:get-started/index.html"
 msgid "Setup ID"
-msgstr ""
+msgstr "ID penyiapan"
 
 #. {ph0}: <code>qoder</code>
 #. {ph1}: <code>droid</code>
@@ -13571,6 +13600,9 @@ msgid ""
 "DeepSeek Harness ({ph4}) are available on repository main; use a source "
 "build or a release containing those integrations."
 msgstr ""
+"Qoder ({ph0}), Factory Droid ({ph1}), Trae ({ph2}), ZCode ({ph3}), dan "
+"DeepSeek Harness ({ph4}) tersedia di cabang main repositori; gunakan build "
+"dari sumber atau rilis yang menyertakan integrasi tersebut."
 
 #. {ph0}: <a href="https://github.com/morluto/rea/blob/main/docs/client-
 #. configuration.md" >
@@ -13586,11 +13618,13 @@ msgid ""
 "{ph0}Client configuration and troubleshooting{ph1} · {ph2}Release "
 "availability{ph3}"
 msgstr ""
+"{ph0}Konfigurasi aplikasi dan pemecahan masalah{ph1} · {ph2}Ketersediaan "
+"dalam rilis{ph3}"
 
 #: website/public/get-started/index.html:731
 msgctxt "page:get-started/index.html"
 msgid "Grok Bot · connect on its hosted computer"
-msgstr ""
+msgstr "Grok Bot · hubungkan di komputer tempat Bot dihosting"
 
 #. {ph0}: <code>rea</code>
 #: website/public/get-started/index.html:732
@@ -13600,6 +13634,8 @@ msgid ""
 "In Grok Bot's chat, ask it to add a custom MCP server named {ph0} using this"
 " command on the Bot's computer:"
 msgstr ""
+"Dalam percakapan Grok Bot, minta Bot menambahkan server MCP khusus bernama "
+"{ph0} menggunakan perintah ini di komputernya:"
 
 #. {ph0}: <a href="https://github.com/morluto/rea/blob/main/docs/client-
 #. configuration.md#other-client-settings" >
@@ -13608,12 +13644,12 @@ msgstr ""
 #, python-brace-format
 msgctxt "page:get-started/index.html"
 msgid "{ph0}Grok Bot connector instructions{ph1}"
-msgstr ""
+msgstr "{ph0}Petunjuk konektor Grok Bot{ph1}"
 
 #: website/public/get-started/index.html:760
 msgctxt "page:get-started/index.html"
 msgid "3. Connect REA"
-msgstr ""
+msgstr "3. Hubungkan REA"
 
 #: website/public/get-started/index.html:761
 msgctxt "page:get-started/index.html"
@@ -13623,7 +13659,7 @@ msgstr "Tempel prompt ini ke agen pemrograman Anda:"
 #: website/public/get-started/index.html:805
 msgctxt "page:get-started/index.html"
 msgid "For one specific client, add its setup ID:"
-msgstr ""
+msgstr "Untuk satu aplikasi tertentu, tambahkan ID penyiapannya:"
 
 #. {ph0}: <code>y</code>
 #: website/public/get-started/index.html:820
@@ -13634,6 +13670,9 @@ msgid ""
 "client list, use the arrow keys to move, Space to select your client and "
 "Enter to continue."
 msgstr ""
+"Jika npm meminta izin mengunduh paket, ketik {ph0} lalu tekan Enter. Dalam "
+"daftar aplikasi REA, gunakan tombol panah untuk berpindah, Space untuk "
+"memilih aplikasi, dan Enter untuk melanjutkan."
 
 #: website/public/get-started/index.html:831
 msgctxt "page:get-started/index.html"
@@ -13641,6 +13680,8 @@ msgid ""
 "MCP is the connection that lets your agent call REA. The skill gives it a "
 "workflow for investigating software."
 msgstr ""
+"MCP adalah koneksi yang memungkinkan agen memanggil REA. Skill memberinya "
+"alur kerja untuk menyelidiki perangkat lunak."
 
 #: website/public/get-started/index.html:835
 msgctxt "page:get-started/index.html"
@@ -13648,6 +13689,8 @@ msgid ""
 "For the first exercise, you can skip the optional Hopper installation. "
 "Restart your client when setup finishes."
 msgstr ""
+"Untuk latihan pertama, kamu bisa melewati instalasi Hopper yang opsional. "
+"Mulai ulang aplikasi agen setelah penyiapan selesai."
 
 #. {ph0}: <code>codex</code>
 #. {ph1}: <code>"healthy": true</code>
@@ -13658,16 +13701,20 @@ msgid ""
 "Replace {ph0} with your client's setup ID. A successful check reports {ph1}."
 " Then ask your agent:"
 msgstr ""
+"Ganti {ph0} dengan ID penyiapan aplikasimu. Pemeriksaan yang berhasil "
+"melaporkan {ph1}. Lalu minta agenmu:"
 
 #: website/public/get-started/index.html:874
 msgctxt "page:get-started/index.html"
 msgid "Check that REA is connected and show me which REA tools you can use."
 msgstr ""
+"Periksa bahwa REA sudah terhubung dan tunjukkan alat REA yang bisa kamu "
+"gunakan."
 
 #: website/public/get-started/index.html:881
 msgctxt "page:get-started/index.html"
 msgid "4. Try your first investigation"
-msgstr ""
+msgstr "4. Coba penyelidikan pertamamu"
 
 #. {ph0}: <strong>
 #. {ph1}: </strong>
@@ -13686,7 +13733,7 @@ msgstr ""
 #: website/public/get-started/index.html:889
 msgctxt "page:get-started/index.html"
 msgid "Your coding agent"
-msgstr ""
+msgstr "Agen pemrogramanmu"
 
 #. {ph0}: <span class="prompt-symbol" aria-hidden="true">
 #. {ph1}: </span >
@@ -13738,12 +13785,12 @@ msgstr ""
 #, python-brace-format
 msgctxt "page:get-started/index.html"
 msgid "{ph0}Check a prediction in the guided exercise →{ph1}"
-msgstr ""
+msgstr "{ph0}Uji sebuah prediksi dalam latihan terpandu →{ph1}"
 
 #: website/public/get-started/index.html:928
 msgctxt "page:get-started/index.html"
 msgid "Download the example yourself, or use your own app"
-msgstr ""
+msgstr "Unduh sendiri contoh ini atau gunakan aplikasimu"
 
 #. {ph0}: <a class="button" href="../examples/notes-example.zip"
 #. download="notes-example.zip" >
@@ -13773,11 +13820,13 @@ msgid ""
 "Use REA to inspect the app at {ph0}. Find how it exports data and show the "
 "relevant files and lines."
 msgstr ""
+"Gunakan REA untuk memeriksa aplikasi di {ph0}. Cari tahu bagaimana aplikasi "
+"mengekspor data dan tunjukkan berkas serta baris yang terkait."
 
 #: website/public/get-started/index.html:975
 msgctxt "page:get-started/index.html"
 msgid "Analyze another kind of software"
-msgstr ""
+msgstr "Analisis jenis perangkat lunak lain"
 
 #: website/public/get-started/index.html:976
 msgctxt "page:get-started/index.html"
@@ -13785,11 +13834,13 @@ msgid ""
 "Choose the section for your target. A provider is the local analysis tool "
 "REA uses for that kind of software."
 msgstr ""
+"Pilih bagian untuk targetmu. Penyedia analisis adalah alat lokal yang "
+"digunakan REA untuk jenis perangkat lunak tersebut."
 
 #: website/public/get-started/index.html:981
 msgctxt "page:get-started/index.html"
 msgid "Native executables and libraries · Hopper, Ghidra or IDA"
-msgstr ""
+msgstr "Program dan pustaka native · Hopper, Ghidra, atau IDA"
 
 #: website/public/get-started/index.html:984
 msgctxt "page:get-started/index.html"
@@ -13797,46 +13848,48 @@ msgid ""
 "Install one analysis tool on the computer running REA. The host is your "
 "operating system; the target is the program you want to inspect."
 msgstr ""
+"Instal satu alat analisis di komputer yang menjalankan REA. Host adalah "
+"sistem operasimu; target adalah program yang ingin kamu periksa."
 
 #: website/public/get-started/index.html:993
 msgctxt "page:get-started/index.html"
 msgid "Provider"
-msgstr ""
+msgstr "Penyedia analisis"
 
 #: website/public/get-started/index.html:1002
 msgctxt "page:get-started/index.html"
 msgid "Unavailable"
-msgstr ""
+msgstr "Tidak tersedia"
 
 #: website/public/get-started/index.html:1004
 msgctxt "page:get-started/index.html"
 msgid "Supported distributions"
-msgstr ""
+msgstr "Distribusi yang didukung"
 
 #: website/public/get-started/index.html:1008
 msgctxt "page:get-started/index.html"
 msgid "x64 · experimental"
-msgstr ""
+msgstr "x64 · eksperimental"
 
 #: website/public/get-started/index.html:1014
 msgctxt "page:get-started/index.html"
 msgid "Verified profiles"
-msgstr ""
+msgstr "Profil yang sudah diverifikasi"
 
 #: website/public/get-started/index.html:1015
 msgctxt "page:get-started/index.html"
 msgid "Verified headless profile"
-msgstr ""
+msgstr "Profil tanpa antarmuka grafis yang sudah diverifikasi"
 
 #: website/public/get-started/index.html:1016
 msgctxt "page:get-started/index.html"
 msgid "See provider guide"
-msgstr ""
+msgstr "Lihat panduan penyedia analisis"
 
 #: website/public/get-started/index.html:1022
 msgctxt "page:get-started/index.html"
 msgid "Hopper · let setup install or connect it"
-msgstr ""
+msgstr "Hopper · biarkan penyiapan menginstal atau menghubungkannya"
 
 #: website/public/get-started/index.html:1028
 msgctxt "page:get-started/index.html"
@@ -13845,6 +13898,10 @@ msgid ""
 "choose demo mode or activate your license when Hopper first opens. On Linux,"
 " setup prepares the supported demo and its private display."
 msgstr ""
+"Pilih Hopper saat penyiapan dan tinjau rencana instalasinya yang terpisah. "
+"Di macOS, pilih mode demo atau aktifkan lisensi saat Hopper pertama kali "
+"dibuka. Di Linux, penyiapan menyiapkan demo yang didukung beserta tampilan "
+"privatnya."
 
 #: website/public/get-started/index.html:1034
 msgctxt "page:get-started/index.html"
@@ -13852,6 +13909,9 @@ msgid ""
 "Linux hosts: Ubuntu 24.04+, Fedora 41+, Nobara 44+, Arch Linux, CachyOS or "
 "Omarchy. Hopper is commercial software; its demo has vendor-defined limits."
 msgstr ""
+"Host Linux: Ubuntu 24.04+, Fedora 41+, Nobara 44+, Arch Linux, CachyOS, atau"
+" Omarchy. Hopper adalah perangkat lunak komersial; demonya memiliki batas "
+"yang ditentukan vendor."
 
 #: website/public/get-started/index.html:1053
 msgctxt "page:get-started/index.html"
@@ -13859,6 +13919,8 @@ msgid ""
 "If macOS asks for Automation permission, allow the app that starts REA in "
 "System Settings → Privacy & Security → Automation, then retry."
 msgstr ""
+"Jika macOS meminta izin Automation, izinkan aplikasi yang menjalankan REA di"
+" System Settings → Privacy & Security → Automation, lalu coba lagi."
 
 #. {ph0}: <a
 #. href="https://github.com/morluto/rea/blob/main/docs/installation.md#hopper"
@@ -13868,12 +13930,12 @@ msgstr ""
 #, python-brace-format
 msgctxt "page:get-started/index.html"
 msgid "{ph0}Hopper setup and troubleshooting{ph1}"
-msgstr ""
+msgstr "{ph0}Penyiapan Hopper dan pemecahan masalah{ph1}"
 
 #: website/public/get-started/index.html:1066
 msgctxt "page:get-started/index.html"
 msgid "Ghidra · install the free analysis tool and Java"
-msgstr ""
+msgstr "Ghidra · instal alat analisis gratis dan Java"
 
 #: website/public/get-started/index.html:1070
 msgctxt "page:get-started/index.html"
@@ -13881,6 +13943,8 @@ msgid ""
 "Install a 64-bit JDK 21 or newer, including the Java compiler. Choose the "
 "package matching your computer's architecture."
 msgstr ""
+"Instal JDK 64-bit versi 21 atau lebih baru, termasuk kompiler Java. Pilih "
+"paket yang sesuai dengan arsitektur komputermu."
 
 #. {ph0}: <code>ghidra_…_PUBLIC_….zip</code>
 #: website/public/get-started/index.html:1075
@@ -13890,6 +13954,8 @@ msgid ""
 "Download Ghidra 12.1.4 from the release's Assets list and extract the {ph0} "
 "archive. Choose the release archive, not “Source code”."
 msgstr ""
+"Unduh Ghidra 12.1.4 dari daftar Assets pada rilis dan ekstrak arsip {ph0}. "
+"Pilih arsip rilis, bukan “Source code”."
 
 #. {ph0}: <code>ghidraRun</code>
 #. {ph1}: <code>ghidraRun.bat</code>
@@ -13901,6 +13967,8 @@ msgid ""
 "Find the extracted folder containing {ph0} or {ph1}. Use that folder for "
 "{ph2}."
 msgstr ""
+"Cari folder hasil ekstraksi yang berisi {ph0} atau {ph1}. Gunakan folder itu"
+" untuk {ph2}."
 
 #. {ph0}: <a href="https://adoptium.net/temurin/releases/?version=21" >
 #. {ph1}: </a >
@@ -13912,7 +13980,7 @@ msgstr ""
 #, python-brace-format
 msgctxt "page:get-started/index.html"
 msgid "{ph0}Download a JDK{ph1} · {ph2}Download Ghidra 12.1.4{ph3}"
-msgstr ""
+msgstr "{ph0}Unduh JDK{ph1} · {ph2}Unduh Ghidra 12.1.4{ph3}"
 
 #. {ph0}: <code>java.home</code>
 #. {ph1}: <code>JAVA_HOME</code>
@@ -13923,6 +13991,8 @@ msgid ""
 "Check Java. The first command prints {ph0}; use that folder for {ph1}. The "
 "second confirms the compiler is installed:"
 msgstr ""
+"Periksa Java. Perintah pertama menampilkan {ph0}; gunakan folder itu untuk "
+"{ph1}. Perintah kedua memastikan kompiler sudah terinstal:"
 
 #: website/public/get-started/index.html:1212
 msgctxt "page:get-started/index.html"
@@ -13931,6 +14001,9 @@ msgid ""
 "the paths, approve the updated client configuration, then restart your "
 "agent."
 msgstr ""
+"Jalankan perintah-perintah ini dalam sesi terminal yang sama. Jalankan "
+"kembali penyiapan setelah mengatur jalur, setujui konfigurasi aplikasi yang "
+"diperbarui, lalu mulai ulang agenmu."
 
 #. {ph0}: <a
 #. href="https://github.com/morluto/rea/blob/main/docs/installation.md#ghidra"
@@ -13946,11 +14019,13 @@ msgid ""
 "{ph0}Ghidra setup and architecture requirements{ph1} · {ph2}Windows Ghidra "
 "guide{ph3}"
 msgstr ""
+"{ph0}Penyiapan Ghidra dan kebutuhan arsitektur{ph1} · {ph2}Panduan Ghidra "
+"untuk Windows{ph3}"
 
 #: website/public/get-started/index.html:1230
 msgctxt "page:get-started/index.html"
 msgid "IDA · connect an existing installation"
-msgstr ""
+msgstr "IDA · hubungkan instalasi yang sudah ada"
 
 #: website/public/get-started/index.html:1231
 msgctxt "page:get-started/index.html"
@@ -13959,6 +14034,9 @@ msgid ""
 "an attached GUI with the original binary open, or a headless supervisor that"
 " opens a private database."
 msgstr ""
+"Gunakan panduan penyedia IDA untuk menyiapkan registrasi MCP server "
+"upstream. Pilih GUI terhubung dengan berkas biner asli terbuka, atau "
+"supervisor tanpa antarmuka grafis yang membuka basis data privat."
 
 #: website/public/get-started/index.html:1236
 msgctxt "page:get-started/index.html"
@@ -13967,6 +14045,10 @@ msgid ""
 "plus a macOS arm64 headless supervisor with IDA Professional 9.1. The "
 "optional native GUI bridge has its own version and platform requirements."
 msgstr ""
+"Profil yang sudah diverifikasi mencakup GUI legacy dan supervisor tanpa "
+"antarmuka grafis di Windows, serta supervisor tanpa antarmuka grafis di "
+"macOS arm64 dengan IDA Professional 9.1. Bridge GUI native yang opsional "
+"memiliki kebutuhan versi dan platform sendiri."
 
 #: website/public/get-started/index.html:1316
 msgctxt "page:get-started/index.html"
@@ -13974,6 +14056,8 @@ msgid ""
 "Use the JSON registration file you prepared with the provider guide, then "
 "rerun setup and restart your agent."
 msgstr ""
+"Gunakan berkas registrasi JSON yang kamu siapkan dengan panduan penyedia, "
+"lalu jalankan kembali penyiapan dan mulai ulang agenmu."
 
 #. {ph0}: <a href="https://github.com/morluto/rea/blob/main/docs/ida-
 #. provider.md" >
@@ -13983,6 +14067,8 @@ msgstr ""
 msgctxt "page:get-started/index.html"
 msgid "{ph0}IDA profiles, registration examples and verified platforms{ph1}"
 msgstr ""
+"{ph0}Profil IDA, contoh registrasi, dan platform yang sudah "
+"diverifikasi{ph1}"
 
 #: website/public/get-started/index.html:1328
 msgctxt "page:get-started/index.html"
@@ -13990,6 +14076,8 @@ msgid ""
 "Once connected, give your agent the original executable's full path and name"
 " your provider:"
 msgstr ""
+"Setelah terhubung, berikan jalur lengkap berkas program asli kepada agen dan"
+" sebutkan penyedia analisismu:"
 
 #. {ph0}: <code>/absolute/path/to/program</code>
 #: website/public/get-started/index.html:1333
@@ -13999,6 +14087,9 @@ msgid ""
 "Use REA with Ghidra to inspect {ph0}. List its functions and strings, then "
 "explain the part that handles user input with references to the code."
 msgstr ""
+"Gunakan REA dengan Ghidra untuk memeriksa {ph0}. Daftar fungsi dan string-"
+"nya, lalu jelaskan bagian yang menangani masukan pengguna dengan referensi "
+"ke kode."
 
 #. {ph0}: <a href="../guides/native/">
 #. {ph1}: </a>
@@ -14006,12 +14097,12 @@ msgstr ""
 #, python-brace-format
 msgctxt "page:get-started/index.html"
 msgid "{ph0}Follow a native analysis example{ph1}"
-msgstr ""
+msgstr "{ph0}Ikuti contoh analisis native{ph1}"
 
 #: website/public/get-started/index.html:1345
 msgctxt "page:get-started/index.html"
 msgid "Websites, Android, .NET, firmware and other targets"
-msgstr ""
+msgstr "Situs web, Android, .NET, firmware, dan target lain"
 
 #: website/public/get-started/index.html:1348
 msgctxt "page:get-started/index.html"
@@ -14019,26 +14110,28 @@ msgid ""
 "Open the guide for the target you have. Each guide gives the additional "
 "tools, supported hosts and first command."
 msgstr ""
+"Buka panduan untuk targetmu. Setiap panduan menjelaskan alat tambahan, host "
+"yang didukung, dan perintah pertama."
 
 #: website/public/get-started/index.html:1356
 msgctxt "page:get-started/index.html"
 msgid "Target"
-msgstr ""
+msgstr "Target"
 
 #: website/public/get-started/index.html:1357
 msgctxt "page:get-started/index.html"
 msgid "Tools to prepare"
-msgstr ""
+msgstr "Alat yang perlu disiapkan"
 
 #: website/public/get-started/index.html:1358
 msgctxt "page:get-started/index.html"
 msgid "Guide"
-msgstr ""
+msgstr "Panduan"
 
 #: website/public/get-started/index.html:1363
 msgctxt "page:get-started/index.html"
 msgid "JavaScript / Electron"
-msgstr ""
+msgstr "JavaScript / Electron"
 
 #. {ph0}: <a href="../guides/javascript/">
 #. {ph1}: </a>
@@ -14061,72 +14154,72 @@ msgstr ""
 #, python-brace-format
 msgctxt "page:get-started/index.html"
 msgid "{ph0}Open guide{ph1}"
-msgstr ""
+msgstr "{ph0}Buka panduan{ph1}"
 
 #: website/public/get-started/index.html:1368
 msgctxt "page:get-started/index.html"
 msgid "Website"
-msgstr ""
+msgstr "Situs web"
 
 #: website/public/get-started/index.html:1373
 msgctxt "page:get-started/index.html"
 msgid ".NET / Flutter / packages"
-msgstr ""
+msgstr ".NET / Flutter / paket"
 
 #: website/public/get-started/index.html:1383
 msgctxt "page:get-started/index.html"
 msgid "Android APK"
-msgstr ""
+msgstr "APK Android"
 
 #: website/public/get-started/index.html:1393
 msgctxt "page:get-started/index.html"
 msgid "Android device"
-msgstr ""
+msgstr "Perangkat Android"
 
 #: website/public/get-started/index.html:1403
 msgctxt "page:get-started/index.html"
 msgid "Android resources"
-msgstr ""
+msgstr "Sumber daya Android"
 
 #: website/public/get-started/index.html:1413
 msgctxt "page:get-started/index.html"
 msgid "JEB project"
-msgstr ""
+msgstr "Proyek JEB"
 
 #: website/public/get-started/index.html:1423
 msgctxt "page:get-started/index.html"
 msgid "Firmware"
-msgstr ""
+msgstr "Firmware"
 
 #: website/public/get-started/index.html:1433
 msgctxt "page:get-started/index.html"
 msgid "WASM"
-msgstr ""
+msgstr "WASM"
 
 #: website/public/get-started/index.html:1463
 msgctxt "page:get-started/index.html"
 msgid "ELF / Linux crash"
-msgstr ""
+msgstr "ELF / crash Linux"
 
 #: website/public/get-started/index.html:1473
 msgctxt "page:get-started/index.html"
 msgid "HAR / SAZ / mitmproxy"
-msgstr ""
+msgstr "HAR / SAZ / mitmproxy"
 
 #: website/public/get-started/index.html:1483
 msgctxt "page:get-started/index.html"
 msgid "PCAP / PCAPNG"
-msgstr ""
+msgstr "PCAP / PCAPNG"
 
 #: website/public/get-started/index.html:1493
 msgctxt "page:get-started/index.html"
 msgid "Logic signals"
-msgstr ""
+msgstr "Sinyal logika"
 
 #: website/public/get-started/index.html:1503
 msgctxt "page:get-started/index.html"
 msgid "Process behavior"
-msgstr ""
+msgstr "Perilaku proses"
 
 #. {ph0}: <a href="https://github.com/morluto/rea/blob/main/docs/flutter-
 #. analysis.md" >
@@ -14146,16 +14239,18 @@ msgid ""
 "{ph0}Flutter guide{ph1} · {ph2}Packages and resources{ph3} · {ph4}EVM "
 "bytecode{ph5} · {ph6}All investigation guides{ph7}"
 msgstr ""
+"{ph0}Panduan Flutter{ph1} · {ph2}Paket dan sumber daya{ph3} · {ph4}Bytecode "
+"EVM{ph5} · {ph6}Semua panduan penyelidikan{ph7}"
 
 #: website/public/get-started/index.html:1535
 msgctxt "page:get-started/index.html"
 msgid "Use REA from a terminal"
-msgstr ""
+msgstr "Gunakan REA dari terminal"
 
 #: website/public/get-started/index.html:1537
 msgctxt "page:get-started/index.html"
 msgid "CLI commands, global installation and curl"
-msgstr ""
+msgstr "Perintah CLI, instalasi global, dan curl"
 
 #. {ph0}: <code>main</code>
 #: website/public/get-started/index.html:1634
@@ -14165,6 +14260,8 @@ msgid ""
 "Replace {ph0} with a function name or address from the target's function "
 "list. Ghidra must be configured first."
 msgstr ""
+"Ganti {ph0} dengan nama atau alamat fungsi dari daftar fungsi target. Ghidra"
+" harus dikonfigurasi terlebih dahulu."
 
 #: website/public/get-started/index.html:1638
 msgctxt "page:get-started/index.html"
@@ -14172,6 +14269,8 @@ msgid ""
 "On macOS or Linux, you can also use the curl installer after preparing "
 "Node.js:"
 msgstr ""
+"Di macOS atau Linux, kamu juga bisa menggunakan penginstal curl setelah "
+"menyiapkan Node.js:"
 
 #: website/public/get-started/index.html:1671
 msgctxt "page:get-started/index.html"
@@ -14179,11 +14278,14 @@ msgid ""
 "Use the client check in step 3 with your setup ID. In editor clients, enable"
 " REA in MCP settings and allow its tools in the agent chat."
 msgstr ""
+"Gunakan pemeriksaan aplikasi pada langkah 3 dengan ID penyiapanmu. Dalam "
+"editor, aktifkan REA di pengaturan MCP dan izinkan alatnya dalam percakapan "
+"agen."
 
 #: website/public/get-started/index.html:1699
 msgctxt "page:get-started/index.html"
 msgid "Windows, WSL and paths with spaces"
-msgstr ""
+msgstr "Windows, WSL, dan jalur yang mengandung spasi"
 
 #: website/public/get-started/index.html:1700
 msgctxt "page:get-started/index.html"
@@ -14192,16 +14294,20 @@ msgid ""
 " runs inside WSL, install Node.js and REA inside that Linux environment and "
 "use Linux paths there. Headless providers run on the same host as REA."
 msgstr ""
+"Gunakan Windows PowerShell untuk aplikasi dan alat analisis Windows. Jika "
+"agenmu berjalan di WSL, instal Node.js dan REA di lingkungan Linux itu dan "
+"gunakan jalur Linux di sana. Penyedia tanpa antarmuka grafis berjalan pada "
+"host yang sama dengan REA."
 
 #: website/public/get-started/index.html:1709
 msgctxt "page:get-started/index.html"
 msgid "Windows setup command:"
-msgstr ""
+msgstr "Perintah penyiapan Windows:"
 
 #: website/public/get-started/index.html:1726
 msgctxt "page:get-started/index.html"
 msgid "Update or remove REA"
-msgstr ""
+msgstr "Perbarui atau hapus REA"
 
 #: website/public/get-started/index.html:1727
 msgctxt "page:get-started/index.html"
@@ -14209,6 +14315,8 @@ msgid ""
 "To refresh your agent connection, run the latest setup command again, review"
 " its plan and restart your client."
 msgstr ""
+"Untuk memperbarui koneksi agen, jalankan kembali perintah penyiapan versi "
+"terbaru, tinjau rencananya, lalu mulai ulang aplikasimu."
 
 #. {ph0}: <code>rea update</code>
 #. {ph1}: <code>rea uninstall</code>
@@ -14219,6 +14327,8 @@ msgid ""
 "If you installed the global CLI, update it with {ph0}. Use {ph1} to remove "
 "REA's client configuration and skill."
 msgstr ""
+"Jika kamu menginstal CLI global, perbarui dengan {ph0}. Gunakan {ph1} untuk "
+"menghapus konfigurasi aplikasi dan skill REA."
 
 #. {ph0}: <a
 #. href="https://github.com/morluto/rea/blob/main/docs/installation.md#diagnose-
@@ -14228,12 +14338,12 @@ msgstr ""
 #, python-brace-format
 msgctxt "page:get-started/index.html"
 msgid "{ph0}Update and uninstall details{ph1}"
-msgstr ""
+msgstr "{ph0}Detail pembaruan dan penghapusan{ph1}"
 
 #: website/public/get-started/index.html:317
 msgctxt "page:get-started/index.html"
 msgid "Copy Windows REA setup command"
-msgstr ""
+msgstr "Salin perintah penyiapan REA untuk Windows"
 
 #: website/public/get-started/index.html:414
 #: website/public/get-started/index.html:445
@@ -14261,7 +14371,7 @@ msgstr ""
 #: website/public/get-started/index.html:1734
 msgctxt "page:get-started/index.html"
 msgid "Copy command"
-msgstr ""
+msgstr "Salin perintah"
 
 #: website/public/get-started/index.html:890
 msgctxt "page:get-started/index.html"
@@ -14276,11 +14386,13 @@ msgid ""
 "Install curl and unzip first if they are missing. On Debian or Ubuntu, run "
 "{ph0}; on other distributions, use your package manager."
 msgstr ""
+"Instal curl dan unzip terlebih dahulu jika belum ada. Di Debian atau Ubuntu,"
+" jalankan {ph0}; di distribusi lain, gunakan pengelola paketmu."
 
 #: website/public/get-started/index.html:376
 msgctxt "page:get-started/index.html"
 msgid "Close the terminal, open it again, then:"
-msgstr ""
+msgstr "Tutup terminal, buka kembali, lalu:"
 
 #: website/public/get-started/index.html:506
 msgctxt "page:get-started/index.html"
@@ -14288,6 +14400,8 @@ msgid ""
 "Open its AI chat and choose Agent mode. In Windsurf or Devin Desktop, open "
 "the agent chat; in VS Code, set up GitHub Copilot first."
 msgstr ""
+"Buka percakapan AI dan pilih mode Agent. Di Windsurf atau Devin Desktop, "
+"buka percakapan agen; di VS Code, siapkan GitHub Copilot terlebih dahulu."
 
 #. {ph0}: <a href="https://cursor.com/docs">
 #. {ph1}: </a>
@@ -14302,16 +14416,18 @@ msgid ""
 "{ph0}Cursor setup{ph1} · {ph2}Windsurf / Devin Desktop setup{ph3} · {ph4}VS "
 "Code and Copilot setup{ph5}"
 msgstr ""
+"{ph0}Penyiapan Cursor{ph1} · {ph2}Penyiapan Windsurf / Devin Desktop{ph3} · "
+"{ph4}Penyiapan VS Code dan Copilot{ph5}"
 
 #: website/public/get-started/index.html:600
 msgctxt "page:get-started/index.html"
 msgid "OpenCode · choose an AI model"
-msgstr ""
+msgstr "OpenCode · pilih model AI"
 
 #: website/public/get-started/index.html:1243
 msgctxt "page:get-started/index.html"
 msgid "Prepare the IDA registration file"
-msgstr ""
+msgstr "Siapkan berkas registrasi IDA"
 
 #. {ph0}: <code>ida-mcp.json</code>
 #. {ph1}: <code>.txt</code>
@@ -14323,6 +14439,10 @@ msgid ""
 "save its working registration as {ph0} in a text editor. On Windows, choose "
 "“All files” when saving in Notepad so it doesn't add {ph1}."
 msgstr ""
+"Instal dan konfigurasikan server upstream menggunakan panduan IDA di bawah. "
+"Lalu simpan registrasinya yang sudah berfungsi sebagai {ph0} dalam editor "
+"teks. Di Windows, pilih “All files” saat menyimpan di Notepad agar tidak "
+"menambahkan {ph1}."
 
 #. {ph0}: <code>idb_open</code>
 #. {ph1}: <code>idb_list</code>
@@ -14334,6 +14454,8 @@ msgid ""
 "For a headless supervisor providing {ph0}, {ph1} and {ph2}, the file can "
 "look like this:"
 msgstr ""
+"Untuk supervisor tanpa antarmuka grafis yang menyediakan {ph0}, {ph1}, dan "
+"{ph2}, berkasnya bisa seperti ini:"
 
 #. {ph0}: <code>command</code>
 #. {ph1}: <code>args</code>
@@ -14346,21 +14468,25 @@ msgid ""
 "optional {ph2} into the file. Open the original binary in IDA and start its "
 "upstream plugin before asking REA to inspect it."
 msgstr ""
+"Untuk server GUI legacy 1.4.0 yang terhubung, salin {ph0}, {ph1}, dan {ph2} "
+"opsional dari registrasinya yang sudah berfungsi ke berkas. Buka berkas "
+"biner asli di IDA dan mulai plugin upstream-nya sebelum meminta REA "
+"memeriksanya."
 
 #: website/public/get-started/index.html:1443
 msgctxt "page:get-started/index.html"
 msgid "SQLite database"
-msgstr ""
+msgstr "Basis data SQLite"
 
 #: website/public/get-started/index.html:1453
 msgctxt "page:get-started/index.html"
 msgid "EVM bytecode"
-msgstr ""
+msgstr "Bytecode EVM"
 
 #: website/public/get-started/index.html:441
 msgctxt "page:get-started/index.html"
 msgid "Install Codex using the command for your operating system:"
-msgstr ""
+msgstr "Instal Codex dengan perintah untuk sistem operasimu:"
 
 #: website/public/get-started/index.html:470
 msgctxt "page:get-started/index.html"
@@ -14368,6 +14494,8 @@ msgid ""
 "After installation, reopen your terminal and return to the working folder. "
 "Then start Codex:"
 msgstr ""
+"Setelah instalasi, buka kembali terminal dan masuk ke folder kerja. Lalu "
+"mulai Codex:"
 
 #. {ph0}: <a href="https://nodejs.org/en/download" >
 #. {ph1}: </a >
@@ -14378,11 +14506,13 @@ msgid ""
 "For a first installation, download the {ph0}Node.js 24 LTS macOS installer "
 "(.pkg){ph1}, open it and follow the installer. Then reopen Terminal."
 msgstr ""
+"Untuk instalasi pertama, unduh {ph0}penginstal Node.js 24 LTS untuk macOS "
+"(.pkg){ph1}, buka dan ikuti petunjuknya. Lalu buka kembali Terminal."
 
 #: website/public/get-started/index.html:338
 msgctxt "page:get-started/index.html"
 msgid "Already use Homebrew?"
-msgstr ""
+msgstr "Sudah menggunakan Homebrew?"
 
 #: website/public/get-started/index.html:567
 msgctxt "page:get-started/index.html"
@@ -14390,6 +14520,9 @@ msgid ""
 "Install Claude Desktop on Windows or macOS and sign in. Quit it completely, "
 "then run this command in a terminal you opened outside Claude:"
 msgstr ""
+"Instal Claude Desktop di Windows atau macOS dan masuk ke akun. Tutup "
+"sepenuhnya, lalu jalankan perintah ini dalam terminal yang dibuka di luar "
+"Claude:"
 
 #. {ph0}: <a href="#check-connection">
 #. {ph1}: </a>
@@ -14400,6 +14533,8 @@ msgid ""
 "Review and approve the plan, reopen Claude, then {ph0}check the connection "
 "in step 3{ph1}."
 msgstr ""
+"Tinjau dan setujui rencana, buka kembali Claude, lalu {ph0}periksa koneksi "
+"pada langkah 3{ph1}."
 
 #: website/public/get-started/index.html:1163
 msgctxt "page:get-started/index.html"
@@ -14408,11 +14543,14 @@ msgid ""
 "Linux arm64 installation, build the native decompiler for your computer "
 "before continuing."
 msgstr ""
+"Ganti kedua jalur dengan instalasi yang sudah kamu miliki. Untuk instalasi "
+"baru di macOS atau Linux arm64, build dekompiler native untuk komputermu "
+"sebelum melanjutkan."
 
 #: website/public/get-started/index.html:1169
 msgctxt "page:get-started/index.html"
 msgid "Build Ghidra's native decompiler"
-msgstr ""
+msgstr "Build dekompiler native Ghidra"
 
 #: website/public/get-started/index.html:1170
 msgctxt "page:get-started/index.html"
@@ -14420,6 +14558,8 @@ msgid ""
 "On macOS, the build needs Xcode Command Line Tools, make and bison. Use the "
 "guide for your computer:"
 msgstr ""
+"Di macOS, proses build memerlukan Xcode Command Line Tools, make, dan bison."
+" Gunakan panduan untuk komputermu:"
 
 #. {ph0}: <a
 #. href="https://github.com/morluto/rea/blob/main/docs/installation.md#missing-
@@ -14429,7 +14569,7 @@ msgstr ""
 #, python-brace-format
 msgctxt "page:get-started/index.html"
 msgid "{ph0}macOS · Intel{ph1}"
-msgstr ""
+msgstr "{ph0}macOS · Intel{ph1}"
 
 #. {ph0}: <a
 #. href="https://github.com/morluto/rea/blob/main/docs/installation.md#macos-
@@ -14439,7 +14579,7 @@ msgstr ""
 #, python-brace-format
 msgctxt "page:get-started/index.html"
 msgid "{ph0}macOS · Apple Silicon{ph1}"
-msgstr ""
+msgstr "{ph0}macOS · Apple Silicon{ph1}"
 
 #. {ph0}: <a
 #. href="https://github.com/NationalSecurityAgency/ghidra/blob/Ghidra_12.1.4_build/GhidraDocs/GettingStarted.md#building-
@@ -14449,12 +14589,12 @@ msgstr ""
 #, python-brace-format
 msgctxt "page:get-started/index.html"
 msgid "{ph0}Linux arm64 · native build instructions{ph1}"
-msgstr ""
+msgstr "{ph0}Linux arm64 · petunjuk build native{ph1}"
 
 #: website/public/get-started/index.html:1195
 msgctxt "page:get-started/index.html"
 msgid "Then check Ghidra and save its paths for your client:"
-msgstr ""
+msgstr "Lalu periksa Ghidra dan simpan jalurnya untuk aplikasimu:"
 
 #. {ph0}: <span translate="no">200 + 10%</span>
 #: website/public/index.html:346

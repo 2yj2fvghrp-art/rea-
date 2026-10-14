@@ -3343,8 +3343,8 @@ msgid ""
 "Your distribution's own {ph0} package is often older than 22.19, so check "
 "{ph1} if you use it instead."
 msgstr ""
-"Bản phân phối của riêng bạn {ph0} gói thường cũ hơn 22,19, vì vậy hãy kiểm "
-"tra {ph1} nếu bạn sử dụng nó thay thế."
+"Gói {ph0} của bản phân phối thường cũ hơn 22.19, nên hãy kiểm tra {ph1} nếu "
+"bạn dùng gói đó."
 
 #. {ph0}: <a href="https://nodejs.org/en/download">
 #. {ph1}: </a>
@@ -3386,7 +3386,7 @@ msgstr "{ph0}Nhận trợ giúp{ph1}"
 #, python-brace-format
 msgctxt "page:get-started/index.html"
 msgid "{ph0}{ph1}{ph2}{ph3}{ph4}{ph5}{ph6}{ph7}Your coding agent"
-msgstr "{ph0}{ph1}{ph2}{ph3}{ph4}{ph5}{ph6}{ph7}Agent mã hóa của bạn"
+msgstr "{ph0}{ph1}{ph2}{ph3}{ph4}{ph5}{ph6}{ph7}Trợ lý AI lập trình của bạn"
 
 #: website/public/get-started/index.html:790
 msgctxt "page:get-started/index.html"
@@ -3424,8 +3424,7 @@ msgctxt "page:get-started/index.html"
 msgid ""
 "{ph0}macOS:{ph1} press {ph2} {ph3}, type {ph4}Terminal{ph5} and press Enter."
 msgstr ""
-"{ph0} macOS :{ph1} báo chí {ph2} {ph3}, loại {ph4}Thiết bị đầu cuối{ph5} và "
-"nhấn Enter."
+"{ph0}macOS:{ph1} nhấn {ph2} {ph3}, nhập {ph4}Terminal{ph5} rồi nhấn Enter."
 
 #. {ph0}: <strong>
 #. {ph1}: </strong>
@@ -3437,8 +3436,7 @@ msgstr ""
 msgctxt "page:get-started/index.html"
 msgid "{ph0}Linux:{ph1} press {ph2} {ph3} {ph4} on most desktops."
 msgstr ""
-"{ph0} Linux :{ph1} báo chí {ph2} {ph3} {ph4} trên hầu hết các máy tính để "
-"bàn."
+"{ph0}Linux:{ph1} nhấn {ph2} {ph3} {ph4} trên hầu hết môi trường desktop."
 
 #. {ph0}: <kbd>Ctrl</kbd>
 #. {ph1}: <kbd>V</kbd>
@@ -3464,14 +3462,14 @@ msgid ""
 "and the matching investigation skill, keeping a backup of existing "
 "configuration. It asks before applying the changes."
 msgstr ""
-"Chọn khách hàng của bạn và xem lại kế hoạch thiết lập.  REA thêm KẾT nối MCP"
-" và kỹ năng điều tra phù hợp, giữ một bản sao lưu cấu hình hiện có. Nó hỏi "
-"trước khi áp dụng các thay đổi."
+"Chọn ứng dụng bạn dùng và xem kế hoạch thiết lập. REA thêm kết nối MCP và "
+"skill điều tra phù hợp, đồng thời sao lưu cấu hình hiện có. REA hỏi trước "
+"khi áp dụng thay đổi."
 
 #: website/public/get-started/index.html:840
 msgctxt "page:get-started/index.html"
 msgid "How do I restart my client?"
-msgstr "Làm cách nào để khởi động lại khách hàng của tôi?"
+msgstr "Làm sao khởi động lại ứng dụng kết nối?"
 
 #. {ph0}: <strong>
 #. {ph1}: </strong>
@@ -3486,10 +3484,9 @@ msgid ""
 "macOS press {ph2} {ph3}; on Windows, also quit from the tray icon if there "
 "is one."
 msgstr ""
-"{ph0}Ứng dụng máy tính để bàn{ph1} (Claude Desktop, Cursor , Windsurf, VS "
-"Code ): thoát khỏi ứng dụng hoàn toàn, sau đó mở lại. Đóng cửa sổ là không "
-"đủ. TRÊN macOS báo chí {ph2} {ph3}; TRÊN Windows, cũng thoát khỏi biểu tượng"
-" khay nếu có."
+"{ph0}Ứng dụng desktop{ph1} (Claude Desktop, Cursor, Windsurf, VS Code): "
+"thoát hoàn toàn rồi mở lại. Chỉ đóng cửa sổ là chưa đủ. Trên macOS, nhấn "
+"{ph2} {ph3}; trên Windows, thoát từ biểu tượng khay hệ thống nếu có."
 
 #. {ph0}: <strong>
 #. {ph1}: </strong>
@@ -3534,8 +3531,8 @@ msgid ""
 "{ph0}macOS:{ph1} in Finder, right-click the folder, hold Option and choose "
 "{ph2}Copy \"…\" as Pathname{ph3}."
 msgstr ""
-"{ph0} macOS :{ph1} trong Finder, nhấp chuột phải vào thư mục, giữ Tùy chọn "
-"và chọn {ph2}Sao chép \" ... \" dưới Dạng Tên Đường Dẫn{ph3}."
+"{ph0}macOS:{ph1} trong Finder, nhấp chuột phải vào thư mục, giữ phím Option "
+"rồi chọn {ph2}Copy \"…\" as Pathname{ph3}."
 
 #. {ph0}: <strong>
 #. {ph1}: </strong>
@@ -3586,7 +3583,7 @@ msgstr ""
 #: website/public/get-started/index.html:1562
 msgctxt "page:get-started/index.html"
 msgid "Where do I find an app's .asar file?"
-msgstr "Tôi tìm thấy một ứng dụng ở đâu .tập tin asar?"
+msgstr "Tìm tệp .asar của ứng dụng ở đâu?"
 
 #. {ph0}: <code>resources</code>
 #: website/public/get-started/index.html:1563
@@ -3806,7 +3803,7 @@ msgstr ""
 #: website/public/get-started/index.html:6
 msgctxt "page:get-started/index.html"
 msgid "Install REA and Set Up Your Coding Agent"
-msgstr "Cài ĐẶT REA và Thiết Lập Agent Mã Hóa Của Bạn"
+msgstr "Cài REA và thiết lập trợ lý AI lập trình"
 
 #: website/public/get-started/index.html:7
 msgctxt "page:get-started/index.html"
@@ -3814,9 +3811,9 @@ msgid ""
 "Connect REA to your coding agent or inspect a local JavaScript or Electron "
 "app from the terminal. Setup, first questions and native provider guides."
 msgstr ""
-"Kết nối REA với agent mã hóa của bạn hoặc kiểm tra ỨNG dụng JavaScript hoặc "
-"Electron cục bộ từ thiết bị đầu cuối. Thiết lập, câu hỏi đầu tiên và hướng "
-"dẫn nhà cung cấp bản địa."
+"Kết nối REA với trợ lý AI lập trình hoặc phân tích ứng dụng JavaScript hay "
+"Electron cục bộ từ terminal. Hướng dẫn thiết lập, câu hỏi đầu tiên và công "
+"cụ phân tích mã máy."
 
 #: website/public/get-started/index.html:264
 msgctxt "page:get-started/index.html"
@@ -11627,9 +11624,9 @@ msgid ""
 "older version or \"not recognized\" / \"command not found\", install {ph1} "
 "24 LTS:"
 msgstr ""
-"Nếu {ph0} bản in v22.19+, v24.11+ hoặc v26+, bạn đã sẵn sàng. Nếu nó in "
-"phiên bản cũ hơn hoặc \"không được nhận dạng\" / \"không tìm thấy lệnh\", "
-"hãy cài đặt {ph1} 24 KG:"
+"Nếu {ph0} hiển thị v22.19+, v24.11+ hoặc v26+, bạn đã sẵn sàng. Nếu hiển thị"
+" phiên bản cũ hơn hoặc ‘not recognized’ / ‘command not found’, hãy cài {ph1}"
+" 24 LTS:"
 
 #. {ph0}: <span translate="no">export.js</span>
 #: website/public/guides/browser/index.html:441
@@ -13237,6 +13234,8 @@ msgid ""
 "Set up your computer and coding agent, connect REA, then investigate a small"
 " app."
 msgstr ""
+"Chuẩn bị máy tính và trợ lý AI lập trình, kết nối REA, rồi tìm hiểu một ứng "
+"dụng nhỏ."
 
 #. {ph0}: <a href="#agent">
 #. {ph1}: </a>
@@ -13247,6 +13246,8 @@ msgid ""
 "New to this? Follow the four steps below. Already have an agent? Go straight"
 " to {ph0}Connect REA{ph1}."
 msgstr ""
+"Bạn mới bắt đầu? Làm theo bốn bước dưới đây. Đã có trợ lý AI? Chuyển thẳng "
+"đến {ph0}Kết nối REA{ph1}."
 
 #. {ph0}: <a href="#computer">
 #. {ph1}: </a>
@@ -13254,7 +13255,7 @@ msgstr ""
 #, python-brace-format
 msgctxt "page:get-started/index.html"
 msgid "{ph0}1. Prepare your computer{ph1}"
-msgstr ""
+msgstr "{ph0}1. Chuẩn bị máy tính{ph1}"
 
 #. {ph0}: <a href="#choose-agent">
 #. {ph1}: </a>
@@ -13262,7 +13263,7 @@ msgstr ""
 #, python-brace-format
 msgctxt "page:get-started/index.html"
 msgid "{ph0}2. Choose an agent{ph1}"
-msgstr ""
+msgstr "{ph0}2. Chọn trợ lý AI{ph1}"
 
 #. {ph0}: <a href="#agent">
 #. {ph1}: </a>
@@ -13270,7 +13271,7 @@ msgstr ""
 #, python-brace-format
 msgctxt "page:get-started/index.html"
 msgid "{ph0}3. Connect REA{ph1}"
-msgstr ""
+msgstr "{ph0}3. Kết nối REA{ph1}"
 
 #. {ph0}: <a href="#first-task">
 #. {ph1}: </a>
@@ -13278,7 +13279,7 @@ msgstr ""
 #, python-brace-format
 msgctxt "page:get-started/index.html"
 msgid "{ph0}4. Try an investigation{ph1}"
-msgstr ""
+msgstr "{ph0}4. Thử một cuộc điều tra{ph1}"
 
 #. {ph0}: <a href="#native">
 #. {ph1}: </a>
@@ -13286,12 +13287,12 @@ msgstr ""
 #, python-brace-format
 msgctxt "page:get-started/index.html"
 msgid "{ph0}Other targets and providers{ph1}"
-msgstr ""
+msgstr "{ph0}Các loại đối tượng và công cụ phân tích khác{ph1}"
 
 #: website/public/get-started/index.html:220
 msgctxt "page:get-started/index.html"
 msgid "1. Prepare your computer"
-msgstr ""
+msgstr "1. Chuẩn bị máy tính"
 
 #: website/public/get-started/index.html:221
 msgctxt "page:get-started/index.html"
@@ -13299,6 +13300,8 @@ msgid ""
 "Use the computer where your target files are stored. A local coding agent "
 "can read those files and run tools for you."
 msgstr ""
+"Dùng máy tính đang lưu các tệp bạn muốn phân tích. Trợ lý AI lập trình chạy "
+"cục bộ có thể đọc các tệp đó và chạy công cụ giúp bạn."
 
 #: website/public/get-started/index.html:246
 msgctxt "page:get-started/index.html"
@@ -13306,6 +13309,8 @@ msgid ""
 "Commands go in the terminal. Prompts labeled “Your coding agent” go in the "
 "agent's chat."
 msgstr ""
+"Nhập lệnh vào terminal. Các lời nhắc có nhãn “Trợ lý AI lập trình của bạn” "
+"được nhập vào cuộc trò chuyện với trợ lý."
 
 #. {ph0}: <a href="https://nodejs.org/en/download" >
 #. {ph1}: </a >
@@ -13313,7 +13318,7 @@ msgstr ""
 #, python-brace-format
 msgctxt "page:get-started/index.html"
 msgid "{ph0}Download the Node.js installer{ph1} if winget is unavailable."
-msgstr ""
+msgstr "{ph0}Tải bộ cài Node.js{ph1} nếu không dùng được winget."
 
 #. {ph0}: <em>
 #. {ph1}: </em>
@@ -13327,16 +13332,20 @@ msgid ""
 "If PowerShell later says {ph0}\"running scripts is disabled on this "
 "system\"{ph1} when you run {ph2}, use {ph3} instead. For npm, use {ph4}:"
 msgstr ""
+"Nếu sau này PowerShell báo {ph0}“running scripts is disabled on this system”"
+" (hệ thống đã tắt việc chạy script){ph1} khi bạn chạy {ph2}, hãy dùng {ph3} "
+"thay thế. Với npm, dùng {ph4}:"
 
 #: website/public/get-started/index.html:406
 msgctxt "page:get-started/index.html"
 msgid "Make a working folder for your agent"
-msgstr ""
+msgstr "Tạo thư mục làm việc cho trợ lý AI"
 
 #: website/public/get-started/index.html:407
 msgctxt "page:get-started/index.html"
 msgid "In your terminal, make a folder for the exercise, then move into it:"
 msgstr ""
+"Trong terminal, tạo thư mục cho bài thực hành rồi chuyển vào thư mục đó:"
 
 #: website/public/get-started/index.html:426
 msgctxt "page:get-started/index.html"
@@ -13344,11 +13353,13 @@ msgid ""
 "Keep this terminal open for the next step. If you already have a working "
 "folder, open it instead."
 msgstr ""
+"Giữ terminal này mở cho bước tiếp theo. Nếu đã có thư mục làm việc, hãy mở "
+"thư mục đó."
 
 #: website/public/get-started/index.html:433
 msgctxt "page:get-started/index.html"
 msgid "2. Choose a coding agent"
-msgstr ""
+msgstr "2. Chọn trợ lý AI lập trình"
 
 #: website/public/get-started/index.html:434
 msgctxt "page:get-started/index.html"
@@ -13356,11 +13367,14 @@ msgid ""
 "Your agent is the AI you talk to. REA supplies the inspection tools it uses."
 " Pick one client below; open its instructions if you haven't used it before."
 msgstr ""
+"Trợ lý AI là AI mà bạn trò chuyện cùng. REA cung cấp các công cụ kiểm tra "
+"phần mềm cho trợ lý. Chọn một ứng dụng bên dưới; mở hướng dẫn nếu bạn chưa "
+"từng dùng ứng dụng đó."
 
 #: website/public/get-started/index.html:440
 msgctxt "page:get-started/index.html"
 msgid "Codex · use your ChatGPT account"
-msgstr ""
+msgstr "Codex · dùng tài khoản ChatGPT"
 
 #: website/public/get-started/index.html:488
 msgctxt "page:get-started/index.html"
@@ -13368,6 +13382,8 @@ msgid ""
 "Choose “Sign in with ChatGPT”, complete the browser sign-in, then return to "
 "the terminal. When the message box appears, continue to step 3."
 msgstr ""
+"Chọn “Sign in with ChatGPT”, hoàn tất đăng nhập trong trình duyệt rồi quay "
+"lại terminal. Khi ô nhập tin nhắn xuất hiện, chuyển sang bước 3."
 
 #. {ph0}: <a href="https://learn.chatgpt.com/docs/codex/cli" >
 #. {ph1}: </a >
@@ -13375,32 +13391,32 @@ msgstr ""
 #, python-brace-format
 msgctxt "page:get-started/index.html"
 msgid "{ph0}Codex installation and sign-in{ph1}"
-msgstr ""
+msgstr "{ph0}Cài đặt và đăng nhập Codex{ph1}"
 
 #: website/public/get-started/index.html:500
 msgctxt "page:get-started/index.html"
 msgid "Cursor, Windsurf or VS Code · use an editor"
-msgstr ""
+msgstr "Cursor, Windsurf hoặc VS Code · dùng trình soạn thảo"
 
 #: website/public/get-started/index.html:502
 msgctxt "page:get-started/index.html"
 msgid "Install the editor for your operating system and sign in."
-msgstr ""
+msgstr "Cài trình soạn thảo phù hợp với hệ điều hành của bạn rồi đăng nhập."
 
 #: website/public/get-started/index.html:505
 msgctxt "page:get-started/index.html"
 msgid "Open the rea-work folder you made in step 1."
-msgstr ""
+msgstr "Mở thư mục rea-work bạn đã tạo ở bước 1."
 
 #: website/public/get-started/index.html:524
 msgctxt "page:get-started/index.html"
 msgid "Claude Code · use your Claude account"
-msgstr ""
+msgstr "Claude Code · dùng tài khoản Claude"
 
 #: website/public/get-started/index.html:525
 msgctxt "page:get-started/index.html"
 msgid "Install using the command for your operating system:"
-msgstr ""
+msgstr "Cài đặt bằng lệnh phù hợp với hệ điều hành của bạn:"
 
 #. {ph0}: <code>claude</code>
 #: website/public/get-started/index.html:554
@@ -13411,6 +13427,9 @@ msgid ""
 "the sign-in prompts. Access uses an eligible Claude subscription or a "
 "configured API account."
 msgstr ""
+"Mở lại terminal, quay về thư mục làm việc rồi chạy {ph0}. Làm theo hướng dẫn"
+" đăng nhập. Để sử dụng, bạn cần gói đăng ký Claude đủ điều kiện hoặc tài "
+"khoản API đã được cấu hình."
 
 #. {ph0}: <a href="https://code.claude.com/docs/en/setup" >
 #. {ph1}: </a >
@@ -13418,12 +13437,12 @@ msgstr ""
 #, python-brace-format
 msgctxt "page:get-started/index.html"
 msgid "{ph0}Claude Code installation and account options{ph1}"
-msgstr ""
+msgstr "{ph0}Cài đặt Claude Code và các lựa chọn tài khoản{ph1}"
 
 #: website/public/get-started/index.html:566
 msgctxt "page:get-started/index.html"
 msgid "Claude Desktop · use a desktop chat"
-msgstr ""
+msgstr "Claude Desktop · trò chuyện qua ứng dụng máy tính"
 
 #. {ph0}: <a href="https://claude.ai/download">
 #. {ph1}: </a>
@@ -13437,6 +13456,7 @@ msgid ""
 "{ph0}Download Claude Desktop{ph1} · {ph2}Claude Desktop connection "
 "details{ph3}"
 msgstr ""
+"{ph0}Tải Claude Desktop{ph1} · {ph2}Chi tiết kết nối Claude Desktop{ph3}"
 
 #. {ph0}: <code>opencode</code>
 #. {ph1}: <code>/connect</code>
@@ -13447,6 +13467,8 @@ msgid ""
 "Run {ph0} in your working folder. Use {ph1} in its chat to connect your "
 "model account, then select a model."
 msgstr ""
+"Chạy {ph0} trong thư mục làm việc. Dùng {ph1} trong cuộc trò chuyện để kết "
+"nối tài khoản mô hình, rồi chọn một mô hình."
 
 #. {ph0}: <a href="https://opencode.ai/docs/" >
 #. {ph1}: </a >
@@ -13454,12 +13476,12 @@ msgstr ""
 #, python-brace-format
 msgctxt "page:get-started/index.html"
 msgid "{ph0}OpenCode installation and model setup{ph1}"
-msgstr ""
+msgstr "{ph0}Cài đặt OpenCode và thiết lập mô hình{ph1}"
 
 #: website/public/get-started/index.html:627
 msgctxt "page:get-started/index.html"
 msgid "All supported clients and setup IDs"
-msgstr ""
+msgstr "Tất cả ứng dụng được hỗ trợ và ID thiết lập"
 
 #. {ph0}: <code>--client</code>
 #: website/public/get-started/index.html:628
@@ -13469,16 +13491,18 @@ msgid ""
 "The npm 6.4.0 release supports the clients below. Use the ID with {ph0} when"
 " choosing a client explicitly."
 msgstr ""
+"Bản phát hành npm 6.4.0 hỗ trợ các ứng dụng dưới đây. Dùng ID cùng với {ph0}"
+" khi muốn chỉ định ứng dụng."
 
 #: website/public/get-started/index.html:636
 msgctxt "page:get-started/index.html"
 msgid "Client"
-msgstr ""
+msgstr "Ứng dụng kết nối"
 
 #: website/public/get-started/index.html:637
 msgctxt "page:get-started/index.html"
 msgid "Setup ID"
-msgstr ""
+msgstr "ID thiết lập"
 
 #. {ph0}: <code>qoder</code>
 #. {ph1}: <code>droid</code>
@@ -13493,6 +13517,9 @@ msgid ""
 "DeepSeek Harness ({ph4}) are available on repository main; use a source "
 "build or a release containing those integrations."
 msgstr ""
+"Qoder ({ph0}), Factory Droid ({ph1}), Trae ({ph2}), ZCode ({ph3}) và "
+"DeepSeek Harness ({ph4}) có trên nhánh main của kho mã nguồn; hãy dùng bản "
+"dựng từ mã nguồn hoặc bản phát hành có các tích hợp này."
 
 #. {ph0}: <a href="https://github.com/morluto/rea/blob/main/docs/client-
 #. configuration.md" >
@@ -13508,11 +13535,13 @@ msgid ""
 "{ph0}Client configuration and troubleshooting{ph1} · {ph2}Release "
 "availability{ph3}"
 msgstr ""
+"{ph0}Cấu hình ứng dụng và xử lý sự cố{ph1} · {ph2}Tích hợp có trong các bản "
+"phát hành{ph3}"
 
 #: website/public/get-started/index.html:731
 msgctxt "page:get-started/index.html"
 msgid "Grok Bot · connect on its hosted computer"
-msgstr ""
+msgstr "Grok Bot · kết nối trên máy tính chạy Bot"
 
 #. {ph0}: <code>rea</code>
 #: website/public/get-started/index.html:732
@@ -13522,6 +13551,8 @@ msgid ""
 "In Grok Bot's chat, ask it to add a custom MCP server named {ph0} using this"
 " command on the Bot's computer:"
 msgstr ""
+"Trong cuộc trò chuyện với Grok Bot, yêu cầu Bot thêm máy chủ MCP tùy chỉnh "
+"tên {ph0}, dùng lệnh này trên máy tính của Bot:"
 
 #. {ph0}: <a href="https://github.com/morluto/rea/blob/main/docs/client-
 #. configuration.md#other-client-settings" >
@@ -13530,12 +13561,12 @@ msgstr ""
 #, python-brace-format
 msgctxt "page:get-started/index.html"
 msgid "{ph0}Grok Bot connector instructions{ph1}"
-msgstr ""
+msgstr "{ph0}Hướng dẫn kết nối Grok Bot{ph1}"
 
 #: website/public/get-started/index.html:760
 msgctxt "page:get-started/index.html"
 msgid "3. Connect REA"
-msgstr ""
+msgstr "3. Kết nối REA"
 
 #: website/public/get-started/index.html:761
 msgctxt "page:get-started/index.html"
@@ -13545,7 +13576,7 @@ msgstr "Dán lời nhắc này vào trợ lý lập trình AI của bạn:"
 #: website/public/get-started/index.html:805
 msgctxt "page:get-started/index.html"
 msgid "For one specific client, add its setup ID:"
-msgstr ""
+msgstr "Để chọn một ứng dụng cụ thể, thêm ID thiết lập của ứng dụng đó:"
 
 #. {ph0}: <code>y</code>
 #: website/public/get-started/index.html:820
@@ -13556,6 +13587,9 @@ msgid ""
 "client list, use the arrow keys to move, Space to select your client and "
 "Enter to continue."
 msgstr ""
+"Nếu npm hỏi có tải gói hay không, nhập {ph0} rồi nhấn Enter. Trong danh sách"
+" ứng dụng của REA, dùng phím mũi tên để di chuyển, Space để chọn ứng dụng và"
+" Enter để tiếp tục."
 
 #: website/public/get-started/index.html:831
 msgctxt "page:get-started/index.html"
@@ -13563,6 +13597,8 @@ msgid ""
 "MCP is the connection that lets your agent call REA. The skill gives it a "
 "workflow for investigating software."
 msgstr ""
+"MCP là kết nối cho phép trợ lý AI gọi REA. Skill hướng dẫn trợ lý quy trình "
+"điều tra phần mềm."
 
 #: website/public/get-started/index.html:835
 msgctxt "page:get-started/index.html"
@@ -13570,6 +13606,8 @@ msgid ""
 "For the first exercise, you can skip the optional Hopper installation. "
 "Restart your client when setup finishes."
 msgstr ""
+"Ở bài thực hành đầu tiên, bạn có thể bỏ qua việc cài Hopper tùy chọn. Khởi "
+"động lại ứng dụng khi thiết lập xong."
 
 #. {ph0}: <code>codex</code>
 #. {ph1}: <code>"healthy": true</code>
@@ -13580,16 +13618,20 @@ msgid ""
 "Replace {ph0} with your client's setup ID. A successful check reports {ph1}."
 " Then ask your agent:"
 msgstr ""
+"Thay {ph0} bằng ID thiết lập của ứng dụng bạn dùng. Kiểm tra thành công sẽ "
+"báo {ph1}. Sau đó, yêu cầu trợ lý AI:"
 
 #: website/public/get-started/index.html:874
 msgctxt "page:get-started/index.html"
 msgid "Check that REA is connected and show me which REA tools you can use."
 msgstr ""
+"Kiểm tra xem REA đã kết nối chưa và cho tôi biết bạn có thể dùng những công "
+"cụ REA nào."
 
 #: website/public/get-started/index.html:881
 msgctxt "page:get-started/index.html"
 msgid "4. Try your first investigation"
-msgstr ""
+msgstr "4. Thử cuộc điều tra đầu tiên"
 
 #. {ph0}: <strong>
 #. {ph1}: </strong>
@@ -13608,7 +13650,7 @@ msgstr ""
 #: website/public/get-started/index.html:889
 msgctxt "page:get-started/index.html"
 msgid "Your coding agent"
-msgstr ""
+msgstr "Trợ lý AI lập trình của bạn"
 
 #. {ph0}: <span class="prompt-symbol" aria-hidden="true">
 #. {ph1}: </span >
@@ -13660,12 +13702,12 @@ msgstr ""
 #, python-brace-format
 msgctxt "page:get-started/index.html"
 msgid "{ph0}Check a prediction in the guided exercise →{ph1}"
-msgstr ""
+msgstr "{ph0}Kiểm chứng một dự đoán trong bài thực hành có hướng dẫn →{ph1}"
 
 #: website/public/get-started/index.html:928
 msgctxt "page:get-started/index.html"
 msgid "Download the example yourself, or use your own app"
-msgstr ""
+msgstr "Tự tải ví dụ hoặc dùng ứng dụng của bạn"
 
 #. {ph0}: <a class="button" href="../examples/notes-example.zip"
 #. download="notes-example.zip" >
@@ -13695,11 +13737,13 @@ msgid ""
 "Use REA to inspect the app at {ph0}. Find how it exports data and show the "
 "relevant files and lines."
 msgstr ""
+"Dùng REA để kiểm tra ứng dụng tại {ph0}. Tìm cách ứng dụng xuất dữ liệu và "
+"chỉ ra các tệp, dòng mã liên quan."
 
 #: website/public/get-started/index.html:975
 msgctxt "page:get-started/index.html"
 msgid "Analyze another kind of software"
-msgstr ""
+msgstr "Phân tích loại phần mềm khác"
 
 #: website/public/get-started/index.html:976
 msgctxt "page:get-started/index.html"
@@ -13707,11 +13751,13 @@ msgid ""
 "Choose the section for your target. A provider is the local analysis tool "
 "REA uses for that kind of software."
 msgstr ""
+"Chọn phần phù hợp với đối tượng cần phân tích. Provider là công cụ phân tích"
+" cục bộ mà REA dùng cho loại phần mềm đó."
 
 #: website/public/get-started/index.html:981
 msgctxt "page:get-started/index.html"
 msgid "Native executables and libraries · Hopper, Ghidra or IDA"
-msgstr ""
+msgstr "Tệp thực thi và thư viện mã máy · Hopper, Ghidra hoặc IDA"
 
 #: website/public/get-started/index.html:984
 msgctxt "page:get-started/index.html"
@@ -13719,46 +13765,48 @@ msgid ""
 "Install one analysis tool on the computer running REA. The host is your "
 "operating system; the target is the program you want to inspect."
 msgstr ""
+"Cài một công cụ phân tích trên máy tính chạy REA. Host là hệ điều hành bạn "
+"đang dùng; target là chương trình bạn muốn kiểm tra."
 
 #: website/public/get-started/index.html:993
 msgctxt "page:get-started/index.html"
 msgid "Provider"
-msgstr ""
+msgstr "Công cụ phân tích"
 
 #: website/public/get-started/index.html:1002
 msgctxt "page:get-started/index.html"
 msgid "Unavailable"
-msgstr ""
+msgstr "Không khả dụng"
 
 #: website/public/get-started/index.html:1004
 msgctxt "page:get-started/index.html"
 msgid "Supported distributions"
-msgstr ""
+msgstr "Các bản phân phối được hỗ trợ"
 
 #: website/public/get-started/index.html:1008
 msgctxt "page:get-started/index.html"
 msgid "x64 · experimental"
-msgstr ""
+msgstr "x64 · thử nghiệm"
 
 #: website/public/get-started/index.html:1014
 msgctxt "page:get-started/index.html"
 msgid "Verified profiles"
-msgstr ""
+msgstr "Các cấu hình đã kiểm chứng"
 
 #: website/public/get-started/index.html:1015
 msgctxt "page:get-started/index.html"
 msgid "Verified headless profile"
-msgstr ""
+msgstr "Cấu hình không có giao diện đã kiểm chứng"
 
 #: website/public/get-started/index.html:1016
 msgctxt "page:get-started/index.html"
 msgid "See provider guide"
-msgstr ""
+msgstr "Xem hướng dẫn công cụ phân tích"
 
 #: website/public/get-started/index.html:1022
 msgctxt "page:get-started/index.html"
 msgid "Hopper · let setup install or connect it"
-msgstr ""
+msgstr "Hopper · để trình thiết lập cài đặt hoặc kết nối"
 
 #: website/public/get-started/index.html:1028
 msgctxt "page:get-started/index.html"
@@ -13767,6 +13815,10 @@ msgid ""
 "choose demo mode or activate your license when Hopper first opens. On Linux,"
 " setup prepares the supported demo and its private display."
 msgstr ""
+"Chọn Hopper trong trình thiết lập và xem kế hoạch cài đặt riêng của Hopper. "
+"Trên macOS, chọn chế độ demo hoặc kích hoạt giấy phép khi mở Hopper lần đầu."
+" Trên Linux, trình thiết lập chuẩn bị bản demo được hỗ trợ cùng màn hình "
+"riêng của nó."
 
 #: website/public/get-started/index.html:1034
 msgctxt "page:get-started/index.html"
@@ -13774,6 +13826,9 @@ msgid ""
 "Linux hosts: Ubuntu 24.04+, Fedora 41+, Nobara 44+, Arch Linux, CachyOS or "
 "Omarchy. Hopper is commercial software; its demo has vendor-defined limits."
 msgstr ""
+"Host Linux: Ubuntu 24.04+, Fedora 41+, Nobara 44+, Arch Linux, CachyOS hoặc "
+"Omarchy. Hopper là phần mềm thương mại; bản demo có các giới hạn do nhà cung"
+" cấp quy định."
 
 #: website/public/get-started/index.html:1053
 msgctxt "page:get-started/index.html"
@@ -13781,6 +13836,8 @@ msgid ""
 "If macOS asks for Automation permission, allow the app that starts REA in "
 "System Settings → Privacy & Security → Automation, then retry."
 msgstr ""
+"Nếu macOS yêu cầu quyền Automation, cho phép ứng dụng khởi chạy REA trong "
+"System Settings → Privacy & Security → Automation, rồi thử lại."
 
 #. {ph0}: <a
 #. href="https://github.com/morluto/rea/blob/main/docs/installation.md#hopper"
@@ -13790,12 +13847,12 @@ msgstr ""
 #, python-brace-format
 msgctxt "page:get-started/index.html"
 msgid "{ph0}Hopper setup and troubleshooting{ph1}"
-msgstr ""
+msgstr "{ph0}Thiết lập Hopper và xử lý sự cố{ph1}"
 
 #: website/public/get-started/index.html:1066
 msgctxt "page:get-started/index.html"
 msgid "Ghidra · install the free analysis tool and Java"
-msgstr ""
+msgstr "Ghidra · cài công cụ phân tích miễn phí và Java"
 
 #: website/public/get-started/index.html:1070
 msgctxt "page:get-started/index.html"
@@ -13803,6 +13860,8 @@ msgid ""
 "Install a 64-bit JDK 21 or newer, including the Java compiler. Choose the "
 "package matching your computer's architecture."
 msgstr ""
+"Cài JDK 21 trở lên bản 64-bit, có cả trình biên dịch Java. Chọn gói phù hợp "
+"với kiến trúc máy tính của bạn."
 
 #. {ph0}: <code>ghidra_…_PUBLIC_….zip</code>
 #: website/public/get-started/index.html:1075
@@ -13812,6 +13871,8 @@ msgid ""
 "Download Ghidra 12.1.4 from the release's Assets list and extract the {ph0} "
 "archive. Choose the release archive, not “Source code”."
 msgstr ""
+"Tải Ghidra 12.1.4 từ danh sách Assets của bản phát hành rồi giải nén tệp "
+"{ph0}. Chọn gói phát hành, không chọn “Source code”."
 
 #. {ph0}: <code>ghidraRun</code>
 #. {ph1}: <code>ghidraRun.bat</code>
@@ -13823,6 +13884,7 @@ msgid ""
 "Find the extracted folder containing {ph0} or {ph1}. Use that folder for "
 "{ph2}."
 msgstr ""
+"Tìm thư mục đã giải nén chứa {ph0} hoặc {ph1}. Dùng thư mục đó cho {ph2}."
 
 #. {ph0}: <a href="https://adoptium.net/temurin/releases/?version=21" >
 #. {ph1}: </a >
@@ -13834,7 +13896,7 @@ msgstr ""
 #, python-brace-format
 msgctxt "page:get-started/index.html"
 msgid "{ph0}Download a JDK{ph1} · {ph2}Download Ghidra 12.1.4{ph3}"
-msgstr ""
+msgstr "{ph0}Tải JDK{ph1} · {ph2}Tải Ghidra 12.1.4{ph3}"
 
 #. {ph0}: <code>java.home</code>
 #. {ph1}: <code>JAVA_HOME</code>
@@ -13845,6 +13907,8 @@ msgid ""
 "Check Java. The first command prints {ph0}; use that folder for {ph1}. The "
 "second confirms the compiler is installed:"
 msgstr ""
+"Kiểm tra Java. Lệnh đầu hiển thị {ph0}; dùng thư mục đó cho {ph1}. Lệnh thứ "
+"hai xác nhận đã cài trình biên dịch:"
 
 #: website/public/get-started/index.html:1212
 msgctxt "page:get-started/index.html"
@@ -13853,6 +13917,9 @@ msgid ""
 "the paths, approve the updated client configuration, then restart your "
 "agent."
 msgstr ""
+"Chạy các lệnh này trong cùng một phiên terminal. Sau khi đặt đường dẫn, chạy"
+" lại trình thiết lập, chấp thuận cấu hình ứng dụng đã cập nhật, rồi khởi "
+"động lại trợ lý AI."
 
 #. {ph0}: <a
 #. href="https://github.com/morluto/rea/blob/main/docs/installation.md#ghidra"
@@ -13868,11 +13935,13 @@ msgid ""
 "{ph0}Ghidra setup and architecture requirements{ph1} · {ph2}Windows Ghidra "
 "guide{ph3}"
 msgstr ""
+"{ph0}Thiết lập Ghidra và yêu cầu kiến trúc{ph1} · {ph2}Hướng dẫn Ghidra trên"
+" Windows{ph3}"
 
 #: website/public/get-started/index.html:1230
 msgctxt "page:get-started/index.html"
 msgid "IDA · connect an existing installation"
-msgstr ""
+msgstr "IDA · kết nối bản cài đặt sẵn có"
 
 #: website/public/get-started/index.html:1231
 msgctxt "page:get-started/index.html"
@@ -13881,6 +13950,9 @@ msgid ""
 "an attached GUI with the original binary open, or a headless supervisor that"
 " opens a private database."
 msgstr ""
+"Dùng hướng dẫn công cụ IDA để chuẩn bị cấu hình đăng ký máy chủ MCP phía "
+"IDA. Chọn kết nối với GUI đang mở tệp nhị phân gốc, hoặc dùng tiến trình "
+"giám sát không có giao diện để mở cơ sở dữ liệu riêng."
 
 #: website/public/get-started/index.html:1236
 msgctxt "page:get-started/index.html"
@@ -13889,6 +13961,10 @@ msgid ""
 "plus a macOS arm64 headless supervisor with IDA Professional 9.1. The "
 "optional native GUI bridge has its own version and platform requirements."
 msgstr ""
+"Các cấu hình đã kiểm chứng gồm GUI cũ và tiến trình giám sát không có giao "
+"diện trên Windows, cùng tiến trình giám sát không có giao diện trên macOS "
+"arm64 với IDA Professional 9.1. Cầu nối GUI native tùy chọn có yêu cầu riêng"
+" về phiên bản và nền tảng."
 
 #: website/public/get-started/index.html:1316
 msgctxt "page:get-started/index.html"
@@ -13896,6 +13972,8 @@ msgid ""
 "Use the JSON registration file you prepared with the provider guide, then "
 "rerun setup and restart your agent."
 msgstr ""
+"Dùng tệp đăng ký JSON đã chuẩn bị theo hướng dẫn công cụ phân tích, rồi chạy"
+" lại trình thiết lập và khởi động lại trợ lý AI."
 
 #. {ph0}: <a href="https://github.com/morluto/rea/blob/main/docs/ida-
 #. provider.md" >
@@ -13904,7 +13982,7 @@ msgstr ""
 #, python-brace-format
 msgctxt "page:get-started/index.html"
 msgid "{ph0}IDA profiles, registration examples and verified platforms{ph1}"
-msgstr ""
+msgstr "{ph0}Cấu hình IDA, ví dụ đăng ký và nền tảng đã kiểm chứng{ph1}"
 
 #: website/public/get-started/index.html:1328
 msgctxt "page:get-started/index.html"
@@ -13912,6 +13990,8 @@ msgid ""
 "Once connected, give your agent the original executable's full path and name"
 " your provider:"
 msgstr ""
+"Sau khi kết nối, cung cấp cho trợ lý AI đường dẫn đầy đủ của tệp thực thi "
+"gốc và tên công cụ phân tích:"
 
 #. {ph0}: <code>/absolute/path/to/program</code>
 #: website/public/get-started/index.html:1333
@@ -13921,6 +14001,8 @@ msgid ""
 "Use REA with Ghidra to inspect {ph0}. List its functions and strings, then "
 "explain the part that handles user input with references to the code."
 msgstr ""
+"Dùng REA với Ghidra để kiểm tra {ph0}. Liệt kê các hàm và chuỗi, rồi giải "
+"thích phần xử lý đầu vào người dùng kèm tham chiếu đến mã."
 
 #. {ph0}: <a href="../guides/native/">
 #. {ph1}: </a>
@@ -13928,12 +14010,12 @@ msgstr ""
 #, python-brace-format
 msgctxt "page:get-started/index.html"
 msgid "{ph0}Follow a native analysis example{ph1}"
-msgstr ""
+msgstr "{ph0}Làm theo ví dụ phân tích mã máy{ph1}"
 
 #: website/public/get-started/index.html:1345
 msgctxt "page:get-started/index.html"
 msgid "Websites, Android, .NET, firmware and other targets"
-msgstr ""
+msgstr "Website, Android, .NET, firmware và các đối tượng khác"
 
 #: website/public/get-started/index.html:1348
 msgctxt "page:get-started/index.html"
@@ -13941,26 +14023,28 @@ msgid ""
 "Open the guide for the target you have. Each guide gives the additional "
 "tools, supported hosts and first command."
 msgstr ""
+"Mở hướng dẫn cho đối tượng bạn có. Mỗi hướng dẫn nêu công cụ bổ sung, host "
+"được hỗ trợ và lệnh đầu tiên."
 
 #: website/public/get-started/index.html:1356
 msgctxt "page:get-started/index.html"
 msgid "Target"
-msgstr ""
+msgstr "Đối tượng"
 
 #: website/public/get-started/index.html:1357
 msgctxt "page:get-started/index.html"
 msgid "Tools to prepare"
-msgstr ""
+msgstr "Công cụ cần chuẩn bị"
 
 #: website/public/get-started/index.html:1358
 msgctxt "page:get-started/index.html"
 msgid "Guide"
-msgstr ""
+msgstr "Hướng dẫn"
 
 #: website/public/get-started/index.html:1363
 msgctxt "page:get-started/index.html"
 msgid "JavaScript / Electron"
-msgstr ""
+msgstr "JavaScript / Electron"
 
 #. {ph0}: <a href="../guides/javascript/">
 #. {ph1}: </a>
@@ -13983,72 +14067,72 @@ msgstr ""
 #, python-brace-format
 msgctxt "page:get-started/index.html"
 msgid "{ph0}Open guide{ph1}"
-msgstr ""
+msgstr "{ph0}Mở hướng dẫn{ph1}"
 
 #: website/public/get-started/index.html:1368
 msgctxt "page:get-started/index.html"
 msgid "Website"
-msgstr ""
+msgstr "Website"
 
 #: website/public/get-started/index.html:1373
 msgctxt "page:get-started/index.html"
 msgid ".NET / Flutter / packages"
-msgstr ""
+msgstr ".NET / Flutter / gói phần mềm"
 
 #: website/public/get-started/index.html:1383
 msgctxt "page:get-started/index.html"
 msgid "Android APK"
-msgstr ""
+msgstr "Android APK"
 
 #: website/public/get-started/index.html:1393
 msgctxt "page:get-started/index.html"
 msgid "Android device"
-msgstr ""
+msgstr "Thiết bị Android"
 
 #: website/public/get-started/index.html:1403
 msgctxt "page:get-started/index.html"
 msgid "Android resources"
-msgstr ""
+msgstr "Tài nguyên Android"
 
 #: website/public/get-started/index.html:1413
 msgctxt "page:get-started/index.html"
 msgid "JEB project"
-msgstr ""
+msgstr "Dự án JEB"
 
 #: website/public/get-started/index.html:1423
 msgctxt "page:get-started/index.html"
 msgid "Firmware"
-msgstr ""
+msgstr "Firmware"
 
 #: website/public/get-started/index.html:1433
 msgctxt "page:get-started/index.html"
 msgid "WASM"
-msgstr ""
+msgstr "WASM"
 
 #: website/public/get-started/index.html:1463
 msgctxt "page:get-started/index.html"
 msgid "ELF / Linux crash"
-msgstr ""
+msgstr "ELF / sự cố Linux"
 
 #: website/public/get-started/index.html:1473
 msgctxt "page:get-started/index.html"
 msgid "HAR / SAZ / mitmproxy"
-msgstr ""
+msgstr "HAR / SAZ / mitmproxy"
 
 #: website/public/get-started/index.html:1483
 msgctxt "page:get-started/index.html"
 msgid "PCAP / PCAPNG"
-msgstr ""
+msgstr "PCAP / PCAPNG"
 
 #: website/public/get-started/index.html:1493
 msgctxt "page:get-started/index.html"
 msgid "Logic signals"
-msgstr ""
+msgstr "Tín hiệu logic"
 
 #: website/public/get-started/index.html:1503
 msgctxt "page:get-started/index.html"
 msgid "Process behavior"
-msgstr ""
+msgstr "Hành vi tiến trình"
 
 #. {ph0}: <a href="https://github.com/morluto/rea/blob/main/docs/flutter-
 #. analysis.md" >
@@ -14068,16 +14152,18 @@ msgid ""
 "{ph0}Flutter guide{ph1} · {ph2}Packages and resources{ph3} · {ph4}EVM "
 "bytecode{ph5} · {ph6}All investigation guides{ph7}"
 msgstr ""
+"{ph0}Hướng dẫn Flutter{ph1} · {ph2}Gói và tài nguyên{ph3} · {ph4}Bytecode "
+"EVM{ph5} · {ph6}Tất cả hướng dẫn điều tra{ph7}"
 
 #: website/public/get-started/index.html:1535
 msgctxt "page:get-started/index.html"
 msgid "Use REA from a terminal"
-msgstr ""
+msgstr "Dùng REA từ terminal"
 
 #: website/public/get-started/index.html:1537
 msgctxt "page:get-started/index.html"
 msgid "CLI commands, global installation and curl"
-msgstr ""
+msgstr "Lệnh CLI, cài đặt toàn cục và curl"
 
 #. {ph0}: <code>main</code>
 #: website/public/get-started/index.html:1634
@@ -14087,6 +14173,8 @@ msgid ""
 "Replace {ph0} with a function name or address from the target's function "
 "list. Ghidra must be configured first."
 msgstr ""
+"Thay {ph0} bằng tên hàm hoặc địa chỉ trong danh sách hàm của đối tượng. Bạn "
+"phải cấu hình Ghidra trước."
 
 #: website/public/get-started/index.html:1638
 msgctxt "page:get-started/index.html"
@@ -14094,6 +14182,8 @@ msgid ""
 "On macOS or Linux, you can also use the curl installer after preparing "
 "Node.js:"
 msgstr ""
+"Trên macOS hoặc Linux, bạn cũng có thể dùng bộ cài qua curl sau khi chuẩn bị"
+" Node.js:"
 
 #: website/public/get-started/index.html:1671
 msgctxt "page:get-started/index.html"
@@ -14101,11 +14191,14 @@ msgid ""
 "Use the client check in step 3 with your setup ID. In editor clients, enable"
 " REA in MCP settings and allow its tools in the agent chat."
 msgstr ""
+"Dùng lệnh kiểm tra ứng dụng ở bước 3 với ID thiết lập của bạn. Trong các "
+"trình soạn thảo, bật REA trong cài đặt MCP và cho phép dùng công cụ trong "
+"cuộc trò chuyện với trợ lý AI."
 
 #: website/public/get-started/index.html:1699
 msgctxt "page:get-started/index.html"
 msgid "Windows, WSL and paths with spaces"
-msgstr ""
+msgstr "Windows, WSL và đường dẫn có khoảng trắng"
 
 #: website/public/get-started/index.html:1700
 msgctxt "page:get-started/index.html"
@@ -14114,16 +14207,20 @@ msgid ""
 " runs inside WSL, install Node.js and REA inside that Linux environment and "
 "use Linux paths there. Headless providers run on the same host as REA."
 msgstr ""
+"Dùng Windows PowerShell cho các ứng dụng và công cụ phân tích trên Windows. "
+"Nếu trợ lý AI chạy trong WSL, hãy cài Node.js và REA trong môi trường Linux "
+"đó và dùng đường dẫn Linux. Các công cụ phân tích không có giao diện chạy "
+"trên cùng host với REA."
 
 #: website/public/get-started/index.html:1709
 msgctxt "page:get-started/index.html"
 msgid "Windows setup command:"
-msgstr ""
+msgstr "Lệnh thiết lập trên Windows:"
 
 #: website/public/get-started/index.html:1726
 msgctxt "page:get-started/index.html"
 msgid "Update or remove REA"
-msgstr ""
+msgstr "Cập nhật hoặc gỡ REA"
 
 #: website/public/get-started/index.html:1727
 msgctxt "page:get-started/index.html"
@@ -14131,6 +14228,8 @@ msgid ""
 "To refresh your agent connection, run the latest setup command again, review"
 " its plan and restart your client."
 msgstr ""
+"Để làm mới kết nối với trợ lý AI, chạy lại lệnh thiết lập mới nhất, xem kế "
+"hoạch rồi khởi động lại ứng dụng."
 
 #. {ph0}: <code>rea update</code>
 #. {ph1}: <code>rea uninstall</code>
@@ -14141,6 +14240,8 @@ msgid ""
 "If you installed the global CLI, update it with {ph0}. Use {ph1} to remove "
 "REA's client configuration and skill."
 msgstr ""
+"Nếu đã cài CLI toàn cục, cập nhật bằng {ph0}. Dùng {ph1} để gỡ cấu hình ứng "
+"dụng và skill của REA."
 
 #. {ph0}: <a
 #. href="https://github.com/morluto/rea/blob/main/docs/installation.md#diagnose-
@@ -14150,12 +14251,12 @@ msgstr ""
 #, python-brace-format
 msgctxt "page:get-started/index.html"
 msgid "{ph0}Update and uninstall details{ph1}"
-msgstr ""
+msgstr "{ph0}Chi tiết cập nhật và gỡ cài đặt{ph1}"
 
 #: website/public/get-started/index.html:317
 msgctxt "page:get-started/index.html"
 msgid "Copy Windows REA setup command"
-msgstr ""
+msgstr "Sao chép lệnh thiết lập REA trên Windows"
 
 #: website/public/get-started/index.html:414
 #: website/public/get-started/index.html:445
@@ -14183,7 +14284,7 @@ msgstr ""
 #: website/public/get-started/index.html:1734
 msgctxt "page:get-started/index.html"
 msgid "Copy command"
-msgstr ""
+msgstr "Sao chép lệnh"
 
 #: website/public/get-started/index.html:890
 msgctxt "page:get-started/index.html"
@@ -14198,11 +14299,13 @@ msgid ""
 "Install curl and unzip first if they are missing. On Debian or Ubuntu, run "
 "{ph0}; on other distributions, use your package manager."
 msgstr ""
+"Cài curl và unzip trước nếu chưa có. Trên Debian hoặc Ubuntu, chạy {ph0}; "
+"với các bản phân phối khác, dùng trình quản lý gói của bạn."
 
 #: website/public/get-started/index.html:376
 msgctxt "page:get-started/index.html"
 msgid "Close the terminal, open it again, then:"
-msgstr ""
+msgstr "Đóng terminal, mở lại rồi chạy:"
 
 #: website/public/get-started/index.html:506
 msgctxt "page:get-started/index.html"
@@ -14210,6 +14313,9 @@ msgid ""
 "Open its AI chat and choose Agent mode. In Windsurf or Devin Desktop, open "
 "the agent chat; in VS Code, set up GitHub Copilot first."
 msgstr ""
+"Mở cuộc trò chuyện AI của trình soạn thảo và chọn chế độ Agent. Trong "
+"Windsurf hoặc Devin Desktop, mở cuộc trò chuyện với trợ lý AI; trong VS "
+"Code, thiết lập GitHub Copilot trước."
 
 #. {ph0}: <a href="https://cursor.com/docs">
 #. {ph1}: </a>
@@ -14224,16 +14330,18 @@ msgid ""
 "{ph0}Cursor setup{ph1} · {ph2}Windsurf / Devin Desktop setup{ph3} · {ph4}VS "
 "Code and Copilot setup{ph5}"
 msgstr ""
+"{ph0}Thiết lập Cursor{ph1} · {ph2}Thiết lập Windsurf / Devin Desktop{ph3} · "
+"{ph4}Thiết lập VS Code và Copilot{ph5}"
 
 #: website/public/get-started/index.html:600
 msgctxt "page:get-started/index.html"
 msgid "OpenCode · choose an AI model"
-msgstr ""
+msgstr "OpenCode · chọn mô hình AI"
 
 #: website/public/get-started/index.html:1243
 msgctxt "page:get-started/index.html"
 msgid "Prepare the IDA registration file"
-msgstr ""
+msgstr "Chuẩn bị tệp đăng ký IDA"
 
 #. {ph0}: <code>ida-mcp.json</code>
 #. {ph1}: <code>.txt</code>
@@ -14245,6 +14353,9 @@ msgid ""
 "save its working registration as {ph0} in a text editor. On Windows, choose "
 "“All files” when saving in Notepad so it doesn't add {ph1}."
 msgstr ""
+"Cài và cấu hình máy chủ phía IDA theo hướng dẫn bên dưới. Sau đó dùng trình "
+"soạn thảo văn bản để lưu cấu hình đăng ký đã hoạt động thành {ph0}. Trên "
+"Windows, chọn “All files” khi lưu bằng Notepad để không bị thêm {ph1}."
 
 #. {ph0}: <code>idb_open</code>
 #. {ph1}: <code>idb_list</code>
@@ -14256,6 +14367,8 @@ msgid ""
 "For a headless supervisor providing {ph0}, {ph1} and {ph2}, the file can "
 "look like this:"
 msgstr ""
+"Với tiến trình giám sát không có giao diện cung cấp {ph0}, {ph1} và {ph2}, "
+"tệp có thể như sau:"
 
 #. {ph0}: <code>command</code>
 #. {ph1}: <code>args</code>
@@ -14268,21 +14381,24 @@ msgid ""
 "optional {ph2} into the file. Open the original binary in IDA and start its "
 "upstream plugin before asking REA to inspect it."
 msgstr ""
+"Với máy chủ GUI cũ 1.4.0 đang được kết nối, sao chép {ph0}, {ph1} đã hoạt "
+"động và {ph2} nếu có vào tệp. Mở tệp nhị phân gốc trong IDA và khởi chạy "
+"plugin phía IDA trước khi yêu cầu REA kiểm tra."
 
 #: website/public/get-started/index.html:1443
 msgctxt "page:get-started/index.html"
 msgid "SQLite database"
-msgstr ""
+msgstr "Cơ sở dữ liệu SQLite"
 
 #: website/public/get-started/index.html:1453
 msgctxt "page:get-started/index.html"
 msgid "EVM bytecode"
-msgstr ""
+msgstr "Bytecode EVM"
 
 #: website/public/get-started/index.html:441
 msgctxt "page:get-started/index.html"
 msgid "Install Codex using the command for your operating system:"
-msgstr ""
+msgstr "Cài Codex bằng lệnh phù hợp với hệ điều hành của bạn:"
 
 #: website/public/get-started/index.html:470
 msgctxt "page:get-started/index.html"
@@ -14290,6 +14406,8 @@ msgid ""
 "After installation, reopen your terminal and return to the working folder. "
 "Then start Codex:"
 msgstr ""
+"Sau khi cài, mở lại terminal và quay về thư mục làm việc. Sau đó khởi chạy "
+"Codex:"
 
 #. {ph0}: <a href="https://nodejs.org/en/download" >
 #. {ph1}: </a >
@@ -14300,11 +14418,13 @@ msgid ""
 "For a first installation, download the {ph0}Node.js 24 LTS macOS installer "
 "(.pkg){ph1}, open it and follow the installer. Then reopen Terminal."
 msgstr ""
+"Nếu cài lần đầu, tải {ph0}bộ cài Node.js 24 LTS cho macOS (.pkg){ph1}, mở "
+"rồi làm theo hướng dẫn. Sau đó mở lại Terminal."
 
 #: website/public/get-started/index.html:338
 msgctxt "page:get-started/index.html"
 msgid "Already use Homebrew?"
-msgstr ""
+msgstr "Bạn đã dùng Homebrew?"
 
 #: website/public/get-started/index.html:567
 msgctxt "page:get-started/index.html"
@@ -14312,6 +14432,8 @@ msgid ""
 "Install Claude Desktop on Windows or macOS and sign in. Quit it completely, "
 "then run this command in a terminal you opened outside Claude:"
 msgstr ""
+"Cài Claude Desktop trên Windows hoặc macOS và đăng nhập. Thoát hoàn toàn, "
+"rồi chạy lệnh này trong terminal mở bên ngoài Claude:"
 
 #. {ph0}: <a href="#check-connection">
 #. {ph1}: </a>
@@ -14322,6 +14444,8 @@ msgid ""
 "Review and approve the plan, reopen Claude, then {ph0}check the connection "
 "in step 3{ph1}."
 msgstr ""
+"Xem và chấp thuận kế hoạch, mở lại Claude rồi {ph0}kiểm tra kết nối ở bước "
+"3{ph1}."
 
 #: website/public/get-started/index.html:1163
 msgctxt "page:get-started/index.html"
@@ -14330,11 +14454,14 @@ msgid ""
 "Linux arm64 installation, build the native decompiler for your computer "
 "before continuing."
 msgstr ""
+"Thay cả hai đường dẫn bằng vị trí các bản cài đặt sẵn có. Nếu mới cài trên "
+"macOS hoặc Linux arm64, hãy biên dịch bộ dịch ngược native cho máy tính của "
+"bạn trước khi tiếp tục."
 
 #: website/public/get-started/index.html:1169
 msgctxt "page:get-started/index.html"
 msgid "Build Ghidra's native decompiler"
-msgstr ""
+msgstr "Biên dịch bộ dịch ngược native của Ghidra"
 
 #: website/public/get-started/index.html:1170
 msgctxt "page:get-started/index.html"
@@ -14342,6 +14469,8 @@ msgid ""
 "On macOS, the build needs Xcode Command Line Tools, make and bison. Use the "
 "guide for your computer:"
 msgstr ""
+"Trên macOS, việc biên dịch cần Xcode Command Line Tools, make và bison. Dùng"
+" hướng dẫn phù hợp với máy tính của bạn:"
 
 #. {ph0}: <a
 #. href="https://github.com/morluto/rea/blob/main/docs/installation.md#missing-
@@ -14351,7 +14480,7 @@ msgstr ""
 #, python-brace-format
 msgctxt "page:get-started/index.html"
 msgid "{ph0}macOS · Intel{ph1}"
-msgstr ""
+msgstr "{ph0}macOS · Intel{ph1}"
 
 #. {ph0}: <a
 #. href="https://github.com/morluto/rea/blob/main/docs/installation.md#macos-
@@ -14361,7 +14490,7 @@ msgstr ""
 #, python-brace-format
 msgctxt "page:get-started/index.html"
 msgid "{ph0}macOS · Apple Silicon{ph1}"
-msgstr ""
+msgstr "{ph0}macOS · Apple Silicon{ph1}"
 
 #. {ph0}: <a
 #. href="https://github.com/NationalSecurityAgency/ghidra/blob/Ghidra_12.1.4_build/GhidraDocs/GettingStarted.md#building-
@@ -14371,12 +14500,12 @@ msgstr ""
 #, python-brace-format
 msgctxt "page:get-started/index.html"
 msgid "{ph0}Linux arm64 · native build instructions{ph1}"
-msgstr ""
+msgstr "{ph0}Linux arm64 · hướng dẫn biên dịch native{ph1}"
 
 #: website/public/get-started/index.html:1195
 msgctxt "page:get-started/index.html"
 msgid "Then check Ghidra and save its paths for your client:"
-msgstr ""
+msgstr "Sau đó kiểm tra Ghidra và lưu đường dẫn cho ứng dụng kết nối của bạn:"
 
 #. {ph0}: <span translate="no">200 + 10%</span>
 #: website/public/index.html:346

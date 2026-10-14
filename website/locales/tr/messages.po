@@ -3380,7 +3380,7 @@ msgstr "{ph0}Yardım almak{ph1}"
 #, python-brace-format
 msgctxt "page:get-started/index.html"
 msgid "{ph0}{ph1}{ph2}{ph3}{ph4}{ph5}{ph6}{ph7}Your coding agent"
-msgstr "{ph0}{ph1}{ph2}{ph3}{ph4}{ph5}{ph6}{ph7}Kodlama aracınız"
+msgstr "{ph0}{ph1}{ph2}{ph3}{ph4}{ph5}{ph6}{ph7}Kodlama ajanınız"
 
 #: website/public/get-started/index.html:790
 msgctxt "page:get-started/index.html"
@@ -3463,7 +3463,7 @@ msgstr ""
 #: website/public/get-started/index.html:840
 msgctxt "page:get-started/index.html"
 msgid "How do I restart my client?"
-msgstr "Müvekkilimi nasıl yeniden başlatırım?"
+msgstr "İstemcimi nasıl yeniden başlatırım?"
 
 #. {ph0}: <strong>
 #. {ph1}: </strong>
@@ -11633,9 +11633,9 @@ msgid ""
 "older version or \"not recognized\" / \"command not found\", install {ph1} "
 "24 LTS:"
 msgstr ""
-"{ph0}, v22.19+, v24.11+ veya v26+ yazdırırsa hazırsınız demektir. Daha eski "
-"bir sürüm yazdırıyorsa veya \"tanınmıyor\" / \"komut bulunamadı\" ise, {ph1}"
-" 24 LT:"
+"{ph0}, v22.19+, v24.11+ veya v26+ gösterirse hazırsınız. Daha eski bir sürüm"
+" ya da \"not recognized\" / \"command not found\" hatası gösterirse {ph1} 24"
+" LTS kurun:"
 
 #. {ph0}: <span translate="no">export.js</span>
 #: website/public/guides/browser/index.html:441
@@ -13249,6 +13249,8 @@ msgid ""
 "Set up your computer and coding agent, connect REA, then investigate a small"
 " app."
 msgstr ""
+"Bilgisayarınızı ve kodlama ajanınızı hazırlayın, REA’yı bağlayın, ardından "
+"küçük bir uygulamayı inceleyin."
 
 #. {ph0}: <a href="#agent">
 #. {ph1}: </a>
@@ -13259,6 +13261,8 @@ msgid ""
 "New to this? Follow the four steps below. Already have an agent? Go straight"
 " to {ph0}Connect REA{ph1}."
 msgstr ""
+"İlk kez mi kullanıyorsunuz? Aşağıdaki dört adımı izleyin. Zaten bir ajanınız"
+" varsa doğrudan {ph0}REA’yı bağlama{ph1} adımına geçin."
 
 #. {ph0}: <a href="#computer">
 #. {ph1}: </a>
@@ -13266,7 +13270,7 @@ msgstr ""
 #, python-brace-format
 msgctxt "page:get-started/index.html"
 msgid "{ph0}1. Prepare your computer{ph1}"
-msgstr ""
+msgstr "{ph0}1. Bilgisayarınızı hazırlayın{ph1}"
 
 #. {ph0}: <a href="#choose-agent">
 #. {ph1}: </a>
@@ -13274,7 +13278,7 @@ msgstr ""
 #, python-brace-format
 msgctxt "page:get-started/index.html"
 msgid "{ph0}2. Choose an agent{ph1}"
-msgstr ""
+msgstr "{ph0}2. Bir ajan seçin{ph1}"
 
 #. {ph0}: <a href="#agent">
 #. {ph1}: </a>
@@ -13282,7 +13286,7 @@ msgstr ""
 #, python-brace-format
 msgctxt "page:get-started/index.html"
 msgid "{ph0}3. Connect REA{ph1}"
-msgstr ""
+msgstr "{ph0}3. REA’yı bağlayın{ph1}"
 
 #. {ph0}: <a href="#first-task">
 #. {ph1}: </a>
@@ -13290,7 +13294,7 @@ msgstr ""
 #, python-brace-format
 msgctxt "page:get-started/index.html"
 msgid "{ph0}4. Try an investigation{ph1}"
-msgstr ""
+msgstr "{ph0}4. Bir inceleme deneyin{ph1}"
 
 #. {ph0}: <a href="#native">
 #. {ph1}: </a>
@@ -13298,12 +13302,12 @@ msgstr ""
 #, python-brace-format
 msgctxt "page:get-started/index.html"
 msgid "{ph0}Other targets and providers{ph1}"
-msgstr ""
+msgstr "{ph0}Diğer hedefler ve analiz sağlayıcıları{ph1}"
 
 #: website/public/get-started/index.html:220
 msgctxt "page:get-started/index.html"
 msgid "1. Prepare your computer"
-msgstr ""
+msgstr "1. Bilgisayarınızı hazırlayın"
 
 #: website/public/get-started/index.html:221
 msgctxt "page:get-started/index.html"
@@ -13311,6 +13315,9 @@ msgid ""
 "Use the computer where your target files are stored. A local coding agent "
 "can read those files and run tools for you."
 msgstr ""
+"İnceleyeceğiniz dosyaların bulunduğu bilgisayarı kullanın. Yerel olarak "
+"çalışan bir kodlama ajanı bu dosyaları okuyabilir ve sizin için araçları "
+"çalıştırabilir."
 
 #: website/public/get-started/index.html:246
 msgctxt "page:get-started/index.html"
@@ -13318,6 +13325,8 @@ msgid ""
 "Commands go in the terminal. Prompts labeled “Your coding agent” go in the "
 "agent's chat."
 msgstr ""
+"Komutları terminale yazın. “Kodlama ajanınız” etiketli istemleri ise ajanın "
+"sohbetine yapıştırın."
 
 #. {ph0}: <a href="https://nodejs.org/en/download" >
 #. {ph1}: </a >
@@ -13325,7 +13334,7 @@ msgstr ""
 #, python-brace-format
 msgctxt "page:get-started/index.html"
 msgid "{ph0}Download the Node.js installer{ph1} if winget is unavailable."
-msgstr ""
+msgstr "winget yoksa {ph0}Node.js yükleyicisini indirin{ph1}."
 
 #. {ph0}: <em>
 #. {ph1}: </em>
@@ -13339,16 +13348,20 @@ msgid ""
 "If PowerShell later says {ph0}\"running scripts is disabled on this "
 "system\"{ph1} when you run {ph2}, use {ph3} instead. For npm, use {ph4}:"
 msgstr ""
+"Daha sonra {ph2} çalıştırırken PowerShell {ph0}\"running scripts is disabled"
+" on this system\"{ph1} derse bunun yerine {ph3} kullanın. npm için {ph4} "
+"kullanın:"
 
 #: website/public/get-started/index.html:406
 msgctxt "page:get-started/index.html"
 msgid "Make a working folder for your agent"
-msgstr ""
+msgstr "Ajanınız için bir çalışma klasörü oluşturun"
 
 #: website/public/get-started/index.html:407
 msgctxt "page:get-started/index.html"
 msgid "In your terminal, make a folder for the exercise, then move into it:"
 msgstr ""
+"Terminalde alıştırma için bir klasör oluşturun, ardından bu klasöre geçin:"
 
 #: website/public/get-started/index.html:426
 msgctxt "page:get-started/index.html"
@@ -13356,11 +13369,13 @@ msgid ""
 "Keep this terminal open for the next step. If you already have a working "
 "folder, open it instead."
 msgstr ""
+"Bir sonraki adım için bu terminali açık tutun. Zaten bir çalışma klasörünüz "
+"varsa onun yerine o klasörü açın."
 
 #: website/public/get-started/index.html:433
 msgctxt "page:get-started/index.html"
 msgid "2. Choose a coding agent"
-msgstr ""
+msgstr "2. Bir kodlama ajanı seçin"
 
 #: website/public/get-started/index.html:434
 msgctxt "page:get-started/index.html"
@@ -13368,11 +13383,14 @@ msgid ""
 "Your agent is the AI you talk to. REA supplies the inspection tools it uses."
 " Pick one client below; open its instructions if you haven't used it before."
 msgstr ""
+"Ajanınız, sohbet ettiğiniz yapay zekâdır. REA ona yazılımı incelemek için "
+"araçlar sağlar. Aşağıdan bir istemci uygulaması seçin; daha önce "
+"kullanmadıysanız talimatlarını açın."
 
 #: website/public/get-started/index.html:440
 msgctxt "page:get-started/index.html"
 msgid "Codex · use your ChatGPT account"
-msgstr ""
+msgstr "Codex · ChatGPT hesabınızı kullanın"
 
 #: website/public/get-started/index.html:488
 msgctxt "page:get-started/index.html"
@@ -13380,6 +13398,9 @@ msgid ""
 "Choose “Sign in with ChatGPT”, complete the browser sign-in, then return to "
 "the terminal. When the message box appears, continue to step 3."
 msgstr ""
+"“Sign in with ChatGPT” seçeneğini seçin, tarayıcıda giriş işlemini "
+"tamamlayın, ardından terminale dönün. Mesaj kutusu göründüğünde 3. adıma "
+"geçin."
 
 #. {ph0}: <a href="https://learn.chatgpt.com/docs/codex/cli" >
 #. {ph1}: </a >
@@ -13387,32 +13408,32 @@ msgstr ""
 #, python-brace-format
 msgctxt "page:get-started/index.html"
 msgid "{ph0}Codex installation and sign-in{ph1}"
-msgstr ""
+msgstr "{ph0}Codex kurulumu ve giriş{ph1}"
 
 #: website/public/get-started/index.html:500
 msgctxt "page:get-started/index.html"
 msgid "Cursor, Windsurf or VS Code · use an editor"
-msgstr ""
+msgstr "Cursor, Windsurf veya VS Code · bir editör kullanın"
 
 #: website/public/get-started/index.html:502
 msgctxt "page:get-started/index.html"
 msgid "Install the editor for your operating system and sign in."
-msgstr ""
+msgstr "İşletim sisteminize uygun editörü kurun ve giriş yapın."
 
 #: website/public/get-started/index.html:505
 msgctxt "page:get-started/index.html"
 msgid "Open the rea-work folder you made in step 1."
-msgstr ""
+msgstr "1. adımda oluşturduğunuz rea-work klasörünü açın."
 
 #: website/public/get-started/index.html:524
 msgctxt "page:get-started/index.html"
 msgid "Claude Code · use your Claude account"
-msgstr ""
+msgstr "Claude Code · Claude hesabınızı kullanın"
 
 #: website/public/get-started/index.html:525
 msgctxt "page:get-started/index.html"
 msgid "Install using the command for your operating system:"
-msgstr ""
+msgstr "İşletim sisteminize uygun komutla kurun:"
 
 #. {ph0}: <code>claude</code>
 #: website/public/get-started/index.html:554
@@ -13423,6 +13444,9 @@ msgid ""
 "the sign-in prompts. Access uses an eligible Claude subscription or a "
 "configured API account."
 msgstr ""
+"Terminali yeniden açın, çalışma klasörünüze dönün ve {ph0} çalıştırın. Giriş"
+" talimatlarını izleyin. Kullanım için uygun bir Claude aboneliği veya "
+"yapılandırılmış bir API hesabı gerekir."
 
 #. {ph0}: <a href="https://code.claude.com/docs/en/setup" >
 #. {ph1}: </a >
@@ -13430,12 +13454,12 @@ msgstr ""
 #, python-brace-format
 msgctxt "page:get-started/index.html"
 msgid "{ph0}Claude Code installation and account options{ph1}"
-msgstr ""
+msgstr "{ph0}Claude Code kurulumu ve hesap seçenekleri{ph1}"
 
 #: website/public/get-started/index.html:566
 msgctxt "page:get-started/index.html"
 msgid "Claude Desktop · use a desktop chat"
-msgstr ""
+msgstr "Claude Desktop · masaüstü sohbetini kullanın"
 
 #. {ph0}: <a href="https://claude.ai/download">
 #. {ph1}: </a>
@@ -13449,6 +13473,8 @@ msgid ""
 "{ph0}Download Claude Desktop{ph1} · {ph2}Claude Desktop connection "
 "details{ph3}"
 msgstr ""
+"{ph0}Claude Desktop’ı indirin{ph1} · {ph2}Claude Desktop bağlantı "
+"ayrıntıları{ph3}"
 
 #. {ph0}: <code>opencode</code>
 #. {ph1}: <code>/connect</code>
@@ -13459,6 +13485,8 @@ msgid ""
 "Run {ph0} in your working folder. Use {ph1} in its chat to connect your "
 "model account, then select a model."
 msgstr ""
+"Çalışma klasörünüzde {ph0} çalıştırın. Model hesabınızı bağlamak için "
+"sohbetinde {ph1} kullanın, ardından bir model seçin."
 
 #. {ph0}: <a href="https://opencode.ai/docs/" >
 #. {ph1}: </a >
@@ -13466,12 +13494,12 @@ msgstr ""
 #, python-brace-format
 msgctxt "page:get-started/index.html"
 msgid "{ph0}OpenCode installation and model setup{ph1}"
-msgstr ""
+msgstr "{ph0}OpenCode kurulumu ve model ayarları{ph1}"
 
 #: website/public/get-started/index.html:627
 msgctxt "page:get-started/index.html"
 msgid "All supported clients and setup IDs"
-msgstr ""
+msgstr "Desteklenen tüm istemciler ve kurulum kimlikleri"
 
 #. {ph0}: <code>--client</code>
 #: website/public/get-started/index.html:628
@@ -13481,16 +13509,18 @@ msgid ""
 "The npm 6.4.0 release supports the clients below. Use the ID with {ph0} when"
 " choosing a client explicitly."
 msgstr ""
+"npm’deki 6.4.0 sürümü aşağıdaki istemcileri destekler. Belirli bir istemciyi"
+" seçmek için kimliğini {ph0} ile kullanın."
 
 #: website/public/get-started/index.html:636
 msgctxt "page:get-started/index.html"
 msgid "Client"
-msgstr ""
+msgstr "İstemci"
 
 #: website/public/get-started/index.html:637
 msgctxt "page:get-started/index.html"
 msgid "Setup ID"
-msgstr ""
+msgstr "Kurulum kimliği"
 
 #. {ph0}: <code>qoder</code>
 #. {ph1}: <code>droid</code>
@@ -13505,6 +13535,10 @@ msgid ""
 "DeepSeek Harness ({ph4}) are available on repository main; use a source "
 "build or a release containing those integrations."
 msgstr ""
+"Qoder ({ph0}), Factory Droid ({ph1}), Trae ({ph2}), ZCode ({ph3}) ve "
+"DeepSeek Harness ({ph4}) deponun main dalında mevcuttur; kaynak koddan "
+"derlenmiş bir sürüm veya bu entegrasyonları içeren bir yayımlanmış sürüm "
+"kullanın."
 
 #. {ph0}: <a href="https://github.com/morluto/rea/blob/main/docs/client-
 #. configuration.md" >
@@ -13520,11 +13554,13 @@ msgid ""
 "{ph0}Client configuration and troubleshooting{ph1} · {ph2}Release "
 "availability{ph3}"
 msgstr ""
+"{ph0}İstemci yapılandırması ve sorun giderme{ph1} · {ph2}Yayımlanmış "
+"sürümlerde kullanılabilirlik{ph3}"
 
 #: website/public/get-started/index.html:731
 msgctxt "page:get-started/index.html"
 msgid "Grok Bot · connect on its hosted computer"
-msgstr ""
+msgstr "Grok Bot · barındırıldığı bilgisayarda bağlayın"
 
 #. {ph0}: <code>rea</code>
 #: website/public/get-started/index.html:732
@@ -13534,6 +13570,8 @@ msgid ""
 "In Grok Bot's chat, ask it to add a custom MCP server named {ph0} using this"
 " command on the Bot's computer:"
 msgstr ""
+"Grok Bot’un sohbetinde, Bot’un bilgisayarında şu komutu kullanarak {ph0} "
+"adlı özel bir MCP sunucusu eklemesini isteyin:"
 
 #. {ph0}: <a href="https://github.com/morluto/rea/blob/main/docs/client-
 #. configuration.md#other-client-settings" >
@@ -13542,12 +13580,12 @@ msgstr ""
 #, python-brace-format
 msgctxt "page:get-started/index.html"
 msgid "{ph0}Grok Bot connector instructions{ph1}"
-msgstr ""
+msgstr "{ph0}Grok Bot bağlantı talimatları{ph1}"
 
 #: website/public/get-started/index.html:760
 msgctxt "page:get-started/index.html"
 msgid "3. Connect REA"
-msgstr ""
+msgstr "3. REA’yı bağlayın"
 
 #: website/public/get-started/index.html:761
 msgctxt "page:get-started/index.html"
@@ -13557,7 +13595,7 @@ msgstr "Bu istemi kodlama ajanınıza yapıştırın:"
 #: website/public/get-started/index.html:805
 msgctxt "page:get-started/index.html"
 msgid "For one specific client, add its setup ID:"
-msgstr ""
+msgstr "Belirli bir istemci için kurulum kimliğini ekleyin:"
 
 #. {ph0}: <code>y</code>
 #: website/public/get-started/index.html:820
@@ -13568,6 +13606,9 @@ msgid ""
 "client list, use the arrow keys to move, Space to select your client and "
 "Enter to continue."
 msgstr ""
+"npm paketi indirmek için onay isterse {ph0} yazıp Enter’a basın. REA’nın "
+"istemci listesinde ok tuşlarıyla ilerleyin, Space ile istemcinizi seçin ve "
+"Enter ile devam edin."
 
 #: website/public/get-started/index.html:831
 msgctxt "page:get-started/index.html"
@@ -13575,6 +13616,8 @@ msgid ""
 "MCP is the connection that lets your agent call REA. The skill gives it a "
 "workflow for investigating software."
 msgstr ""
+"MCP, ajanınızın REA araçlarını çağırmasını sağlayan bağlantıdır. Beceri ise "
+"yazılım incelemesi için bir iş akışı sunar."
 
 #: website/public/get-started/index.html:835
 msgctxt "page:get-started/index.html"
@@ -13582,6 +13625,8 @@ msgid ""
 "For the first exercise, you can skip the optional Hopper installation. "
 "Restart your client when setup finishes."
 msgstr ""
+"İlk alıştırma için isteğe bağlı Hopper kurulumunu atlayabilirsiniz. Kurulum "
+"tamamlanınca istemcinizi yeniden başlatın."
 
 #. {ph0}: <code>codex</code>
 #. {ph1}: <code>"healthy": true</code>
@@ -13592,16 +13637,20 @@ msgid ""
 "Replace {ph0} with your client's setup ID. A successful check reports {ph1}."
 " Then ask your agent:"
 msgstr ""
+"{ph0} yerine istemcinizin kurulum kimliğini yazın. Başarılı bir kontrol "
+"{ph1} sonucunu verir. Ardından ajanınıza şunu sorun:"
 
 #: website/public/get-started/index.html:874
 msgctxt "page:get-started/index.html"
 msgid "Check that REA is connected and show me which REA tools you can use."
 msgstr ""
+"REA’nın bağlı olduğunu kontrol et ve hangi REA araçlarını kullanabildiğini "
+"göster."
 
 #: website/public/get-started/index.html:881
 msgctxt "page:get-started/index.html"
 msgid "4. Try your first investigation"
-msgstr ""
+msgstr "4. İlk incelemenizi deneyin"
 
 #. {ph0}: <strong>
 #. {ph1}: </strong>
@@ -13620,7 +13669,7 @@ msgstr ""
 #: website/public/get-started/index.html:889
 msgctxt "page:get-started/index.html"
 msgid "Your coding agent"
-msgstr ""
+msgstr "Kodlama ajanınız"
 
 #. {ph0}: <span class="prompt-symbol" aria-hidden="true">
 #. {ph1}: </span >
@@ -13640,10 +13689,10 @@ msgid ""
 "written, which fields it contains, and the relevant files and "
 "lines.{ph5}{ph6}{ph7}"
 msgstr ""
-"{ph0}\"{ph1}{ph2}{ph3}Yeni bir örnek klasöre indirin ve paketini açın. "
-"Notları Dışa Aktar'ı tıklattığımda ne olacağını bulmak için REA kullanın. "
-"Nerede {ph4}yazıldığını, hangi alanları içerdiğini ve ilgili dosyaları ve "
-"satırları gösterin.{ph5}{ph6}{ph7}"
+"{ph0}›{ph1}{ph2}{ph3} adresindeki arşivi yeni bir örnek klasöre indir ve aç."
+" Export notes düğmesine tıkladığımda ne olduğunu REA ile bul. {ph4} "
+"dosyasının nereye yazıldığını, hangi alanları içerdiğini ve ilgili dosyaları"
+" ve satırları göster.{ph5}{ph6}{ph7}"
 
 #: website/public/get-started/index.html:913
 msgctxt "page:get-started/index.html"
@@ -13662,8 +13711,9 @@ msgid ""
 "and writes {ph1} in the user’s Downloads folder. The columns are {ph2} and "
 "{ph3}."
 msgstr ""
-"Düğme bir {ph0} mesajı gönderir. Ana işlem notları CSV olarak biçimlendirir "
-"ve {ph1}. Sütunlar {ph2} ve {ph3}."
+"Düğme bir {ph0} mesajı gönderir. Ana süreç notları CSV olarak biçimlendirir "
+"ve {ph1} dosyasını kullanıcının İndirilenler klasörüne yazar. Sütunlar {ph2}"
+" ve {ph3}."
 
 #. {ph0}: <a href="../first-investigation/#check" >
 #. {ph1}: </a >
@@ -13671,12 +13721,12 @@ msgstr ""
 #, python-brace-format
 msgctxt "page:get-started/index.html"
 msgid "{ph0}Check a prediction in the guided exercise →{ph1}"
-msgstr ""
+msgstr "{ph0}Rehberli alıştırmada bir tahmini kontrol edin →{ph1}"
 
 #: website/public/get-started/index.html:928
 msgctxt "page:get-started/index.html"
 msgid "Download the example yourself, or use your own app"
-msgstr ""
+msgstr "Örneği kendiniz indirin veya kendi uygulamanızı kullanın"
 
 #. {ph0}: <a class="button" href="../examples/notes-example.zip"
 #. download="notes-example.zip" >
@@ -13706,11 +13756,13 @@ msgid ""
 "Use REA to inspect the app at {ph0}. Find how it exports data and show the "
 "relevant files and lines."
 msgstr ""
+"{ph0} konumundaki uygulamayı REA ile incele. Verileri nasıl dışa aktardığını"
+" bul ve ilgili dosyaları ve satırları göster."
 
 #: website/public/get-started/index.html:975
 msgctxt "page:get-started/index.html"
 msgid "Analyze another kind of software"
-msgstr ""
+msgstr "Başka bir yazılım türünü analiz edin"
 
 #: website/public/get-started/index.html:976
 msgctxt "page:get-started/index.html"
@@ -13718,11 +13770,15 @@ msgid ""
 "Choose the section for your target. A provider is the local analysis tool "
 "REA uses for that kind of software."
 msgstr ""
+"İnceleyeceğiniz hedefe uygun bölümü seçin. Analiz sağlayıcısı, REA’nın bu "
+"yazılım türü için kullandığı yerel analiz aracıdır."
 
 #: website/public/get-started/index.html:981
 msgctxt "page:get-started/index.html"
 msgid "Native executables and libraries · Hopper, Ghidra or IDA"
 msgstr ""
+"Yerel makine kodlu çalıştırılabilir dosyalar ve kütüphaneler · Hopper, "
+"Ghidra veya IDA"
 
 #: website/public/get-started/index.html:984
 msgctxt "page:get-started/index.html"
@@ -13730,46 +13786,48 @@ msgid ""
 "Install one analysis tool on the computer running REA. The host is your "
 "operating system; the target is the program you want to inspect."
 msgstr ""
+"REA’nın çalıştığı bilgisayara bir analiz aracı kurun. Ana sistem, işletim "
+"sisteminizdir; hedef ise incelemek istediğiniz programdır."
 
 #: website/public/get-started/index.html:993
 msgctxt "page:get-started/index.html"
 msgid "Provider"
-msgstr ""
+msgstr "Analiz sağlayıcısı"
 
 #: website/public/get-started/index.html:1002
 msgctxt "page:get-started/index.html"
 msgid "Unavailable"
-msgstr ""
+msgstr "Kullanılamıyor"
 
 #: website/public/get-started/index.html:1004
 msgctxt "page:get-started/index.html"
 msgid "Supported distributions"
-msgstr ""
+msgstr "Desteklenen dağıtımlar"
 
 #: website/public/get-started/index.html:1008
 msgctxt "page:get-started/index.html"
 msgid "x64 · experimental"
-msgstr ""
+msgstr "x64 · deneysel"
 
 #: website/public/get-started/index.html:1014
 msgctxt "page:get-started/index.html"
 msgid "Verified profiles"
-msgstr ""
+msgstr "Doğrulanmış profiller"
 
 #: website/public/get-started/index.html:1015
 msgctxt "page:get-started/index.html"
 msgid "Verified headless profile"
-msgstr ""
+msgstr "Doğrulanmış grafik arayüzsüz profil"
 
 #: website/public/get-started/index.html:1016
 msgctxt "page:get-started/index.html"
 msgid "See provider guide"
-msgstr ""
+msgstr "Sağlayıcı kılavuzuna bakın"
 
 #: website/public/get-started/index.html:1022
 msgctxt "page:get-started/index.html"
 msgid "Hopper · let setup install or connect it"
-msgstr ""
+msgstr "Hopper · kurulumun yüklemesine veya bağlamasına izin verin"
 
 #: website/public/get-started/index.html:1028
 msgctxt "page:get-started/index.html"
@@ -13778,6 +13836,9 @@ msgid ""
 "choose demo mode or activate your license when Hopper first opens. On Linux,"
 " setup prepares the supported demo and its private display."
 msgstr ""
+"Kurulumda Hopper’ı seçin ve ayrı kurulum planını inceleyin. macOS’ta Hopper "
+"ilk açıldığında demo modunu seçin veya lisansınızı etkinleştirin. Linux’ta "
+"kurulum, desteklenen demoyu ve ona özel ekran ortamını hazırlar."
 
 #: website/public/get-started/index.html:1034
 msgctxt "page:get-started/index.html"
@@ -13785,6 +13846,9 @@ msgid ""
 "Linux hosts: Ubuntu 24.04+, Fedora 41+, Nobara 44+, Arch Linux, CachyOS or "
 "Omarchy. Hopper is commercial software; its demo has vendor-defined limits."
 msgstr ""
+"Linux sistemleri: Ubuntu 24.04+, Fedora 41+, Nobara 44+, Arch Linux, CachyOS"
+" veya Omarchy. Hopper ticari bir yazılımdır; demosunun sınırlarını üretici "
+"belirler."
 
 #: website/public/get-started/index.html:1053
 msgctxt "page:get-started/index.html"
@@ -13792,6 +13856,9 @@ msgid ""
 "If macOS asks for Automation permission, allow the app that starts REA in "
 "System Settings → Privacy & Security → Automation, then retry."
 msgstr ""
+"macOS Otomasyon izni isterse Sistem Ayarları → Gizlilik ve Güvenlik → "
+"Otomasyon bölümünde REA’yı başlatan uygulamaya izin verin, ardından yeniden "
+"deneyin."
 
 #. {ph0}: <a
 #. href="https://github.com/morluto/rea/blob/main/docs/installation.md#hopper"
@@ -13801,12 +13868,12 @@ msgstr ""
 #, python-brace-format
 msgctxt "page:get-started/index.html"
 msgid "{ph0}Hopper setup and troubleshooting{ph1}"
-msgstr ""
+msgstr "{ph0}Hopper kurulumu ve sorun giderme{ph1}"
 
 #: website/public/get-started/index.html:1066
 msgctxt "page:get-started/index.html"
 msgid "Ghidra · install the free analysis tool and Java"
-msgstr ""
+msgstr "Ghidra · ücretsiz analiz aracını ve Java’yı kurun"
 
 #: website/public/get-started/index.html:1070
 msgctxt "page:get-started/index.html"
@@ -13814,6 +13881,8 @@ msgid ""
 "Install a 64-bit JDK 21 or newer, including the Java compiler. Choose the "
 "package matching your computer's architecture."
 msgstr ""
+"Java derleyicisini de içeren 64 bit JDK 21 veya daha yeni bir sürüm kurun. "
+"Bilgisayarınızın mimarisine uygun paketi seçin."
 
 #. {ph0}: <code>ghidra_…_PUBLIC_….zip</code>
 #: website/public/get-started/index.html:1075
@@ -13823,6 +13892,8 @@ msgid ""
 "Download Ghidra 12.1.4 from the release's Assets list and extract the {ph0} "
 "archive. Choose the release archive, not “Source code”."
 msgstr ""
+"Ghidra 12.1.4’ü sürümün Assets listesinden indirin ve {ph0} arşivini açın. "
+"“Source code” yerine sürüm arşivini seçin."
 
 #. {ph0}: <code>ghidraRun</code>
 #. {ph1}: <code>ghidraRun.bat</code>
@@ -13834,6 +13905,8 @@ msgid ""
 "Find the extracted folder containing {ph0} or {ph1}. Use that folder for "
 "{ph2}."
 msgstr ""
+"Açılan dosyalar arasında {ph0} veya {ph1} içeren klasörü bulun. {ph2} için "
+"bu klasörü kullanın."
 
 #. {ph0}: <a href="https://adoptium.net/temurin/releases/?version=21" >
 #. {ph1}: </a >
@@ -13845,7 +13918,7 @@ msgstr ""
 #, python-brace-format
 msgctxt "page:get-started/index.html"
 msgid "{ph0}Download a JDK{ph1} · {ph2}Download Ghidra 12.1.4{ph3}"
-msgstr ""
+msgstr "{ph0}JDK indirin{ph1} · {ph2}Ghidra 12.1.4’ü indirin{ph3}"
 
 #. {ph0}: <code>java.home</code>
 #. {ph1}: <code>JAVA_HOME</code>
@@ -13856,6 +13929,8 @@ msgid ""
 "Check Java. The first command prints {ph0}; use that folder for {ph1}. The "
 "second confirms the compiler is installed:"
 msgstr ""
+"Java’yı kontrol edin. İlk komut {ph0} değerini gösterir; {ph1} için bu "
+"klasörü kullanın. İkinci komut derleyicinin kurulu olduğunu doğrular:"
 
 #: website/public/get-started/index.html:1212
 msgctxt "page:get-started/index.html"
@@ -13864,6 +13939,9 @@ msgid ""
 "the paths, approve the updated client configuration, then restart your "
 "agent."
 msgstr ""
+"Bu komutları aynı terminal oturumunda çalıştırın. Yolları ayarladıktan sonra"
+" kurulumu yeniden çalıştırın, güncellenen istemci yapılandırmasını onaylayın"
+" ve ajanınızı yeniden başlatın."
 
 #. {ph0}: <a
 #. href="https://github.com/morluto/rea/blob/main/docs/installation.md#ghidra"
@@ -13879,11 +13957,13 @@ msgid ""
 "{ph0}Ghidra setup and architecture requirements{ph1} · {ph2}Windows Ghidra "
 "guide{ph3}"
 msgstr ""
+"{ph0}Ghidra kurulumu ve mimari gereksinimleri{ph1} · {ph2}Windows Ghidra "
+"kılavuzu{ph3}"
 
 #: website/public/get-started/index.html:1230
 msgctxt "page:get-started/index.html"
 msgid "IDA · connect an existing installation"
-msgstr ""
+msgstr "IDA · mevcut bir kurulumu bağlayın"
 
 #: website/public/get-started/index.html:1231
 msgctxt "page:get-started/index.html"
@@ -13892,6 +13972,10 @@ msgid ""
 "an attached GUI with the original binary open, or a headless supervisor that"
 " opens a private database."
 msgstr ""
+"IDA sağlayıcı kılavuzunu kullanarak IDA tarafındaki MCP sunucusunun bağlantı"
+" kaydını hazırlayın. Özgün ikili dosyanın açık olduğu bir grafik arayüze "
+"bağlanmayı veya özel bir veritabanı açan grafik arayüzsüz denetleyiciyi "
+"seçin."
 
 #: website/public/get-started/index.html:1236
 msgctxt "page:get-started/index.html"
@@ -13900,6 +13984,10 @@ msgid ""
 "plus a macOS arm64 headless supervisor with IDA Professional 9.1. The "
 "optional native GUI bridge has its own version and platform requirements."
 msgstr ""
+"Doğrulanmış profiller arasında Windows’taki eski grafik arayüz bağlantısı ve"
+" grafik arayüzsüz denetleyici ile IDA Professional 9.1 kullanan macOS arm64 "
+"grafik arayüzsüz denetleyici bulunur. İsteğe bağlı yerel GUI köprüsünün "
+"ayrıca sürüm ve platform gereksinimleri vardır."
 
 #: website/public/get-started/index.html:1316
 msgctxt "page:get-started/index.html"
@@ -13907,6 +13995,8 @@ msgid ""
 "Use the JSON registration file you prepared with the provider guide, then "
 "rerun setup and restart your agent."
 msgstr ""
+"Sağlayıcı kılavuzuyla hazırladığınız JSON bağlantı kayıt dosyasını kullanın,"
+" ardından kurulumu yeniden çalıştırın ve ajanınızı yeniden başlatın."
 
 #. {ph0}: <a href="https://github.com/morluto/rea/blob/main/docs/ida-
 #. provider.md" >
@@ -13916,6 +14006,8 @@ msgstr ""
 msgctxt "page:get-started/index.html"
 msgid "{ph0}IDA profiles, registration examples and verified platforms{ph1}"
 msgstr ""
+"{ph0}IDA profilleri, bağlantı kaydı örnekleri ve doğrulanmış "
+"platformlar{ph1}"
 
 #: website/public/get-started/index.html:1328
 msgctxt "page:get-started/index.html"
@@ -13923,6 +14015,8 @@ msgid ""
 "Once connected, give your agent the original executable's full path and name"
 " your provider:"
 msgstr ""
+"Bağlantı kurulduğunda ajanınıza özgün çalıştırılabilir dosyanın tam yolunu "
+"verin ve analiz sağlayıcınızı belirtin:"
 
 #. {ph0}: <code>/absolute/path/to/program</code>
 #: website/public/get-started/index.html:1333
@@ -13932,6 +14026,9 @@ msgid ""
 "Use REA with Ghidra to inspect {ph0}. List its functions and strings, then "
 "explain the part that handles user input with references to the code."
 msgstr ""
+"{ph0} dosyasını Ghidra ile REA kullanarak incele. Fonksiyonları ve metin "
+"dizelerini listele, ardından kullanıcı girdisini işleyen bölümü kod "
+"referanslarıyla açıkla."
 
 #. {ph0}: <a href="../guides/native/">
 #. {ph1}: </a>
@@ -13939,12 +14036,12 @@ msgstr ""
 #, python-brace-format
 msgctxt "page:get-started/index.html"
 msgid "{ph0}Follow a native analysis example{ph1}"
-msgstr ""
+msgstr "{ph0}Makine kodu analiz örneğini izleyin{ph1}"
 
 #: website/public/get-started/index.html:1345
 msgctxt "page:get-started/index.html"
 msgid "Websites, Android, .NET, firmware and other targets"
-msgstr ""
+msgstr "Web siteleri, Android, .NET, donanım yazılımları ve diğer hedefler"
 
 #: website/public/get-started/index.html:1348
 msgctxt "page:get-started/index.html"
@@ -13952,26 +14049,28 @@ msgid ""
 "Open the guide for the target you have. Each guide gives the additional "
 "tools, supported hosts and first command."
 msgstr ""
+"Elinizdeki hedefin kılavuzunu açın. Her kılavuz ek araçları, desteklenen "
+"sistemleri ve ilk komutu gösterir."
 
 #: website/public/get-started/index.html:1356
 msgctxt "page:get-started/index.html"
 msgid "Target"
-msgstr ""
+msgstr "Hedef"
 
 #: website/public/get-started/index.html:1357
 msgctxt "page:get-started/index.html"
 msgid "Tools to prepare"
-msgstr ""
+msgstr "Hazırlanacak araçlar"
 
 #: website/public/get-started/index.html:1358
 msgctxt "page:get-started/index.html"
 msgid "Guide"
-msgstr ""
+msgstr "Kılavuz"
 
 #: website/public/get-started/index.html:1363
 msgctxt "page:get-started/index.html"
 msgid "JavaScript / Electron"
-msgstr ""
+msgstr "JavaScript / Electron"
 
 #. {ph0}: <a href="../guides/javascript/">
 #. {ph1}: </a>
@@ -13994,72 +14093,72 @@ msgstr ""
 #, python-brace-format
 msgctxt "page:get-started/index.html"
 msgid "{ph0}Open guide{ph1}"
-msgstr ""
+msgstr "{ph0}Kılavuzu açın{ph1}"
 
 #: website/public/get-started/index.html:1368
 msgctxt "page:get-started/index.html"
 msgid "Website"
-msgstr ""
+msgstr "Web sitesi"
 
 #: website/public/get-started/index.html:1373
 msgctxt "page:get-started/index.html"
 msgid ".NET / Flutter / packages"
-msgstr ""
+msgstr ".NET / Flutter / paketler"
 
 #: website/public/get-started/index.html:1383
 msgctxt "page:get-started/index.html"
 msgid "Android APK"
-msgstr ""
+msgstr "Android APK"
 
 #: website/public/get-started/index.html:1393
 msgctxt "page:get-started/index.html"
 msgid "Android device"
-msgstr ""
+msgstr "Android cihazı"
 
 #: website/public/get-started/index.html:1403
 msgctxt "page:get-started/index.html"
 msgid "Android resources"
-msgstr ""
+msgstr "Android kaynakları"
 
 #: website/public/get-started/index.html:1413
 msgctxt "page:get-started/index.html"
 msgid "JEB project"
-msgstr ""
+msgstr "JEB projesi"
 
 #: website/public/get-started/index.html:1423
 msgctxt "page:get-started/index.html"
 msgid "Firmware"
-msgstr ""
+msgstr "Donanım yazılımı"
 
 #: website/public/get-started/index.html:1433
 msgctxt "page:get-started/index.html"
 msgid "WASM"
-msgstr ""
+msgstr "WASM"
 
 #: website/public/get-started/index.html:1463
 msgctxt "page:get-started/index.html"
 msgid "ELF / Linux crash"
-msgstr ""
+msgstr "ELF / Linux çökmesi"
 
 #: website/public/get-started/index.html:1473
 msgctxt "page:get-started/index.html"
 msgid "HAR / SAZ / mitmproxy"
-msgstr ""
+msgstr "HAR / SAZ / mitmproxy"
 
 #: website/public/get-started/index.html:1483
 msgctxt "page:get-started/index.html"
 msgid "PCAP / PCAPNG"
-msgstr ""
+msgstr "PCAP / PCAPNG"
 
 #: website/public/get-started/index.html:1493
 msgctxt "page:get-started/index.html"
 msgid "Logic signals"
-msgstr ""
+msgstr "Mantık sinyalleri"
 
 #: website/public/get-started/index.html:1503
 msgctxt "page:get-started/index.html"
 msgid "Process behavior"
-msgstr ""
+msgstr "Süreç davranışı"
 
 #. {ph0}: <a href="https://github.com/morluto/rea/blob/main/docs/flutter-
 #. analysis.md" >
@@ -14079,16 +14178,18 @@ msgid ""
 "{ph0}Flutter guide{ph1} · {ph2}Packages and resources{ph3} · {ph4}EVM "
 "bytecode{ph5} · {ph6}All investigation guides{ph7}"
 msgstr ""
+"{ph0}Flutter kılavuzu{ph1} · {ph2}Paketler ve kaynaklar{ph3} · {ph4}EVM bayt"
+" kodu{ph5} · {ph6}Tüm inceleme kılavuzları{ph7}"
 
 #: website/public/get-started/index.html:1535
 msgctxt "page:get-started/index.html"
 msgid "Use REA from a terminal"
-msgstr ""
+msgstr "REA’yı terminalden kullanın"
 
 #: website/public/get-started/index.html:1537
 msgctxt "page:get-started/index.html"
 msgid "CLI commands, global installation and curl"
-msgstr ""
+msgstr "CLI komutları, genel kurulum ve curl"
 
 #. {ph0}: <code>main</code>
 #: website/public/get-started/index.html:1634
@@ -14098,6 +14199,8 @@ msgid ""
 "Replace {ph0} with a function name or address from the target's function "
 "list. Ghidra must be configured first."
 msgstr ""
+"{ph0} yerine hedefin fonksiyon listesinden bir fonksiyon adı veya adresi "
+"yazın. Önce Ghidra’nın yapılandırılması gerekir."
 
 #: website/public/get-started/index.html:1638
 msgctxt "page:get-started/index.html"
@@ -14105,6 +14208,8 @@ msgid ""
 "On macOS or Linux, you can also use the curl installer after preparing "
 "Node.js:"
 msgstr ""
+"macOS veya Linux’ta Node.js’i hazırladıktan sonra curl yükleyicisini de "
+"kullanabilirsiniz:"
 
 #: website/public/get-started/index.html:1671
 msgctxt "page:get-started/index.html"
@@ -14112,11 +14217,14 @@ msgid ""
 "Use the client check in step 3 with your setup ID. In editor clients, enable"
 " REA in MCP settings and allow its tools in the agent chat."
 msgstr ""
+"3. adımdaki istemci kontrolünü kendi kurulum kimliğinizle kullanın. Editör "
+"istemcilerinde MCP ayarlarında REA’yı etkinleştirin ve ajan sohbetinde "
+"araçlarına izin verin."
 
 #: website/public/get-started/index.html:1699
 msgctxt "page:get-started/index.html"
 msgid "Windows, WSL and paths with spaces"
-msgstr ""
+msgstr "Windows, WSL ve boşluk içeren yollar"
 
 #: website/public/get-started/index.html:1700
 msgctxt "page:get-started/index.html"
@@ -14125,16 +14233,20 @@ msgid ""
 " runs inside WSL, install Node.js and REA inside that Linux environment and "
 "use Linux paths there. Headless providers run on the same host as REA."
 msgstr ""
+"Windows istemcileri ve analiz araçları için Windows PowerShell kullanın. "
+"Ajanınız WSL içinde çalışıyorsa Node.js ve REA’yı o Linux ortamında kurun ve"
+" orada Linux yollarını kullanın. Grafik arayüzsüz sağlayıcılar REA ile aynı "
+"sistemde çalışır."
 
 #: website/public/get-started/index.html:1709
 msgctxt "page:get-started/index.html"
 msgid "Windows setup command:"
-msgstr ""
+msgstr "Windows kurulum komutu:"
 
 #: website/public/get-started/index.html:1726
 msgctxt "page:get-started/index.html"
 msgid "Update or remove REA"
-msgstr ""
+msgstr "REA’yı güncelleyin veya kaldırın"
 
 #: website/public/get-started/index.html:1727
 msgctxt "page:get-started/index.html"
@@ -14142,6 +14254,8 @@ msgid ""
 "To refresh your agent connection, run the latest setup command again, review"
 " its plan and restart your client."
 msgstr ""
+"Ajan bağlantınızı yenilemek için en güncel kurulum komutunu tekrar "
+"çalıştırın, planını inceleyin ve istemcinizi yeniden başlatın."
 
 #. {ph0}: <code>rea update</code>
 #. {ph1}: <code>rea uninstall</code>
@@ -14152,6 +14266,8 @@ msgid ""
 "If you installed the global CLI, update it with {ph0}. Use {ph1} to remove "
 "REA's client configuration and skill."
 msgstr ""
+"Genel CLI kurulumu yaptıysanız {ph0} ile güncelleyin. REA’nın istemci "
+"yapılandırmasını ve becerisini kaldırmak için {ph1} kullanın."
 
 #. {ph0}: <a
 #. href="https://github.com/morluto/rea/blob/main/docs/installation.md#diagnose-
@@ -14161,12 +14277,12 @@ msgstr ""
 #, python-brace-format
 msgctxt "page:get-started/index.html"
 msgid "{ph0}Update and uninstall details{ph1}"
-msgstr ""
+msgstr "{ph0}Güncelleme ve kaldırma ayrıntıları{ph1}"
 
 #: website/public/get-started/index.html:317
 msgctxt "page:get-started/index.html"
 msgid "Copy Windows REA setup command"
-msgstr ""
+msgstr "Windows için REA kurulum komutunu kopyala"
 
 #: website/public/get-started/index.html:414
 #: website/public/get-started/index.html:445
@@ -14194,7 +14310,7 @@ msgstr ""
 #: website/public/get-started/index.html:1734
 msgctxt "page:get-started/index.html"
 msgid "Copy command"
-msgstr ""
+msgstr "Komutu kopyala"
 
 #: website/public/get-started/index.html:890
 msgctxt "page:get-started/index.html"
@@ -14209,11 +14325,13 @@ msgid ""
 "Install curl and unzip first if they are missing. On Debian or Ubuntu, run "
 "{ph0}; on other distributions, use your package manager."
 msgstr ""
+"curl ve unzip yoksa önce onları kurun. Debian veya Ubuntu’da {ph0} "
+"çalıştırın; diğer dağıtımlarda paket yöneticinizi kullanın."
 
 #: website/public/get-started/index.html:376
 msgctxt "page:get-started/index.html"
 msgid "Close the terminal, open it again, then:"
-msgstr ""
+msgstr "Terminali kapatın, yeniden açın, ardından:"
 
 #: website/public/get-started/index.html:506
 msgctxt "page:get-started/index.html"
@@ -14221,6 +14339,9 @@ msgid ""
 "Open its AI chat and choose Agent mode. In Windsurf or Devin Desktop, open "
 "the agent chat; in VS Code, set up GitHub Copilot first."
 msgstr ""
+"Editörün yapay zekâ sohbetini açın ve Agent modunu seçin. Windsurf veya "
+"Devin Desktop’ta ajan sohbetini açın; VS Code’da önce GitHub Copilot’ı "
+"ayarlayın."
 
 #. {ph0}: <a href="https://cursor.com/docs">
 #. {ph1}: </a>
@@ -14235,16 +14356,18 @@ msgid ""
 "{ph0}Cursor setup{ph1} · {ph2}Windsurf / Devin Desktop setup{ph3} · {ph4}VS "
 "Code and Copilot setup{ph5}"
 msgstr ""
+"{ph0}Cursor kurulumu{ph1} · {ph2}Windsurf / Devin Desktop kurulumu{ph3} · "
+"{ph4}VS Code ve Copilot kurulumu{ph5}"
 
 #: website/public/get-started/index.html:600
 msgctxt "page:get-started/index.html"
 msgid "OpenCode · choose an AI model"
-msgstr ""
+msgstr "OpenCode · bir yapay zekâ modeli seçin"
 
 #: website/public/get-started/index.html:1243
 msgctxt "page:get-started/index.html"
 msgid "Prepare the IDA registration file"
-msgstr ""
+msgstr "IDA bağlantı kayıt dosyasını hazırlayın"
 
 #. {ph0}: <code>ida-mcp.json</code>
 #. {ph1}: <code>.txt</code>
@@ -14256,6 +14379,10 @@ msgid ""
 "save its working registration as {ph0} in a text editor. On Windows, choose "
 "“All files” when saving in Notepad so it doesn't add {ph1}."
 msgstr ""
+"Aşağıdaki IDA kılavuzuyla IDA tarafındaki sunucuyu kurup yapılandırın. "
+"Ardından çalışan bağlantı kaydını bir metin editöründe {ph0} olarak "
+"kaydedin. Windows’ta Not Defteri’nde kaydederken “Tüm dosyalar”ı seçin; "
+"böylece dosya adına {ph1} eklenmez."
 
 #. {ph0}: <code>idb_open</code>
 #. {ph1}: <code>idb_list</code>
@@ -14267,6 +14394,8 @@ msgid ""
 "For a headless supervisor providing {ph0}, {ph1} and {ph2}, the file can "
 "look like this:"
 msgstr ""
+"{ph0}, {ph1} ve {ph2} araçlarını sunan grafik arayüzsüz bir denetleyici için"
+" dosya şöyle olabilir:"
 
 #. {ph0}: <code>command</code>
 #. {ph1}: <code>args</code>
@@ -14279,21 +14408,24 @@ msgid ""
 "optional {ph2} into the file. Open the original binary in IDA and start its "
 "upstream plugin before asking REA to inspect it."
 msgstr ""
+"Bağlı bir eski 1.4.0 GUI sunucusu için çalışan {ph0}, {ph1} ve varsa {ph2} "
+"değerlerini dosyaya kopyalayın. REA’dan inceleme istemeden önce özgün ikili "
+"dosyayı IDA’da açın ve IDA tarafındaki eklentiyi başlatın."
 
 #: website/public/get-started/index.html:1443
 msgctxt "page:get-started/index.html"
 msgid "SQLite database"
-msgstr ""
+msgstr "SQLite veritabanı"
 
 #: website/public/get-started/index.html:1453
 msgctxt "page:get-started/index.html"
 msgid "EVM bytecode"
-msgstr ""
+msgstr "EVM bayt kodu"
 
 #: website/public/get-started/index.html:441
 msgctxt "page:get-started/index.html"
 msgid "Install Codex using the command for your operating system:"
-msgstr ""
+msgstr "Codex’i işletim sisteminize uygun komutla kurun:"
 
 #: website/public/get-started/index.html:470
 msgctxt "page:get-started/index.html"
@@ -14301,6 +14433,8 @@ msgid ""
 "After installation, reopen your terminal and return to the working folder. "
 "Then start Codex:"
 msgstr ""
+"Kurulumdan sonra terminali yeniden açın ve çalışma klasörüne dönün. Ardından"
+" Codex’i başlatın:"
 
 #. {ph0}: <a href="https://nodejs.org/en/download" >
 #. {ph1}: </a >
@@ -14311,11 +14445,14 @@ msgid ""
 "For a first installation, download the {ph0}Node.js 24 LTS macOS installer "
 "(.pkg){ph1}, open it and follow the installer. Then reopen Terminal."
 msgstr ""
+"İlk kurulum için {ph0}Node.js 24 LTS macOS yükleyicisini (.pkg){ph1} "
+"indirin, açın ve kurulum adımlarını izleyin. Ardından Terminal’i yeniden "
+"açın."
 
 #: website/public/get-started/index.html:338
 msgctxt "page:get-started/index.html"
 msgid "Already use Homebrew?"
-msgstr ""
+msgstr "Zaten Homebrew kullanıyor musunuz?"
 
 #: website/public/get-started/index.html:567
 msgctxt "page:get-started/index.html"
@@ -14323,6 +14460,9 @@ msgid ""
 "Install Claude Desktop on Windows or macOS and sign in. Quit it completely, "
 "then run this command in a terminal you opened outside Claude:"
 msgstr ""
+"Windows veya macOS’a Claude Desktop’ı kurun ve giriş yapın. Uygulamadan "
+"tamamen çıkın, ardından Claude dışında açtığınız bir terminalde şu komutu "
+"çalıştırın:"
 
 #. {ph0}: <a href="#check-connection">
 #. {ph1}: </a>
@@ -14333,6 +14473,8 @@ msgid ""
 "Review and approve the plan, reopen Claude, then {ph0}check the connection "
 "in step 3{ph1}."
 msgstr ""
+"Planı inceleyip onaylayın, Claude’u yeniden açın, ardından {ph0}3. adımdaki "
+"bağlantı kontrolünü yapın{ph1}."
 
 #: website/public/get-started/index.html:1163
 msgctxt "page:get-started/index.html"
@@ -14341,11 +14483,14 @@ msgid ""
 "Linux arm64 installation, build the native decompiler for your computer "
 "before continuing."
 msgstr ""
+"Her iki yolu da mevcut kurulumlarınızın yollarıyla değiştirin. Yeni bir "
+"macOS veya Linux arm64 kurulumunda, devam etmeden önce bilgisayarınız için "
+"yerel decompiler’ı derleyin."
 
 #: website/public/get-started/index.html:1169
 msgctxt "page:get-started/index.html"
 msgid "Build Ghidra's native decompiler"
-msgstr ""
+msgstr "Ghidra’nın yerel decompiler’ını derleyin"
 
 #: website/public/get-started/index.html:1170
 msgctxt "page:get-started/index.html"
@@ -14353,6 +14498,8 @@ msgid ""
 "On macOS, the build needs Xcode Command Line Tools, make and bison. Use the "
 "guide for your computer:"
 msgstr ""
+"macOS’ta derleme için Xcode Command Line Tools, make ve bison gerekir. "
+"Bilgisayarınıza uygun kılavuzu kullanın:"
 
 #. {ph0}: <a
 #. href="https://github.com/morluto/rea/blob/main/docs/installation.md#missing-
@@ -14362,7 +14509,7 @@ msgstr ""
 #, python-brace-format
 msgctxt "page:get-started/index.html"
 msgid "{ph0}macOS · Intel{ph1}"
-msgstr ""
+msgstr "{ph0}macOS · Intel{ph1}"
 
 #. {ph0}: <a
 #. href="https://github.com/morluto/rea/blob/main/docs/installation.md#macos-
@@ -14372,7 +14519,7 @@ msgstr ""
 #, python-brace-format
 msgctxt "page:get-started/index.html"
 msgid "{ph0}macOS · Apple Silicon{ph1}"
-msgstr ""
+msgstr "{ph0}macOS · Apple Silicon{ph1}"
 
 #. {ph0}: <a
 #. href="https://github.com/NationalSecurityAgency/ghidra/blob/Ghidra_12.1.4_build/GhidraDocs/GettingStarted.md#building-
@@ -14382,12 +14529,13 @@ msgstr ""
 #, python-brace-format
 msgctxt "page:get-started/index.html"
 msgid "{ph0}Linux arm64 · native build instructions{ph1}"
-msgstr ""
+msgstr "{ph0}Linux arm64 · yerel derleme talimatları{ph1}"
 
 #: website/public/get-started/index.html:1195
 msgctxt "page:get-started/index.html"
 msgid "Then check Ghidra and save its paths for your client:"
 msgstr ""
+"Ardından Ghidra’yı kontrol edin ve yollarını istemciniz için kaydedin:"
 
 #. {ph0}: <span translate="no">200 + 10%</span>
 #: website/public/index.html:346

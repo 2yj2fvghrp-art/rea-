@@ -3414,7 +3414,8 @@ msgstr "{ph0}Получение помощи{ph1}"
 #, python-brace-format
 msgctxt "page:get-started/index.html"
 msgid "{ph0}{ph1}{ph2}{ph3}{ph4}{ph5}{ph6}{ph7}Your coding agent"
-msgstr "{ph0}{ph1}{ph2}{ph3}{ph4}{ph5}{ph6}{ph7}Ваш кодирующий агент"
+msgstr ""
+"{ph0}{ph1}{ph2}{ph3}{ph4}{ph5}{ph6}{ph7}Ваш ИИ-помощник для программирования"
 
 #: website/public/get-started/index.html:790
 msgctxt "page:get-started/index.html"
@@ -3492,10 +3493,9 @@ msgid ""
 "and the matching investigation skill, keeping a backup of existing "
 "configuration. It asks before applying the changes."
 msgstr ""
-"Выберите свой клиент и ознакомьтесь с планом настройки.  REA добавляет "
-"подключение MCP и соответствующий навык исследования, сохраняя резервную "
-"копию существующей конфигурации. Перед применением изменений программа "
-"запрашивает доступ."
+"Выберите клиент и просмотрите план настройки. REA добавляет подключение MCP "
+"и соответствующий навык исследования, сохраняя резервную копию существующей "
+"конфигурации. Перед применением изменений он спрашивает вашего разрешения."
 
 #: website/public/get-started/index.html:840
 msgctxt "page:get-started/index.html"
@@ -3846,9 +3846,9 @@ msgid ""
 "Connect REA to your coding agent or inspect a local JavaScript or Electron "
 "app from the terminal. Setup, first questions and native provider guides."
 msgstr ""
-"Подключите REA к вашему программисту или воспользуйтесь локальным "
-"приложением JavaScript или Electron с терминала. Настройка, первые вопросы и"
-" инструкции для местных провайдеров."
+"Подключите REA к ИИ-помощнику для программирования или исследуйте локальное "
+"приложение JavaScript или Electron из терминала. Настройка, первые вопросы и"
+" руководства по инструментам анализа машинного кода."
 
 #: website/public/get-started/index.html:264
 msgctxt "page:get-started/index.html"
@@ -13384,6 +13384,8 @@ msgid ""
 "Set up your computer and coding agent, connect REA, then investigate a small"
 " app."
 msgstr ""
+"Подготовьте компьютер и ИИ-помощника для программирования, подключите REA, "
+"затем исследуйте небольшое приложение."
 
 #. {ph0}: <a href="#agent">
 #. {ph1}: </a>
@@ -13394,6 +13396,8 @@ msgid ""
 "New to this? Follow the four steps below. Already have an agent? Go straight"
 " to {ph0}Connect REA{ph1}."
 msgstr ""
+"Впервые пробуете? Пройдите четыре шага ниже. Уже пользуетесь агентом? Сразу "
+"переходите к разделу {ph0}«Подключите REA»{ph1}."
 
 #. {ph0}: <a href="#computer">
 #. {ph1}: </a>
@@ -13401,7 +13405,7 @@ msgstr ""
 #, python-brace-format
 msgctxt "page:get-started/index.html"
 msgid "{ph0}1. Prepare your computer{ph1}"
-msgstr ""
+msgstr "{ph0}1. Подготовьте компьютер{ph1}"
 
 #. {ph0}: <a href="#choose-agent">
 #. {ph1}: </a>
@@ -13409,7 +13413,7 @@ msgstr ""
 #, python-brace-format
 msgctxt "page:get-started/index.html"
 msgid "{ph0}2. Choose an agent{ph1}"
-msgstr ""
+msgstr "{ph0}2. Выберите агента{ph1}"
 
 #. {ph0}: <a href="#agent">
 #. {ph1}: </a>
@@ -13417,7 +13421,7 @@ msgstr ""
 #, python-brace-format
 msgctxt "page:get-started/index.html"
 msgid "{ph0}3. Connect REA{ph1}"
-msgstr ""
+msgstr "{ph0}3. Подключите REA{ph1}"
 
 #. {ph0}: <a href="#first-task">
 #. {ph1}: </a>
@@ -13425,7 +13429,7 @@ msgstr ""
 #, python-brace-format
 msgctxt "page:get-started/index.html"
 msgid "{ph0}4. Try an investigation{ph1}"
-msgstr ""
+msgstr "{ph0}4. Попробуйте исследование{ph1}"
 
 #. {ph0}: <a href="#native">
 #. {ph1}: </a>
@@ -13433,12 +13437,12 @@ msgstr ""
 #, python-brace-format
 msgctxt "page:get-started/index.html"
 msgid "{ph0}Other targets and providers{ph1}"
-msgstr ""
+msgstr "{ph0}Другие цели и инструменты анализа{ph1}"
 
 #: website/public/get-started/index.html:220
 msgctxt "page:get-started/index.html"
 msgid "1. Prepare your computer"
-msgstr ""
+msgstr "1. Подготовьте компьютер"
 
 #: website/public/get-started/index.html:221
 msgctxt "page:get-started/index.html"
@@ -13446,6 +13450,9 @@ msgid ""
 "Use the computer where your target files are stored. A local coding agent "
 "can read those files and run tools for you."
 msgstr ""
+"Используйте компьютер, на котором хранятся исследуемые файлы. Локальный ИИ-"
+"помощник для программирования может читать их и запускать инструменты за "
+"вас."
 
 #: website/public/get-started/index.html:246
 msgctxt "page:get-started/index.html"
@@ -13453,6 +13460,8 @@ msgid ""
 "Commands go in the terminal. Prompts labeled “Your coding agent” go in the "
 "agent's chat."
 msgstr ""
+"Команды вводите в терминале. Запросы с пометкой «Ваш ИИ-помощник для "
+"программирования» отправляйте в чат агента."
 
 #. {ph0}: <a href="https://nodejs.org/en/download" >
 #. {ph1}: </a >
@@ -13460,7 +13469,7 @@ msgstr ""
 #, python-brace-format
 msgctxt "page:get-started/index.html"
 msgid "{ph0}Download the Node.js installer{ph1} if winget is unavailable."
-msgstr ""
+msgstr "Если winget недоступен, {ph0}скачайте установщик Node.js{ph1}."
 
 #. {ph0}: <em>
 #. {ph1}: </em>
@@ -13474,16 +13483,19 @@ msgid ""
 "If PowerShell later says {ph0}\"running scripts is disabled on this "
 "system\"{ph1} when you run {ph2}, use {ph3} instead. For npm, use {ph4}:"
 msgstr ""
+"Если позже при запуске {ph2} PowerShell сообщит {ph0}\"running scripts is "
+"disabled on this system\"{ph1}, используйте вместо него {ph3}. Для npm "
+"используйте {ph4}:"
 
 #: website/public/get-started/index.html:406
 msgctxt "page:get-started/index.html"
 msgid "Make a working folder for your agent"
-msgstr ""
+msgstr "Создайте рабочую папку для агента"
 
 #: website/public/get-started/index.html:407
 msgctxt "page:get-started/index.html"
 msgid "In your terminal, make a folder for the exercise, then move into it:"
-msgstr ""
+msgstr "В терминале создайте папку для упражнения и перейдите в неё:"
 
 #: website/public/get-started/index.html:426
 msgctxt "page:get-started/index.html"
@@ -13491,11 +13503,13 @@ msgid ""
 "Keep this terminal open for the next step. If you already have a working "
 "folder, open it instead."
 msgstr ""
+"Оставьте этот терминал открытым для следующего шага. Если у вас уже есть "
+"рабочая папка, откройте её вместо новой."
 
 #: website/public/get-started/index.html:433
 msgctxt "page:get-started/index.html"
 msgid "2. Choose a coding agent"
-msgstr ""
+msgstr "2. Выберите ИИ-помощника для программирования"
 
 #: website/public/get-started/index.html:434
 msgctxt "page:get-started/index.html"
@@ -13503,11 +13517,14 @@ msgid ""
 "Your agent is the AI you talk to. REA supplies the inspection tools it uses."
 " Pick one client below; open its instructions if you haven't used it before."
 msgstr ""
+"Агент — это ИИ, с которым вы общаетесь. REA предоставляет ему инструменты "
+"для исследования программ. Выберите одно приложение-клиент ниже; если раньше"
+" им не пользовались, откройте инструкции."
 
 #: website/public/get-started/index.html:440
 msgctxt "page:get-started/index.html"
 msgid "Codex · use your ChatGPT account"
-msgstr ""
+msgstr "Codex · используйте свой аккаунт ChatGPT"
 
 #: website/public/get-started/index.html:488
 msgctxt "page:get-started/index.html"
@@ -13515,6 +13532,8 @@ msgid ""
 "Choose “Sign in with ChatGPT”, complete the browser sign-in, then return to "
 "the terminal. When the message box appears, continue to step 3."
 msgstr ""
+"Выберите «Sign in with ChatGPT», завершите вход в браузере и вернитесь в "
+"терминал. Когда появится поле для сообщения, переходите к шагу 3."
 
 #. {ph0}: <a href="https://learn.chatgpt.com/docs/codex/cli" >
 #. {ph1}: </a >
@@ -13522,32 +13541,33 @@ msgstr ""
 #, python-brace-format
 msgctxt "page:get-started/index.html"
 msgid "{ph0}Codex installation and sign-in{ph1}"
-msgstr ""
+msgstr "{ph0}Установка Codex и вход в аккаунт{ph1}"
 
 #: website/public/get-started/index.html:500
 msgctxt "page:get-started/index.html"
 msgid "Cursor, Windsurf or VS Code · use an editor"
-msgstr ""
+msgstr "Cursor, Windsurf или VS Code · используйте редактор"
 
 #: website/public/get-started/index.html:502
 msgctxt "page:get-started/index.html"
 msgid "Install the editor for your operating system and sign in."
 msgstr ""
+"Установите редактор для своей операционной системы и войдите в аккаунт."
 
 #: website/public/get-started/index.html:505
 msgctxt "page:get-started/index.html"
 msgid "Open the rea-work folder you made in step 1."
-msgstr ""
+msgstr "Откройте папку rea-work, созданную на шаге 1."
 
 #: website/public/get-started/index.html:524
 msgctxt "page:get-started/index.html"
 msgid "Claude Code · use your Claude account"
-msgstr ""
+msgstr "Claude Code · используйте свой аккаунт Claude"
 
 #: website/public/get-started/index.html:525
 msgctxt "page:get-started/index.html"
 msgid "Install using the command for your operating system:"
-msgstr ""
+msgstr "Установите с помощью команды для своей операционной системы:"
 
 #. {ph0}: <code>claude</code>
 #: website/public/get-started/index.html:554
@@ -13558,6 +13578,9 @@ msgid ""
 "the sign-in prompts. Access uses an eligible Claude subscription or a "
 "configured API account."
 msgstr ""
+"Снова откройте терминал, вернитесь в рабочую папку и запустите {ph0}. "
+"Следуйте инструкциям для входа. Для доступа нужна подходящая подписка Claude"
+" или настроенный API-аккаунт."
 
 #. {ph0}: <a href="https://code.claude.com/docs/en/setup" >
 #. {ph1}: </a >
@@ -13565,12 +13588,12 @@ msgstr ""
 #, python-brace-format
 msgctxt "page:get-started/index.html"
 msgid "{ph0}Claude Code installation and account options{ph1}"
-msgstr ""
+msgstr "{ph0}Установка Claude Code и варианты аккаунтов{ph1}"
 
 #: website/public/get-started/index.html:566
 msgctxt "page:get-started/index.html"
 msgid "Claude Desktop · use a desktop chat"
-msgstr ""
+msgstr "Claude Desktop · используйте настольный чат"
 
 #. {ph0}: <a href="https://claude.ai/download">
 #. {ph1}: </a>
@@ -13584,6 +13607,8 @@ msgid ""
 "{ph0}Download Claude Desktop{ph1} · {ph2}Claude Desktop connection "
 "details{ph3}"
 msgstr ""
+"{ph0}Скачать Claude Desktop{ph1} · {ph2}Подробности подключения Claude "
+"Desktop{ph3}"
 
 #. {ph0}: <code>opencode</code>
 #. {ph1}: <code>/connect</code>
@@ -13594,6 +13619,8 @@ msgid ""
 "Run {ph0} in your working folder. Use {ph1} in its chat to connect your "
 "model account, then select a model."
 msgstr ""
+"Запустите {ph0} в рабочей папке. В его чате используйте {ph1}, чтобы "
+"подключить свой аккаунт для доступа к моделям, затем выберите модель."
 
 #. {ph0}: <a href="https://opencode.ai/docs/" >
 #. {ph1}: </a >
@@ -13601,12 +13628,12 @@ msgstr ""
 #, python-brace-format
 msgctxt "page:get-started/index.html"
 msgid "{ph0}OpenCode installation and model setup{ph1}"
-msgstr ""
+msgstr "{ph0}Установка OpenCode и настройка модели{ph1}"
 
 #: website/public/get-started/index.html:627
 msgctxt "page:get-started/index.html"
 msgid "All supported clients and setup IDs"
-msgstr ""
+msgstr "Все поддерживаемые клиенты и их идентификаторы для настройки"
 
 #. {ph0}: <code>--client</code>
 #: website/public/get-started/index.html:628
@@ -13616,16 +13643,18 @@ msgid ""
 "The npm 6.4.0 release supports the clients below. Use the ID with {ph0} when"
 " choosing a client explicitly."
 msgstr ""
+"Выпуск 6.4.0 в npm поддерживает перечисленные ниже клиенты. Чтобы явно "
+"выбрать клиент, укажите его идентификатор с {ph0}."
 
 #: website/public/get-started/index.html:636
 msgctxt "page:get-started/index.html"
 msgid "Client"
-msgstr ""
+msgstr "Клиент"
 
 #: website/public/get-started/index.html:637
 msgctxt "page:get-started/index.html"
 msgid "Setup ID"
-msgstr ""
+msgstr "Идентификатор для настройки"
 
 #. {ph0}: <code>qoder</code>
 #. {ph1}: <code>droid</code>
@@ -13640,6 +13669,9 @@ msgid ""
 "DeepSeek Harness ({ph4}) are available on repository main; use a source "
 "build or a release containing those integrations."
 msgstr ""
+"Qoder ({ph0}), Factory Droid ({ph1}), Trae ({ph2}), ZCode ({ph3}) и DeepSeek"
+" Harness ({ph4}) доступны в ветке main репозитория; используйте сборку из "
+"исходного кода или выпуск с этими интеграциями."
 
 #. {ph0}: <a href="https://github.com/morluto/rea/blob/main/docs/client-
 #. configuration.md" >
@@ -13655,11 +13687,13 @@ msgid ""
 "{ph0}Client configuration and troubleshooting{ph1} · {ph2}Release "
 "availability{ph3}"
 msgstr ""
+"{ph0}Настройка клиентов и устранение неполадок{ph1} · {ph2}Доступность в "
+"выпусках{ph3}"
 
 #: website/public/get-started/index.html:731
 msgctxt "page:get-started/index.html"
 msgid "Grok Bot · connect on its hosted computer"
-msgstr ""
+msgstr "Grok Bot · подключите на компьютере, где он работает"
 
 #. {ph0}: <code>rea</code>
 #: website/public/get-started/index.html:732
@@ -13669,6 +13703,8 @@ msgid ""
 "In Grok Bot's chat, ask it to add a custom MCP server named {ph0} using this"
 " command on the Bot's computer:"
 msgstr ""
+"В чате Grok Bot попросите добавить пользовательский MCP-сервер с именем "
+"{ph0}, используя эту команду на компьютере бота:"
 
 #. {ph0}: <a href="https://github.com/morluto/rea/blob/main/docs/client-
 #. configuration.md#other-client-settings" >
@@ -13677,12 +13713,12 @@ msgstr ""
 #, python-brace-format
 msgctxt "page:get-started/index.html"
 msgid "{ph0}Grok Bot connector instructions{ph1}"
-msgstr ""
+msgstr "{ph0}Инструкции по подключению Grok Bot{ph1}"
 
 #: website/public/get-started/index.html:760
 msgctxt "page:get-started/index.html"
 msgid "3. Connect REA"
-msgstr ""
+msgstr "3. Подключите REA"
 
 #: website/public/get-started/index.html:761
 msgctxt "page:get-started/index.html"
@@ -13692,7 +13728,7 @@ msgstr "Вставьте этот запрос в своего ИИ-помощн
 #: website/public/get-started/index.html:805
 msgctxt "page:get-started/index.html"
 msgid "For one specific client, add its setup ID:"
-msgstr ""
+msgstr "Для конкретного клиента добавьте его идентификатор для настройки:"
 
 #. {ph0}: <code>y</code>
 #: website/public/get-started/index.html:820
@@ -13703,6 +13739,9 @@ msgid ""
 "client list, use the arrow keys to move, Space to select your client and "
 "Enter to continue."
 msgstr ""
+"Если npm попросит разрешить скачивание пакета, введите {ph0} и нажмите "
+"Enter. В списке клиентов REA перемещайтесь стрелками, выберите клиент "
+"клавишей Space и нажмите Enter для продолжения."
 
 #: website/public/get-started/index.html:831
 msgctxt "page:get-started/index.html"
@@ -13710,6 +13749,8 @@ msgid ""
 "MCP is the connection that lets your agent call REA. The skill gives it a "
 "workflow for investigating software."
 msgstr ""
+"MCP — это соединение, через которое агент вызывает REA. Навык задаёт порядок"
+" действий для исследования программ."
 
 #: website/public/get-started/index.html:835
 msgctxt "page:get-started/index.html"
@@ -13717,6 +13758,8 @@ msgid ""
 "For the first exercise, you can skip the optional Hopper installation. "
 "Restart your client when setup finishes."
 msgstr ""
+"Для первого упражнения можно пропустить необязательную установку Hopper. "
+"Когда настройка завершится, перезапустите клиент."
 
 #. {ph0}: <code>codex</code>
 #. {ph1}: <code>"healthy": true</code>
@@ -13727,16 +13770,20 @@ msgid ""
 "Replace {ph0} with your client's setup ID. A successful check reports {ph1}."
 " Then ask your agent:"
 msgstr ""
+"Замените {ph0} идентификатором своего клиента для настройки. При успешной "
+"проверке выводится {ph1}. Затем попросите агента:"
 
 #: website/public/get-started/index.html:874
 msgctxt "page:get-started/index.html"
 msgid "Check that REA is connected and show me which REA tools you can use."
 msgstr ""
+"Проверь, что REA подключён, и покажи, какие инструменты REA ты можешь "
+"использовать."
 
 #: website/public/get-started/index.html:881
 msgctxt "page:get-started/index.html"
 msgid "4. Try your first investigation"
-msgstr ""
+msgstr "4. Попробуйте первое исследование"
 
 #. {ph0}: <strong>
 #. {ph1}: </strong>
@@ -13755,7 +13802,7 @@ msgstr ""
 #: website/public/get-started/index.html:889
 msgctxt "page:get-started/index.html"
 msgid "Your coding agent"
-msgstr ""
+msgstr "Ваш ИИ-помощник для программирования"
 
 #. {ph0}: <span class="prompt-symbol" aria-hidden="true">
 #. {ph1}: </span >
@@ -13775,10 +13822,10 @@ msgid ""
 "written, which fields it contains, and the relevant files and "
 "lines.{ph5}{ph6}{ph7}"
 msgstr ""
-"{ph0}\"{ph1}{ph2}Загрузите {ph3}в новую папку с примерами и распакуйте ее. "
-"Используйте REA, чтобы узнать, что происходит, когда я нажимаю "
-"\"Экспортировать заметки\". Покажите, где {ph4}что записано, какие поля оно "
-"содержит, а также соответствующие файлы и строки.{ph5}{ph6}{ph7}"
+"{ph0}›{ph1}{ph2}Скачай {ph3} в новую папку для примера и распакуй архив. С "
+"помощью REA выясни, что происходит при нажатии Export notes. Покажи, куда "
+"записывается {ph4}, какие поля он содержит, а также соответствующие файлы и "
+"строки.{ph5}{ph6}{ph7}"
 
 #: website/public/get-started/index.html:913
 msgctxt "page:get-started/index.html"
@@ -13807,12 +13854,12 @@ msgstr ""
 #, python-brace-format
 msgctxt "page:get-started/index.html"
 msgid "{ph0}Check a prediction in the guided exercise →{ph1}"
-msgstr ""
+msgstr "{ph0}Проверьте предсказание в пошаговом упражнении →{ph1}"
 
 #: website/public/get-started/index.html:928
 msgctxt "page:get-started/index.html"
 msgid "Download the example yourself, or use your own app"
-msgstr ""
+msgstr "Скачайте пример сами или используйте своё приложение"
 
 #. {ph0}: <a class="button" href="../examples/notes-example.zip"
 #. download="notes-example.zip" >
@@ -13843,11 +13890,13 @@ msgid ""
 "Use REA to inspect the app at {ph0}. Find how it exports data and show the "
 "relevant files and lines."
 msgstr ""
+"Исследуй приложение по пути {ph0} с помощью REA. Найди, как оно экспортирует"
+" данные, и покажи соответствующие файлы и строки."
 
 #: website/public/get-started/index.html:975
 msgctxt "page:get-started/index.html"
 msgid "Analyze another kind of software"
-msgstr ""
+msgstr "Исследуйте другой вид программ"
 
 #: website/public/get-started/index.html:976
 msgctxt "page:get-started/index.html"
@@ -13855,11 +13904,14 @@ msgid ""
 "Choose the section for your target. A provider is the local analysis tool "
 "REA uses for that kind of software."
 msgstr ""
+"Выберите раздел для своей цели. Провайдер анализа — это локальный "
+"инструмент, который REA использует для этого вида программ."
 
 #: website/public/get-started/index.html:981
 msgctxt "page:get-started/index.html"
 msgid "Native executables and libraries · Hopper, Ghidra or IDA"
 msgstr ""
+"Исполняемые файлы и библиотеки машинного кода · Hopper, Ghidra или IDA"
 
 #: website/public/get-started/index.html:984
 msgctxt "page:get-started/index.html"
@@ -13867,46 +13919,49 @@ msgid ""
 "Install one analysis tool on the computer running REA. The host is your "
 "operating system; the target is the program you want to inspect."
 msgstr ""
+"Установите один инструмент анализа на компьютер, где работает REA. Хост — "
+"это ваша операционная система, а цель — программа, которую вы хотите "
+"исследовать."
 
 #: website/public/get-started/index.html:993
 msgctxt "page:get-started/index.html"
 msgid "Provider"
-msgstr ""
+msgstr "Провайдер анализа"
 
 #: website/public/get-started/index.html:1002
 msgctxt "page:get-started/index.html"
 msgid "Unavailable"
-msgstr ""
+msgstr "Недоступно"
 
 #: website/public/get-started/index.html:1004
 msgctxt "page:get-started/index.html"
 msgid "Supported distributions"
-msgstr ""
+msgstr "Поддерживаемые дистрибутивы"
 
 #: website/public/get-started/index.html:1008
 msgctxt "page:get-started/index.html"
 msgid "x64 · experimental"
-msgstr ""
+msgstr "x64 · экспериментально"
 
 #: website/public/get-started/index.html:1014
 msgctxt "page:get-started/index.html"
 msgid "Verified profiles"
-msgstr ""
+msgstr "Проверенные профили"
 
 #: website/public/get-started/index.html:1015
 msgctxt "page:get-started/index.html"
 msgid "Verified headless profile"
-msgstr ""
+msgstr "Проверенный профиль без графического интерфейса"
 
 #: website/public/get-started/index.html:1016
 msgctxt "page:get-started/index.html"
 msgid "See provider guide"
-msgstr ""
+msgstr "См. руководство провайдера"
 
 #: website/public/get-started/index.html:1022
 msgctxt "page:get-started/index.html"
 msgid "Hopper · let setup install or connect it"
-msgstr ""
+msgstr "Hopper · разрешите установщику установить или подключить его"
 
 #: website/public/get-started/index.html:1028
 msgctxt "page:get-started/index.html"
@@ -13915,6 +13970,10 @@ msgid ""
 "choose demo mode or activate your license when Hopper first opens. On Linux,"
 " setup prepares the supported demo and its private display."
 msgstr ""
+"Выберите Hopper при настройке и просмотрите отдельный план его установки. В "
+"macOS при первом открытии Hopper выберите деморежим или активируйте "
+"лицензию. В Linux установщик подготавливает поддерживаемую демоверсию и "
+"отдельный дисплей для неё."
 
 #: website/public/get-started/index.html:1034
 msgctxt "page:get-started/index.html"
@@ -13922,6 +13981,9 @@ msgid ""
 "Linux hosts: Ubuntu 24.04+, Fedora 41+, Nobara 44+, Arch Linux, CachyOS or "
 "Omarchy. Hopper is commercial software; its demo has vendor-defined limits."
 msgstr ""
+"Хосты Linux: Ubuntu 24.04+, Fedora 41+, Nobara 44+, Arch Linux, CachyOS или "
+"Omarchy. Hopper — коммерческая программа; ограничения демоверсии определяет "
+"разработчик."
 
 #: website/public/get-started/index.html:1053
 msgctxt "page:get-started/index.html"
@@ -13929,6 +13991,9 @@ msgid ""
 "If macOS asks for Automation permission, allow the app that starts REA in "
 "System Settings → Privacy & Security → Automation, then retry."
 msgstr ""
+"Если macOS запросит разрешение на автоматизацию, разрешите приложению, "
+"запускающему REA, доступ в «Системные настройки → Конфиденциальность и "
+"безопасность → Автоматизация», затем повторите попытку."
 
 #. {ph0}: <a
 #. href="https://github.com/morluto/rea/blob/main/docs/installation.md#hopper"
@@ -13938,12 +14003,12 @@ msgstr ""
 #, python-brace-format
 msgctxt "page:get-started/index.html"
 msgid "{ph0}Hopper setup and troubleshooting{ph1}"
-msgstr ""
+msgstr "{ph0}Настройка Hopper и устранение неполадок{ph1}"
 
 #: website/public/get-started/index.html:1066
 msgctxt "page:get-started/index.html"
 msgid "Ghidra · install the free analysis tool and Java"
-msgstr ""
+msgstr "Ghidra · установите бесплатный инструмент анализа и Java"
 
 #: website/public/get-started/index.html:1070
 msgctxt "page:get-started/index.html"
@@ -13951,6 +14016,8 @@ msgid ""
 "Install a 64-bit JDK 21 or newer, including the Java compiler. Choose the "
 "package matching your computer's architecture."
 msgstr ""
+"Установите 64-битный JDK 21 или новее, включающий компилятор Java. Выберите "
+"пакет для архитектуры своего компьютера."
 
 #. {ph0}: <code>ghidra_…_PUBLIC_….zip</code>
 #: website/public/get-started/index.html:1075
@@ -13960,6 +14027,8 @@ msgid ""
 "Download Ghidra 12.1.4 from the release's Assets list and extract the {ph0} "
 "archive. Choose the release archive, not “Source code”."
 msgstr ""
+"Скачайте Ghidra 12.1.4 из списка Assets выпуска и распакуйте архив {ph0}. "
+"Выберите архив выпуска, а не «Source code»."
 
 #. {ph0}: <code>ghidraRun</code>
 #. {ph1}: <code>ghidraRun.bat</code>
@@ -13971,6 +14040,8 @@ msgid ""
 "Find the extracted folder containing {ph0} or {ph1}. Use that folder for "
 "{ph2}."
 msgstr ""
+"Найдите распакованную папку, содержащую {ph0} или {ph1}. Используйте её для "
+"{ph2}."
 
 #. {ph0}: <a href="https://adoptium.net/temurin/releases/?version=21" >
 #. {ph1}: </a >
@@ -13982,7 +14053,7 @@ msgstr ""
 #, python-brace-format
 msgctxt "page:get-started/index.html"
 msgid "{ph0}Download a JDK{ph1} · {ph2}Download Ghidra 12.1.4{ph3}"
-msgstr ""
+msgstr "{ph0}Скачать JDK{ph1} · {ph2}Скачать Ghidra 12.1.4{ph3}"
 
 #. {ph0}: <code>java.home</code>
 #. {ph1}: <code>JAVA_HOME</code>
@@ -13993,6 +14064,8 @@ msgid ""
 "Check Java. The first command prints {ph0}; use that folder for {ph1}. The "
 "second confirms the compiler is installed:"
 msgstr ""
+"Проверьте Java. Первая команда выводит {ph0}; используйте эту папку для "
+"{ph1}. Вторая подтверждает, что компилятор установлен:"
 
 #: website/public/get-started/index.html:1212
 msgctxt "page:get-started/index.html"
@@ -14001,6 +14074,9 @@ msgid ""
 "the paths, approve the updated client configuration, then restart your "
 "agent."
 msgstr ""
+"Выполняйте эти команды в одном сеансе терминала. После указания путей снова "
+"запустите настройку, одобрите обновлённую конфигурацию клиента и "
+"перезапустите агента."
 
 #. {ph0}: <a
 #. href="https://github.com/morluto/rea/blob/main/docs/installation.md#ghidra"
@@ -14016,11 +14092,13 @@ msgid ""
 "{ph0}Ghidra setup and architecture requirements{ph1} · {ph2}Windows Ghidra "
 "guide{ph3}"
 msgstr ""
+"{ph0}Настройка Ghidra и требования к архитектуре{ph1} · {ph2}Руководство по "
+"Ghidra в Windows{ph3}"
 
 #: website/public/get-started/index.html:1230
 msgctxt "page:get-started/index.html"
 msgid "IDA · connect an existing installation"
-msgstr ""
+msgstr "IDA · подключите существующую установку"
 
 #: website/public/get-started/index.html:1231
 msgctxt "page:get-started/index.html"
@@ -14029,6 +14107,10 @@ msgid ""
 "an attached GUI with the original binary open, or a headless supervisor that"
 " opens a private database."
 msgstr ""
+"По руководству провайдера IDA подготовьте регистрацию MCP-сервера на стороне"
+" IDA. Выберите подключение к графическому интерфейсу с открытым исходным "
+"бинарным файлом или к супервизору без графического интерфейса, который "
+"открывает отдельную базу данных."
 
 #: website/public/get-started/index.html:1236
 msgctxt "page:get-started/index.html"
@@ -14037,6 +14119,10 @@ msgid ""
 "plus a macOS arm64 headless supervisor with IDA Professional 9.1. The "
 "optional native GUI bridge has its own version and platform requirements."
 msgstr ""
+"Проверенные профили включают прежнее подключение к GUI в Windows и "
+"супервизор без графического интерфейса, а также супервизор без графического "
+"интерфейса в macOS arm64 с IDA Professional 9.1. У необязательного нативного"
+" моста к GUI свои требования к версиям и платформам."
 
 #: website/public/get-started/index.html:1316
 msgctxt "page:get-started/index.html"
@@ -14044,6 +14130,8 @@ msgid ""
 "Use the JSON registration file you prepared with the provider guide, then "
 "rerun setup and restart your agent."
 msgstr ""
+"Используйте JSON-файл регистрации, подготовленный по руководству провайдера,"
+" затем снова запустите настройку и перезапустите агента."
 
 #. {ph0}: <a href="https://github.com/morluto/rea/blob/main/docs/ida-
 #. provider.md" >
@@ -14052,7 +14140,7 @@ msgstr ""
 #, python-brace-format
 msgctxt "page:get-started/index.html"
 msgid "{ph0}IDA profiles, registration examples and verified platforms{ph1}"
-msgstr ""
+msgstr "{ph0}Профили IDA, примеры регистрации и проверенные платформы{ph1}"
 
 #: website/public/get-started/index.html:1328
 msgctxt "page:get-started/index.html"
@@ -14060,6 +14148,8 @@ msgid ""
 "Once connected, give your agent the original executable's full path and name"
 " your provider:"
 msgstr ""
+"После подключения сообщите агенту полный путь к исходному исполняемому файлу"
+" и укажите провайдер анализа:"
 
 #. {ph0}: <code>/absolute/path/to/program</code>
 #: website/public/get-started/index.html:1333
@@ -14069,6 +14159,8 @@ msgid ""
 "Use REA with Ghidra to inspect {ph0}. List its functions and strings, then "
 "explain the part that handles user input with references to the code."
 msgstr ""
+"Исследуй {ph0} с помощью REA и Ghidra. Перечисли функции и строки, затем "
+"объясни часть, обрабатывающую ввод пользователя, со ссылками на код."
 
 #. {ph0}: <a href="../guides/native/">
 #. {ph1}: </a>
@@ -14076,12 +14168,12 @@ msgstr ""
 #, python-brace-format
 msgctxt "page:get-started/index.html"
 msgid "{ph0}Follow a native analysis example{ph1}"
-msgstr ""
+msgstr "{ph0}Пройдите пример анализа машинного кода{ph1}"
 
 #: website/public/get-started/index.html:1345
 msgctxt "page:get-started/index.html"
 msgid "Websites, Android, .NET, firmware and other targets"
-msgstr ""
+msgstr "Сайты, Android, .NET, прошивки и другие цели"
 
 #: website/public/get-started/index.html:1348
 msgctxt "page:get-started/index.html"
@@ -14089,26 +14181,28 @@ msgid ""
 "Open the guide for the target you have. Each guide gives the additional "
 "tools, supported hosts and first command."
 msgstr ""
+"Откройте руководство для своей цели. В каждом указаны дополнительные "
+"инструменты, поддерживаемые хосты и первая команда."
 
 #: website/public/get-started/index.html:1356
 msgctxt "page:get-started/index.html"
 msgid "Target"
-msgstr ""
+msgstr "Цель"
 
 #: website/public/get-started/index.html:1357
 msgctxt "page:get-started/index.html"
 msgid "Tools to prepare"
-msgstr ""
+msgstr "Необходимые инструменты"
 
 #: website/public/get-started/index.html:1358
 msgctxt "page:get-started/index.html"
 msgid "Guide"
-msgstr ""
+msgstr "Руководство"
 
 #: website/public/get-started/index.html:1363
 msgctxt "page:get-started/index.html"
 msgid "JavaScript / Electron"
-msgstr ""
+msgstr "JavaScript / Electron"
 
 #. {ph0}: <a href="../guides/javascript/">
 #. {ph1}: </a>
@@ -14131,72 +14225,72 @@ msgstr ""
 #, python-brace-format
 msgctxt "page:get-started/index.html"
 msgid "{ph0}Open guide{ph1}"
-msgstr ""
+msgstr "{ph0}Открыть руководство{ph1}"
 
 #: website/public/get-started/index.html:1368
 msgctxt "page:get-started/index.html"
 msgid "Website"
-msgstr ""
+msgstr "Сайт"
 
 #: website/public/get-started/index.html:1373
 msgctxt "page:get-started/index.html"
 msgid ".NET / Flutter / packages"
-msgstr ""
+msgstr ".NET / Flutter / пакеты"
 
 #: website/public/get-started/index.html:1383
 msgctxt "page:get-started/index.html"
 msgid "Android APK"
-msgstr ""
+msgstr "Android APK"
 
 #: website/public/get-started/index.html:1393
 msgctxt "page:get-started/index.html"
 msgid "Android device"
-msgstr ""
+msgstr "Устройство Android"
 
 #: website/public/get-started/index.html:1403
 msgctxt "page:get-started/index.html"
 msgid "Android resources"
-msgstr ""
+msgstr "Ресурсы Android"
 
 #: website/public/get-started/index.html:1413
 msgctxt "page:get-started/index.html"
 msgid "JEB project"
-msgstr ""
+msgstr "Проект JEB"
 
 #: website/public/get-started/index.html:1423
 msgctxt "page:get-started/index.html"
 msgid "Firmware"
-msgstr ""
+msgstr "Прошивка"
 
 #: website/public/get-started/index.html:1433
 msgctxt "page:get-started/index.html"
 msgid "WASM"
-msgstr ""
+msgstr "WASM"
 
 #: website/public/get-started/index.html:1463
 msgctxt "page:get-started/index.html"
 msgid "ELF / Linux crash"
-msgstr ""
+msgstr "ELF / сбой Linux"
 
 #: website/public/get-started/index.html:1473
 msgctxt "page:get-started/index.html"
 msgid "HAR / SAZ / mitmproxy"
-msgstr ""
+msgstr "HAR / SAZ / mitmproxy"
 
 #: website/public/get-started/index.html:1483
 msgctxt "page:get-started/index.html"
 msgid "PCAP / PCAPNG"
-msgstr ""
+msgstr "PCAP / PCAPNG"
 
 #: website/public/get-started/index.html:1493
 msgctxt "page:get-started/index.html"
 msgid "Logic signals"
-msgstr ""
+msgstr "Логические сигналы"
 
 #: website/public/get-started/index.html:1503
 msgctxt "page:get-started/index.html"
 msgid "Process behavior"
-msgstr ""
+msgstr "Поведение процесса"
 
 #. {ph0}: <a href="https://github.com/morluto/rea/blob/main/docs/flutter-
 #. analysis.md" >
@@ -14216,16 +14310,18 @@ msgid ""
 "{ph0}Flutter guide{ph1} · {ph2}Packages and resources{ph3} · {ph4}EVM "
 "bytecode{ph5} · {ph6}All investigation guides{ph7}"
 msgstr ""
+"{ph0}Руководство по Flutter{ph1} · {ph2}Пакеты и ресурсы{ph3} · {ph4}Байткод"
+" EVM{ph5} · {ph6}Все руководства по исследованию{ph7}"
 
 #: website/public/get-started/index.html:1535
 msgctxt "page:get-started/index.html"
 msgid "Use REA from a terminal"
-msgstr ""
+msgstr "Используйте REA из терминала"
 
 #: website/public/get-started/index.html:1537
 msgctxt "page:get-started/index.html"
 msgid "CLI commands, global installation and curl"
-msgstr ""
+msgstr "Команды CLI, глобальная установка и curl"
 
 #. {ph0}: <code>main</code>
 #: website/public/get-started/index.html:1634
@@ -14235,6 +14331,8 @@ msgid ""
 "Replace {ph0} with a function name or address from the target's function "
 "list. Ghidra must be configured first."
 msgstr ""
+"Замените {ph0} именем или адресом функции из списка функций цели. Сначала "
+"нужно настроить Ghidra."
 
 #: website/public/get-started/index.html:1638
 msgctxt "page:get-started/index.html"
@@ -14242,6 +14340,8 @@ msgid ""
 "On macOS or Linux, you can also use the curl installer after preparing "
 "Node.js:"
 msgstr ""
+"В macOS или Linux после подготовки Node.js можно также воспользоваться "
+"установщиком через curl:"
 
 #: website/public/get-started/index.html:1671
 msgctxt "page:get-started/index.html"
@@ -14249,11 +14349,14 @@ msgid ""
 "Use the client check in step 3 with your setup ID. In editor clients, enable"
 " REA in MCP settings and allow its tools in the agent chat."
 msgstr ""
+"Выполните проверку клиента из шага 3 со своим идентификатором для настройки."
+" В редакторах включите REA в настройках MCP и разрешите его инструменты в "
+"чате агента."
 
 #: website/public/get-started/index.html:1699
 msgctxt "page:get-started/index.html"
 msgid "Windows, WSL and paths with spaces"
-msgstr ""
+msgstr "Windows, WSL и пути с пробелами"
 
 #: website/public/get-started/index.html:1700
 msgctxt "page:get-started/index.html"
@@ -14262,16 +14365,20 @@ msgid ""
 " runs inside WSL, install Node.js and REA inside that Linux environment and "
 "use Linux paths there. Headless providers run on the same host as REA."
 msgstr ""
+"Для клиентов и инструментов анализа Windows используйте Windows PowerShell. "
+"Если агент работает внутри WSL, установите Node.js и REA в эту среду Linux и"
+" используйте там пути Linux. Провайдеры без графического интерфейса работают"
+" на том же хосте, что и REA."
 
 #: website/public/get-started/index.html:1709
 msgctxt "page:get-started/index.html"
 msgid "Windows setup command:"
-msgstr ""
+msgstr "Команда настройки для Windows:"
 
 #: website/public/get-started/index.html:1726
 msgctxt "page:get-started/index.html"
 msgid "Update or remove REA"
-msgstr ""
+msgstr "Обновите или удалите REA"
 
 #: website/public/get-started/index.html:1727
 msgctxt "page:get-started/index.html"
@@ -14279,6 +14386,8 @@ msgid ""
 "To refresh your agent connection, run the latest setup command again, review"
 " its plan and restart your client."
 msgstr ""
+"Чтобы обновить подключение агента, ещё раз выполните последнюю команду "
+"настройки, просмотрите её план и перезапустите клиент."
 
 #. {ph0}: <code>rea update</code>
 #. {ph1}: <code>rea uninstall</code>
@@ -14289,6 +14398,8 @@ msgid ""
 "If you installed the global CLI, update it with {ph0}. Use {ph1} to remove "
 "REA's client configuration and skill."
 msgstr ""
+"Если CLI установлен глобально, обновите его с помощью {ph0}. Используйте "
+"{ph1}, чтобы удалить конфигурацию клиента REA и навык."
 
 #. {ph0}: <a
 #. href="https://github.com/morluto/rea/blob/main/docs/installation.md#diagnose-
@@ -14298,12 +14409,12 @@ msgstr ""
 #, python-brace-format
 msgctxt "page:get-started/index.html"
 msgid "{ph0}Update and uninstall details{ph1}"
-msgstr ""
+msgstr "{ph0}Подробнее об обновлении и удалении{ph1}"
 
 #: website/public/get-started/index.html:317
 msgctxt "page:get-started/index.html"
 msgid "Copy Windows REA setup command"
-msgstr ""
+msgstr "Копировать команду настройки REA для Windows"
 
 #: website/public/get-started/index.html:414
 #: website/public/get-started/index.html:445
@@ -14331,7 +14442,7 @@ msgstr ""
 #: website/public/get-started/index.html:1734
 msgctxt "page:get-started/index.html"
 msgid "Copy command"
-msgstr ""
+msgstr "Копировать команду"
 
 #: website/public/get-started/index.html:890
 msgctxt "page:get-started/index.html"
@@ -14346,11 +14457,13 @@ msgid ""
 "Install curl and unzip first if they are missing. On Debian or Ubuntu, run "
 "{ph0}; on other distributions, use your package manager."
 msgstr ""
+"Если curl и unzip отсутствуют, сначала установите их. В Debian или Ubuntu "
+"выполните {ph0}; в других дистрибутивах используйте свой пакетный менеджер."
 
 #: website/public/get-started/index.html:376
 msgctxt "page:get-started/index.html"
 msgid "Close the terminal, open it again, then:"
-msgstr ""
+msgstr "Закройте терминал, откройте его снова, затем выполните:"
 
 #: website/public/get-started/index.html:506
 msgctxt "page:get-started/index.html"
@@ -14358,6 +14471,8 @@ msgid ""
 "Open its AI chat and choose Agent mode. In Windsurf or Devin Desktop, open "
 "the agent chat; in VS Code, set up GitHub Copilot first."
 msgstr ""
+"Откройте чат с ИИ в редакторе и выберите режим Agent. В Windsurf или Devin "
+"Desktop откройте чат агента; в VS Code сначала настройте GitHub Copilot."
 
 #. {ph0}: <a href="https://cursor.com/docs">
 #. {ph1}: </a>
@@ -14372,16 +14487,18 @@ msgid ""
 "{ph0}Cursor setup{ph1} · {ph2}Windsurf / Devin Desktop setup{ph3} · {ph4}VS "
 "Code and Copilot setup{ph5}"
 msgstr ""
+"{ph0}Настройка Cursor{ph1} · {ph2}Настройка Windsurf / Devin Desktop{ph3} · "
+"{ph4}Настройка VS Code и Copilot{ph5}"
 
 #: website/public/get-started/index.html:600
 msgctxt "page:get-started/index.html"
 msgid "OpenCode · choose an AI model"
-msgstr ""
+msgstr "OpenCode · выберите модель ИИ"
 
 #: website/public/get-started/index.html:1243
 msgctxt "page:get-started/index.html"
 msgid "Prepare the IDA registration file"
-msgstr ""
+msgstr "Подготовьте файл регистрации IDA"
 
 #. {ph0}: <code>ida-mcp.json</code>
 #. {ph1}: <code>.txt</code>
@@ -14393,6 +14510,9 @@ msgid ""
 "save its working registration as {ph0} in a text editor. On Windows, choose "
 "“All files” when saving in Notepad so it doesn't add {ph1}."
 msgstr ""
+"Установите и настройте сервер на стороне IDA по руководству ниже. Затем "
+"сохраните его рабочую регистрацию как {ph0} в текстовом редакторе. В Windows"
+" при сохранении в Блокноте выберите «Все файлы», чтобы он не добавил {ph1}."
 
 #. {ph0}: <code>idb_open</code>
 #. {ph1}: <code>idb_list</code>
@@ -14404,6 +14524,8 @@ msgid ""
 "For a headless supervisor providing {ph0}, {ph1} and {ph2}, the file can "
 "look like this:"
 msgstr ""
+"Для супервизора без графического интерфейса с инструментами {ph0}, {ph1} и "
+"{ph2} файл может выглядеть так:"
 
 #. {ph0}: <code>command</code>
 #. {ph1}: <code>args</code>
@@ -14416,21 +14538,25 @@ msgid ""
 "optional {ph2} into the file. Open the original binary in IDA and start its "
 "upstream plugin before asking REA to inspect it."
 msgstr ""
+"Для подключённого прежнего GUI-сервера версии 1.4.0 скопируйте в файл его "
+"рабочие значения {ph0}, {ph1} и, при наличии, {ph2}. Откройте исходный "
+"бинарный файл в IDA и запустите плагин на стороне IDA, прежде чем просить "
+"REA его исследовать."
 
 #: website/public/get-started/index.html:1443
 msgctxt "page:get-started/index.html"
 msgid "SQLite database"
-msgstr ""
+msgstr "База данных SQLite"
 
 #: website/public/get-started/index.html:1453
 msgctxt "page:get-started/index.html"
 msgid "EVM bytecode"
-msgstr ""
+msgstr "Байткод EVM"
 
 #: website/public/get-started/index.html:441
 msgctxt "page:get-started/index.html"
 msgid "Install Codex using the command for your operating system:"
-msgstr ""
+msgstr "Установите Codex с помощью команды для своей операционной системы:"
 
 #: website/public/get-started/index.html:470
 msgctxt "page:get-started/index.html"
@@ -14438,6 +14564,8 @@ msgid ""
 "After installation, reopen your terminal and return to the working folder. "
 "Then start Codex:"
 msgstr ""
+"После установки снова откройте терминал и вернитесь в рабочую папку. Затем "
+"запустите Codex:"
 
 #. {ph0}: <a href="https://nodejs.org/en/download" >
 #. {ph1}: </a >
@@ -14448,11 +14576,14 @@ msgid ""
 "For a first installation, download the {ph0}Node.js 24 LTS macOS installer "
 "(.pkg){ph1}, open it and follow the installer. Then reopen Terminal."
 msgstr ""
+"При первой установке скачайте {ph0}установщик Node.js 24 LTS для macOS "
+"(.pkg){ph1}, откройте его и следуйте инструкциям. Затем снова откройте "
+"Терминал."
 
 #: website/public/get-started/index.html:338
 msgctxt "page:get-started/index.html"
 msgid "Already use Homebrew?"
-msgstr ""
+msgstr "Уже пользуетесь Homebrew?"
 
 #: website/public/get-started/index.html:567
 msgctxt "page:get-started/index.html"
@@ -14460,6 +14591,9 @@ msgid ""
 "Install Claude Desktop on Windows or macOS and sign in. Quit it completely, "
 "then run this command in a terminal you opened outside Claude:"
 msgstr ""
+"Установите Claude Desktop в Windows или macOS и войдите в аккаунт. Полностью"
+" закройте приложение, затем выполните эту команду в терминале, открытом вне "
+"Claude:"
 
 #. {ph0}: <a href="#check-connection">
 #. {ph1}: </a>
@@ -14470,6 +14604,8 @@ msgid ""
 "Review and approve the plan, reopen Claude, then {ph0}check the connection "
 "in step 3{ph1}."
 msgstr ""
+"Просмотрите и одобрите план, снова откройте Claude, затем {ph0}проверьте "
+"подключение по шагу 3{ph1}."
 
 #: website/public/get-started/index.html:1163
 msgctxt "page:get-started/index.html"
@@ -14478,11 +14614,14 @@ msgid ""
 "Linux arm64 installation, build the native decompiler for your computer "
 "before continuing."
 msgstr ""
+"Замените оба пути путями к существующим установкам. Для новой установки в "
+"macOS или Linux arm64 перед продолжением соберите нативный декомпилятор для "
+"своего компьютера."
 
 #: website/public/get-started/index.html:1169
 msgctxt "page:get-started/index.html"
 msgid "Build Ghidra's native decompiler"
-msgstr ""
+msgstr "Соберите нативный декомпилятор Ghidra"
 
 #: website/public/get-started/index.html:1170
 msgctxt "page:get-started/index.html"
@@ -14490,6 +14629,8 @@ msgid ""
 "On macOS, the build needs Xcode Command Line Tools, make and bison. Use the "
 "guide for your computer:"
 msgstr ""
+"Для сборки в macOS нужны Xcode Command Line Tools, make и bison. Используйте"
+" руководство для своего компьютера:"
 
 #. {ph0}: <a
 #. href="https://github.com/morluto/rea/blob/main/docs/installation.md#missing-
@@ -14499,7 +14640,7 @@ msgstr ""
 #, python-brace-format
 msgctxt "page:get-started/index.html"
 msgid "{ph0}macOS · Intel{ph1}"
-msgstr ""
+msgstr "{ph0}macOS · Intel{ph1}"
 
 #. {ph0}: <a
 #. href="https://github.com/morluto/rea/blob/main/docs/installation.md#macos-
@@ -14509,7 +14650,7 @@ msgstr ""
 #, python-brace-format
 msgctxt "page:get-started/index.html"
 msgid "{ph0}macOS · Apple Silicon{ph1}"
-msgstr ""
+msgstr "{ph0}macOS · Apple Silicon{ph1}"
 
 #. {ph0}: <a
 #. href="https://github.com/NationalSecurityAgency/ghidra/blob/Ghidra_12.1.4_build/GhidraDocs/GettingStarted.md#building-
@@ -14519,12 +14660,12 @@ msgstr ""
 #, python-brace-format
 msgctxt "page:get-started/index.html"
 msgid "{ph0}Linux arm64 · native build instructions{ph1}"
-msgstr ""
+msgstr "{ph0}Linux arm64 · инструкции по нативной сборке{ph1}"
 
 #: website/public/get-started/index.html:1195
 msgctxt "page:get-started/index.html"
 msgid "Then check Ghidra and save its paths for your client:"
-msgstr ""
+msgstr "Затем проверьте Ghidra и сохраните пути к нему для своего клиента:"
 
 #. {ph0}: <span translate="no">200 + 10%</span>
 #: website/public/index.html:346
