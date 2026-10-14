@@ -345,13 +345,27 @@ export async function verifyBrowserWorkers(
           s.source.artifact.text === site.sources["/worker.js"],
       ),
     );
+    const iframeService = iframeResult.workers.find(
+      (w) => w.url === iframeOrigin + "/service.js",
+    );
+    assert.equal(iframeService?.observation.ownership, "service_worker_client");
+    assert.equal(iframeService.observation.selected_explicitly, false);
+    assert.equal(iframeService.observation.page_target_id, target);
+    assert.ok(
+      iframeService.observation.scripts.some(
+        (s) =>
+          s.source.included &&
+          s.source.artifact.text === site.sources["/service.js"],
+      ),
+    );
     const excludedFrame = await capture({ ...input, observation_ms: 0 });
     assert.ok(excludedFrame.workers.every((w) => w.origin !== iframeOrigin));
     await client.ping();
     await cdp.detach();
     return {
-      cases: 11,
+      cases: 12,
       outOfProcessIframeWorker: true,
+      outOfProcessIframeServiceWorker: true,
       originBoundary: true,
       exportedWorkerSources: exportedWorkers.length,
       browser: browser.version(),

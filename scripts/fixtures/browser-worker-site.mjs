@@ -23,7 +23,7 @@ export async function startWorkerSite() {
         (req.url === "/" || req.url === "/other"
           ? html
           : req.url === "/frame"
-            ? `<script>window.ready=new Promise(resolve=>{window.worker=new Worker("/worker.js");worker.onmessage=resolve;});</script>`
+            ? `<script>window.ready=(async()=>{window.worker=new Worker("/worker.js");await new Promise(resolve=>worker.onmessage=resolve);await navigator.serviceWorker.register('/service.js');await navigator.serviceWorker.ready;if(!navigator.serviceWorker.controller)await new Promise(resolve=>navigator.serviceWorker.addEventListener('controllerchange',resolve,{once:true}));})();</script>`
             : "ok"),
     );
   });

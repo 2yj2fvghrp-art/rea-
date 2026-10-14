@@ -1103,6 +1103,104 @@ it("observes workers reached through an allowed iframe session and releases it",
   );
 });
 
+it.each(["before", "after", "foreign", "detached"] as const)(
+  "scopes service worker clients to owned iframe targets (%s)",
+  async (order) => {
+    const { provider, input, browser } = await fixture({
+      commandEvents: (command, origin) => {
+        if (
+          command.method !== "Target.setAutoAttach" ||
+          command.params.autoAttach !== true ||
+          command.sessionId !== "session-1"
+        )
+          return undefined;
+        const frame = {
+          method: "Target.attachedToTarget",
+          sessionId: "session-1",
+          params: {
+            sessionId: "iframe-session",
+            targetInfo: {
+              targetId: "iframe-target",
+              type: "iframe",
+              url:
+                order === "foreign"
+                  ? "https://foreign.example/frame"
+                  : origin + "/frame",
+              attached: true,
+            },
+          },
+        };
+        const version = {
+          method: "ServiceWorker.workerVersionUpdated",
+          sessionId: "session-1",
+          params: {
+            versions: [
+              {
+                targetId: "service",
+                controlledClients: ["iframe-target"],
+                status: "activated",
+              },
+            ],
+          },
+        };
+        const service = {
+          method: "Target.attachedToTarget",
+          sessionId: "session-1",
+          params: {
+            sessionId: "worker-service",
+            targetInfo: {
+              targetId: "service",
+              type: "service_worker",
+              url: origin + "/service.js",
+              attached: true,
+            },
+          },
+        };
+        const events =
+          order === "before"
+            ? [version, service, frame]
+            : [frame, version, service];
+        return order === "detached"
+          ? [
+              ...events,
+              {
+                method: "Target.detachedFromTarget",
+                sessionId: "session-1",
+                params: { sessionId: "iframe-session" },
+              },
+            ]
+          : events;
+      },
+    });
+    const result = await provider.inspectPage(input);
+    if (!result.ok) throw result.error;
+    const observation = result.value.workers.find(
+      (w) => w.target_id === "service",
+    )?.observation;
+    const enabled = browser.commands.some(
+      (c) => c.sessionId === "worker-service" && c.method === "Debugger.enable",
+    );
+    if (order === "foreign" || order === "detached") {
+      if (order === "foreign") expect(enabled).toBe(false);
+      expect(observation?.scripts).toEqual([]);
+      if (order === "detached")
+        expect(observation?.completeness.unavailable_sections).toContain(
+          "scripts",
+        );
+    } else {
+      expect(enabled).toBe(true);
+      expect(observation).toMatchObject({
+        ownership: "service_worker_client",
+        page_target_id: "allowed-page",
+        lifecycle: expect.arrayContaining([
+          expect.objectContaining({ event: "version", controls_page: true }),
+        ]),
+      });
+      expect(observation?.scripts[0]?.source.included).toBe(true);
+    }
+  },
+);
+
 it("bounds worker source requests while retaining cancellation cleanup", async () => {
   const { provider, input, browser } = await fixture({
     hangOnMethod: "Debugger.getScriptSource",

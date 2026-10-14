@@ -54,6 +54,13 @@ export class CdpWorkerCapture {
   >();
   readonly #controlled = new Set<string>();
   readonly #versionsByTarget = new Map<string, Observation["lifecycle"]>();
+  readonly #serviceClients = new Map<
+    string,
+    {
+      clients: readonly string[] | null;
+      lifecycle: Observation["lifecycle"][number];
+    }
+  >();
   readonly #pending = new Set<Promise<void>>();
   readonly #invalidTargets = new Set<string>();
   readonly #sourceReads: {
@@ -397,6 +404,7 @@ export class CdpWorkerCapture {
         if (existing !== undefined) return;
         const frame = { targetId, detached: false, autoAttach: false };
         this.#frames.set(sessionId, frame);
+        this.#refreshServiceClients();
         this.#queue(async () => {
           if (frame.detached) return;
           try {
@@ -443,6 +451,7 @@ export class CdpWorkerCapture {
       if (frame !== undefined) {
         frame.detached = true;
         this.pageEvents.completeness.unavailable("workers");
+        this.#refreshServiceClients();
       }
       const worker = this.#sessions.get(sessionId);
       if (worker !== undefined) {
@@ -595,21 +604,20 @@ export class CdpWorkerCapture {
         );
         continue;
       }
-      const controls =
+      const clients =
         Array.isArray(version.controlledClients) &&
         version.controlledClients.every((client) => typeof client === "string")
-          ? version.controlledClients.includes(this.context.target.id)
+          ? version.controlledClients
           : null;
-      const previouslyControlled = this.#controlled.has(id);
-      if (controls === true) this.#controlled.add(id);
-      else if (controls === false) this.#controlled.delete(id);
       const lifecycle: Observation["lifecycle"][number] = {
         event: "version",
         observed_at: new Date().toISOString(),
         running_status: cdpStringValue(version.runningStatus) ?? null,
         version_status: cdpStringValue(version.status) ?? null,
-        controls_page: controls,
+        controls_page: this.#controlsPage(clients),
       };
+      this.#serviceClients.set(id, { clients, lifecycle });
+      this.#updateControl(id, lifecycle.controls_page);
       const worker = this.#workers.get(id);
       if (worker === undefined) {
         const pending = this.#versionsByTarget.get(id) ?? [];
@@ -617,36 +625,65 @@ export class CdpWorkerCapture {
         this.#versionsByTarget.set(id, pending);
         continue;
       }
-      if (
-        previouslyControlled &&
-        controls === false &&
-        worker.enabled &&
-        !worker.item.observation.selected_explicitly
-      ) {
-        for (const section of [
-          "scripts",
-          "network_requests",
-          "metadata",
-        ] as const)
-          worker.events.completeness.exclude(
-            section,
-            "out_of_target_scope",
-            null,
-          );
-        worker.events.completeness.unavailable("scripts");
-        worker.events.completeness.unavailable("network_requests");
-        worker.item.observation.limitations.push(
-          "Service-worker control was revoked during capture; later runtime events outside the selected page scope were excluded.",
-        );
-      }
-      if (controls) {
-        worker.item.observation.ownership = "service_worker_client";
-        worker.item.observation.page_target_id = this.context.target.id;
-      }
       worker.item.observation.lifecycle.push(lifecycle);
-      if (worker.sessionId !== undefined)
-        this.#queue(() => this.#enable(worker));
     }
+  }
+
+  #controlsPage(clients: readonly string[] | null): boolean | null {
+    if (clients === null) return null;
+    return (
+      clients.includes(this.context.target.id) ||
+      [...this.#frames.values()].some(
+        (frame) => !frame.detached && clients.includes(frame.targetId),
+      )
+    );
+  }
+
+  #refreshServiceClients(): void {
+    for (const [id, version] of this.#serviceClients) {
+      const controls = this.#controlsPage(version.clients);
+      // Client IDs can arrive before their iframe attachment. Resolve that
+      // recorded relationship when the owned frame becomes known, without
+      // inventing another protocol version event. Detachment preserves the
+      // historical observation while stopping later out-of-scope ingestion.
+      if (controls === true) version.lifecycle.controls_page = true;
+      this.#updateControl(id, controls);
+    }
+  }
+
+  #updateControl(id: string, controls: boolean | null): void {
+    const previouslyControlled = this.#controlled.has(id);
+    if (controls === true) this.#controlled.add(id);
+    else if (controls === false) this.#controlled.delete(id);
+    const worker = this.#workers.get(id);
+    if (worker === undefined) return;
+    if (
+      previouslyControlled &&
+      controls === false &&
+      worker.enabled &&
+      !worker.item.observation.selected_explicitly
+    ) {
+      for (const section of [
+        "scripts",
+        "network_requests",
+        "metadata",
+      ] as const)
+        worker.events.completeness.exclude(
+          section,
+          "out_of_target_scope",
+          null,
+        );
+      worker.events.completeness.unavailable("scripts");
+      worker.events.completeness.unavailable("network_requests");
+      worker.item.observation.limitations.push(
+        "Service-worker control was revoked during capture; later runtime events outside the selected page scope were excluded.",
+      );
+    }
+    if (controls) {
+      worker.item.observation.ownership = "service_worker_client";
+      worker.item.observation.page_target_id = this.context.target.id;
+    }
+    if (worker.sessionId !== undefined) this.#queue(() => this.#enable(worker));
   }
 
   #attach(worker: WorkerState, sessionId: string): void {
