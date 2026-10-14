@@ -28,10 +28,11 @@ ENV REA_JADX_MCP_JAR=/opt/jadx/jadx-headless-mcp-0.7.1-all.jar
 RUN npm install -g rea-agents@6.4.0
 # x-release-please-end
 
-# Chromium build matching REA's playwright-core. Ubuntu's chromium package
-# installs through snap, which does not run in a container.
+# Chromium build for the playwright-core version rea-agents installed, so a
+# release that updates Playwright also updates the browser. Ubuntu's chromium
+# package installs through snap, which does not run in a container.
 ENV PLAYWRIGHT_BROWSERS_PATH=/opt/ms-playwright
-RUN npx -y playwright-core@1.58.2 install --with-deps chromium \
+RUN node /usr/local/lib/node_modules/rea-agents/node_modules/playwright-core/cli.js install --with-deps chromium \
  && ln -s "$(find /opt/ms-playwright -path '*chrome-linux*/chrome' -type f | head -1)" /usr/local/bin/chromium \
  && chmod -R a+rX /opt/ms-playwright
 ENV REA_BROWSER_EXECUTABLE=/usr/local/bin/chromium

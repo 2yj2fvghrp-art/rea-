@@ -15,8 +15,12 @@ network, and anything you mount writable can be changed.
 From a checkout of this repository:
 
 ```bash
-docker build -t rea docker/
+docker build --platform linux/amd64 -t rea docker/
 ```
+
+`--platform linux/amd64` keeps the supported x64 image on ARM64 hosts such as
+Apple silicon, where Docker runs it under emulation. That combination has not
+been verified.
 
 The build downloads Ghidra, the JADX JAR (checked against its pinned SHA-256),
 the `rea-agents` npm package and Playwright's Chrome for Testing build. The
@@ -110,5 +114,5 @@ investigation is complete.
 ## Update
 
 The Dockerfile pins the `rea-agents` release it was published with. Pull the
-repository and rebuild with `docker build --pull -t rea docker/` to pick up
+repository and rebuild with `docker build --pull --platform linux/amd64 -t rea docker/` to pick up
 a newer release and base images.
