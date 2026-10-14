@@ -264,6 +264,22 @@ describe("DOM link relation tokens", () => {
 });
 
 describe("empty form destinations with a document base URL", () => {
+  it.each(["FORM", "BUTTON", "INPUT"])(
+    "retains an empty %s destination encoded with the CDP sentinel",
+    (nodeName) => {
+      const value = snapshot(`${origin}/assets/`);
+      value.strings[6] = nodeName;
+      value.strings[14] = nodeName === "FORM" ? "action" : "formaction";
+      value.documents[0]!.nodes.attributes[4] = [14, -1];
+      expect(capture(value).urls.at(-1)).toMatchObject({
+        node_index: 4,
+        attribute: value.strings[14],
+        url: documentUrl,
+        destination_scope: "approved",
+      });
+    },
+  );
+
   it("keeps an empty form action approved when the document base is foreign", () => {
     const foreign = "https://cdn.example.test/assets/";
     const value = snapshot(foreign, foreign);
@@ -399,9 +415,11 @@ interface SvgSnapshotNode {
 const svgDocument = (
   elements: readonly SvgSnapshotNode[],
   baseUrl = `${origin}/screens/assets/`,
+  emptySentinel = false,
 ) => {
   const strings = [documentUrl, baseUrl];
   const intern = (value: string): number => {
+    if (emptySentinel && value === "") return -1;
     const existing = strings.indexOf(value);
     if (existing >= 0) return existing;
     strings.push(value);
@@ -835,34 +853,38 @@ describe("SVG xlink:href context", () => {
 });
 
 describe("SVG XLink precedence and unknown identity", () => {
-  it("keeps an empty href ahead of xlink:href", () => {
-    const baseUrl = `${origin}/screens/assets/`;
-    const result = captureSvg(
-      svgDocument(
-        [
-          { name: "svg", parent: 0 },
-          {
-            name: "a",
-            svg: true,
-            parent: 1,
-            attributes: [
-              ["href", ""],
-              ["xlink:href", "/xlink-should-lose"],
-            ],
-          },
-        ],
-        baseUrl,
-      ),
-    );
-    expect(result.urls).toEqual([
-      {
-        node_index: 2,
-        attribute: "href",
-        url: baseUrl,
-        destination_scope: "approved",
-      },
-    ]);
-  });
+  it.each([false, true])(
+    "keeps an empty href ahead of xlink:href (sentinel=%s)",
+    (emptySentinel) => {
+      const baseUrl = `${origin}/screens/assets/`;
+      const result = captureSvg(
+        svgDocument(
+          [
+            { name: "svg", parent: 0 },
+            {
+              name: "a",
+              svg: true,
+              parent: 1,
+              attributes: [
+                ["href", ""],
+                ["xlink:href", "/xlink-should-lose"],
+              ],
+            },
+          ],
+          baseUrl,
+          emptySentinel,
+        ),
+      );
+      expect(result.urls).toEqual([
+        {
+          node_index: 2,
+          attribute: "href",
+          url: baseUrl,
+          destination_scope: "approved",
+        },
+      ]);
+    },
+  );
 
   it("classifies a non-http SVG xlink:href as unsupported", () => {
     const result = captureSvg(
@@ -990,39 +1012,50 @@ describe("XML SVG roots and namespace scope restoration", () => {
     },
   );
 
-  it("restores namespace declarations and undeclarations before visiting siblings", () => {
-    const result = captureSvg(
-      svgDocument([
-        xhtmlRoot(),
-        {
-          name: "svg:a",
-          parent: 1,
-          attributes: [
-            ["xmlns:xlink", ""],
-            ["xlink:href", "/undeclared"],
+  it.each([false, true])(
+    "restores namespace declarations and undeclarations before visiting siblings (sentinel=%s)",
+    (emptySentinel) => {
+      const result = captureSvg(
+        svgDocument(
+          [
+            xhtmlRoot(),
+            {
+              name: "svg:a",
+              parent: 1,
+              attributes: [
+                ["xmlns:xlink", ""],
+                ["xlink:href", "/undeclared"],
+              ],
+            },
+            {
+              name: "svg:a",
+              parent: 1,
+              attributes: [["xlink:href", "/inherited"]],
+            },
+            {
+              name: "svg:a",
+              parent: 1,
+              attributes: [
+                ["xmlns:svg", "other"],
+                ["xlink:href", "/rebound"],
+              ],
+            },
+            {
+              name: "svg:a",
+              parent: 1,
+              attributes: [["xlink:href", "/restored"]],
+            },
           ],
-        },
-        {
-          name: "svg:a",
-          parent: 1,
-          attributes: [["xlink:href", "/inherited"]],
-        },
-        {
-          name: "svg:a",
-          parent: 1,
-          attributes: [
-            ["xmlns:svg", "other"],
-            ["xlink:href", "/rebound"],
-          ],
-        },
-        { name: "svg:a", parent: 1, attributes: [["xlink:href", "/restored"]] },
-      ]),
-    );
-    expect(result.urls).toEqual([
-      approvedHref(3, `${origin}/inherited`),
-      approvedHref(5, `${origin}/restored`),
-    ]);
-  });
+          undefined,
+          emptySentinel,
+        ),
+      );
+      expect(result.urls).toEqual([
+        approvedHref(3, `${origin}/inherited`),
+        approvedHref(5, `${origin}/restored`),
+      ]);
+    },
+  );
 });
 
 describe("XHTML and XML SVG namespace prefixes", () => {

@@ -135,7 +135,7 @@ describe("CDP DOM string and namespace validity", () => {
     { field: "nodeValue", index: 5, malformedString: true },
     { field: "attributeName", index: -1 },
     { field: "attributeName", index: 20 },
-    { field: "attributeValue", index: -1 },
+    { field: "attributeValue", index: -2 },
     { field: "attributeValue", index: 20 },
   ] as const)(
     "omits a node when its $field string index is invalid ($index)",
