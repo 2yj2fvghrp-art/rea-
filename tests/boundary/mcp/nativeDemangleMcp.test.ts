@@ -68,5 +68,39 @@ describe.skipIf(process.platform !== "darwin")(
         );
       },
     );
+
+    mcpTest(
+      "reports undecodable symbols with any Swift mangling prefix as invalid",
+      async ({ mcp, onTestFinished }) => {
+        const target = join(
+          await createTestTempDirectory("rea-demangle-mcp-"),
+          "tool",
+        );
+        await copyFile("/usr/bin/true", target);
+        const client = await openProductionTarget(mcp, onTestFinished, target);
+        const prefixes = ["_T0", "$S", "_$S", "$e", "_$e"];
+
+        const called = await client.callTool({
+          name: "demangle_swift",
+          arguments: {
+            symbols: [
+              ...prefixes.map((prefix) => `${prefix}4main3FooV`),
+              ...prefixes.map((prefix) => `${prefix}Bogus`),
+              "_Tprintf",
+            ],
+          },
+        });
+        expect(called.isError, JSON.stringify(called.content)).not.toBe(true);
+        expect(
+          demangledSchema
+            .parse(called.structuredContent)
+            .normalized_result.symbols.map(({ status }) => status),
+        ).toEqual([
+          ...prefixes.map(() => "demangled"),
+          ...prefixes.map(() => "invalid"),
+          "unchanged",
+        ]);
+      },
+    );
   },
 );
