@@ -176,7 +176,7 @@ if (tier === "reused") {
       ) {
         selected.docs = true;
         // Authored documentation code also belongs to the static checkers.
-        selected.code ||= /^docs\/.*\.(?:[cm]?[jt]s|[jt]sx)$/u.test(file);
+        selected.code ||= /^docs\/.*\.(?:[cm]?[jt]s|[jt]sx)$/su.test(file);
         selected.website ||= matchesAny(file, SCOPES.website);
         continue;
       }

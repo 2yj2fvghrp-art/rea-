@@ -176,6 +176,17 @@ it("retains code checks when documentation code is removed or renamed to Markdow
   });
 });
 
+it("selects code checks for documentation filenames containing line breaks", async () => {
+  const { directory, base } = await fixture();
+  const head = await change(directory, ["docs/.vitepress/navigation\nmenu.ts"]);
+  expect(await classify(directory, base, head)).toMatchObject({
+    code: true,
+    docs: true,
+    runtime: false,
+    package: false,
+  });
+});
+
 it.each([
   "job-timings.mjs",
   "job-timings-batch.mjs",
