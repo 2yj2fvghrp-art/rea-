@@ -34,6 +34,69 @@ const geminiWorkspace = async (cli: TestCli) => {
   return { workspace, user, originalUser, environment, run };
 };
 
+cliTest(
+  "Gemini does not require workspace trust until workspace settings exist",
+  async ({ cli }) => {
+    const fixture = await geminiWorkspace(cli);
+    const trust = join(dirname(fixture.user), "trustedFolders.json");
+    fixture.environment.GEMINI_CLI_TRUSTED_FOLDERS_PATH = trust;
+    for (const text of ["{}", "{ not json"]) {
+      await writeFile(trust, text);
+      const setup = await fixture.run(setupArguments);
+      expect(setup.exitCode, setup.stdout).toBe(0);
+      expect(setup.json).toMatchObject({ status: "ready", appliedActions: [] });
+      const doctor = await fixture.run(doctorArguments);
+      expect(doctor.exitCode, doctor.stdout).toBe(0);
+      expect(doctor.json).toMatchObject({
+        healthy: true,
+        identity: {
+          registrations: expect.arrayContaining([
+            expect.objectContaining({
+              client: "gemini_cli",
+              state: "aligned",
+              remediation: null,
+            }),
+          ]),
+        },
+      });
+      await expect(access(fixture.workspace)).rejects.toMatchObject({
+        code: "ENOENT",
+      });
+      expect(await readFile(trust, "utf8")).toBe(text);
+      expect(await readFile(fixture.user)).toEqual(fixture.originalUser);
+    }
+
+    // The same trust file becomes relevant once settings need admission.
+    const workspaceText = "{ not json";
+    await writeFile(fixture.workspace, workspaceText);
+    const setup = await fixture.run(setupArguments);
+    expect(setup.exitCode, setup.stdout).toBe(1);
+    expect(setup.json).toMatchObject({
+      status: "needs_human",
+      plannedActions: [],
+      appliedActions: [],
+      remediation: expect.stringContaining(trust),
+    });
+    const doctor = await fixture.run(doctorArguments);
+    expect(doctor.exitCode, doctor.stdout).toBe(1);
+    expect(doctor.json).toMatchObject({
+      healthy: false,
+      identity: {
+        registrations: expect.arrayContaining([
+          expect.objectContaining({
+            client: "gemini_cli",
+            state: "invalid",
+            remediation: expect.stringContaining(trust),
+          }),
+        ]),
+      },
+    });
+    expect(await readFile(fixture.workspace, "utf8")).toBe(workspaceText);
+    expect(await readFile(trust, "utf8")).toBe("{ not json");
+    expect(await readFile(fixture.user)).toEqual(fixture.originalUser);
+  },
+);
+
 for (const scenario of [
   { name: "an unlisted workspace", environment: {} },
   {

@@ -1,4 +1,4 @@
-import { realpath } from "node:fs/promises";
+import { realpath, stat } from "node:fs/promises";
 import { dirname, resolve } from "node:path";
 import { stripComments } from "jsonc-parser";
 import { z } from "zod";
@@ -144,14 +144,22 @@ export const readClientPolicyBlock = async (
     settings.platform,
   );
   if (workspace !== home) {
-    const trusted = await workspaceTrusted(settings, sources, resources);
-    if (!trusted.ok) return trusted;
-    if (trusted.value) {
-      const path = resolve(
-        settings.workspaceDirectory,
-        ".gemini",
-        "settings.json",
-      );
+    const path = resolve(
+      settings.workspaceDirectory,
+      ".gemini",
+      "settings.json",
+    );
+    // Only ENOENT proves absence; other failures still require a trust decision.
+    const absent = await stat(path).then(
+      () => false,
+      (cause: unknown) =>
+        cause instanceof Error && "code" in cause && cause.code === "ENOENT",
+    );
+    const includeWorkspace = absent
+      ? ok(false)
+      : await workspaceTrusted(settings, sources, resources);
+    if (!includeWorkspace.ok) return includeWorkspace;
+    if (includeWorkspace.value) {
       const document = await readConfigurationFile(path, "json", resources);
       if (!document.ok) return document;
       if (document.value !== undefined) {
