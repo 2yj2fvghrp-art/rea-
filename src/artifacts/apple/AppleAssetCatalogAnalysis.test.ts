@@ -2,7 +2,7 @@ import { createHash } from "node:crypto";
 import { mkdir, symlink, writeFile } from "node:fs/promises";
 import { join } from "node:path";
 
-import { describe, expect, it } from "vitest";
+import { describe, expect, it, vi } from "vitest";
 
 import { createTestTempDirectory } from "../../../tests/fixtures/temporaryDirectory.js";
 import { encodeNibArchiveFixture } from "./NibArchive.fixture.js";
@@ -220,24 +220,28 @@ describe("Apple asset catalog and Interface Builder concurrency", () => {
     graph: { nodes: [], truncated: false },
   } as unknown as Awaited<ReturnType<typeof analyzeInterfaceBuilderBundle>>;
 
-  it("runs the Interface Builder analysis while catalogs are inspected", async () => {
-    let interfaceBuilderStarted = false;
-    let startedBeforeCatalog: boolean | undefined;
-    await analyzeAppleAssetCatalogs({
+  it("keeps the Interface Builder analysis running while catalogs are inspected", async () => {
+    // The Interface Builder analysis can finish only after catalog inspection
+    // starts, so a sequential implementation would never complete.
+    let catalogStarted!: () => void;
+    const catalogStart = new Promise<void>((resolve) => {
+      catalogStarted = resolve;
+    });
+    const result = await analyzeAppleAssetCatalogs({
       environment: {},
       bundlePath: await catalogBundle(),
       targetSha256: "a".repeat(64),
       analyzeInterfaceBuilder: async () => {
-        interfaceBuilderStarted = true;
+        await catalogStart;
         return emptyGraph;
       },
       runAssetUtil: async () => {
-        startedBeforeCatalog = interfaceBuilderStarted;
+        catalogStarted();
         return "[]";
       },
     });
-    expect(startedBeforeCatalog).toBe(true);
-  });
+    expect(result.catalogs).toHaveLength(1);
+  }, 5_000);
 
   it("cancels the Interface Builder analysis and reports a catalog failure", async () => {
     let cancelled = false;
@@ -263,16 +267,30 @@ describe("Apple asset catalog and Interface Builder concurrency", () => {
     expect(settled).toBe(true);
   });
 
-  it("reports an Interface Builder failure once catalogs are inspected", async () => {
-    await expect(
-      analyzeAppleAssetCatalogs({
-        environment: {},
-        bundlePath: await catalogBundle(),
-        targetSha256: "a".repeat(64),
-        analyzeInterfaceBuilder: () =>
-          Promise.reject(new Error("interface builder failed")),
-        runAssetUtil: () => Promise.resolve("[]"),
-      }),
-    ).rejects.toThrow("interface builder failed");
+  it("reports an early Interface Builder failure only after catalogs are inspected", async () => {
+    let finishCatalog!: (output: string) => void;
+    let catalogStarted = false;
+    let settled = false;
+    const analysis = analyzeAppleAssetCatalogs({
+      environment: {},
+      bundlePath: await catalogBundle(),
+      targetSha256: "a".repeat(64),
+      analyzeInterfaceBuilder: () =>
+        Promise.reject(new Error("interface builder failed")),
+      runAssetUtil: () => {
+        catalogStarted = true;
+        return new Promise((resolve) => {
+          finishCatalog = resolve;
+        });
+      },
+    }).finally(() => {
+      settled = true;
+    });
+    analysis.catch(() => undefined);
+    await vi.waitFor(() => expect(catalogStarted).toBe(true));
+    await new Promise((resolve) => setImmediate(resolve));
+    expect(settled).toBe(false);
+    finishCatalog("[]");
+    await expect(analysis).rejects.toThrow("interface builder failed");
   });
 });
