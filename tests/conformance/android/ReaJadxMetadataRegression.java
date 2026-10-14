@@ -50,7 +50,9 @@ public class ReaJadxMetadataRegression {
     options.outputDexFile = directory.resolve("initializers.dex").toString();
     require(Smali.assemble(options, List.of(
         Path.of(sources, "InitializationPolicy.smali").toString(),
-        Path.of(sources, "MixedInitialization.smali").toString())), "Initializer fixture assembly failed");
+        Path.of(sources, "MixedInitialization.smali").toString(),
+        Path.of(sources, "NativeOverload.smali").toString(),
+        Path.of(sources, "AbstractShape.smali").toString())), "Initializer fixture assembly failed");
     Path apk = directory.resolve("initializers.apk");
     try (ZipOutputStream zip = new ZipOutputStream(Files.newOutputStream(apk))) {
       zip.putNextEntry(new ZipEntry("classes.dex"));
@@ -175,6 +177,22 @@ public class ReaJadxMetadataRegression {
       require(body.get("mode").getAsString().equals("java") && !text.contains("{") && !text.contains(".method"),
           "Executable body was fabricated for " + name + ": " + text);
     }
+    // A native method followed by other members must not take their code as its body.
+    JsonObject nativeBody = call(handle, bridge, "get_method_body",
+        methodArguments("fixture.NativeOverload", "readBuffer"));
+    String nativeText = nativeBody.get("body").getAsString();
+    require(nativeBody.get("overload_count").getAsInt() == 2 && nativeBody.get("mode").getAsString().equals("java")
+        && !nativeText.contains("{") && !nativeText.contains("neighbour-member"),
+        "Native method body included neighbouring members: " + nativeText);
+    String abstractText = call(handle, bridge, "get_method_body", methodArguments("fixture.AbstractShape", "area"))
+        .get("body").getAsString();
+    require(!abstractText.contains("{") && !abstractText.contains("neighbour-member"),
+        "Abstract method body included neighbouring members: " + abstractText);
+    JsonObject wrapperArgs = methodArguments("fixture.NativeOverload", "readBuffer");
+    wrapperArgs.addProperty("overload_index", 1);
+    String wrapper = call(handle, bridge, "get_method_body", wrapperArgs).get("body").getAsString();
+    require(wrapper.contains("readBuffer(byteBuffer, 0)") && !wrapper.contains("neighbour-member"),
+        "Executable overload beside a native method lost its own body: " + wrapper);
     JsonObject ordinary = call(handle, bridge, "get_method_body", methodArguments(classNames[1], "touch"));
     require(ordinary.get("mode").getAsString().equals("java") && ordinary.get("body").getAsString().contains("COUNT"),
         "Ordinary executable method no longer produces Java");
