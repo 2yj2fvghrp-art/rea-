@@ -17,9 +17,9 @@ def read_edges(path, channels):
     if size > 32 * 1024 * 1024:
         raise ValueError('Compressed SR input exceeds the experiment budget')
     with path.open('rb') as source:
-        admitted = source.read(32 * 1024 * 1024 + 1)
-    if len(admitted) > 32 * 1024 * 1024:
-        raise ValueError('SR input grew beyond the experiment budget')
+        admitted = source.read(size + 1)
+    if len(admitted) != size:
+        raise ValueError('SR input size changed during admission')
     marker = admitted.rfind(b'PK\x05\x06', max(0, len(admitted) - 65557))
     if marker < 0 or len(admitted) - marker < 22:
         raise ValueError('Missing classic ZIP directory receipt')
@@ -63,7 +63,13 @@ def read_edges(path, channels):
             raise ValueError("Expanded SR input exceeds the experiment budget")
         if archive.getinfo('metadata').file_size > 8192:
             raise ValueError("Excessive SR metadata")
-        metadata = archive.read('metadata').decode('utf-8')
+        # Declared sizes are untrusted. A bounded read also caps each inflater
+        # step; logic members below likewise use bounded block reads.
+        with archive.open('metadata') as source:
+            metadata_bytes = source.read(8193)
+        if len(metadata_bytes) > 8192:
+            raise ValueError("Expanded SR metadata exceeds the experiment budget")
+        metadata = metadata_bytes.decode('utf-8')
         config = configparser.ConfigParser(interpolation=None)
         config.read_string(metadata)
         if set(config.sections()) != {'global', 'device 1'}:
@@ -116,8 +122,8 @@ def read_edges(path, channels):
                             previous = selected
                         sample += 1
     with path.open('rb') as source:
-        after = source.read(32 * 1024 * 1024 + 1)
-    if len(after) > 32 * 1024 * 1024 or hashlib.sha256(after).hexdigest() != before:
+        after = source.read(size + 1)
+    if len(after) != size or hashlib.sha256(after).hexdigest() != before:
         raise ValueError("Recording bytes changed during the independent read")
     return {'sha256': before, 'metadata': metadata, 'sample_rate_hz': samplerate,
             'total_samples': sample, 'channels': dict(zip(channels, bits))}, edges

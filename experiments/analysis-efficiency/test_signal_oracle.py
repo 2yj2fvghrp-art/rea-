@@ -4,6 +4,7 @@ import importlib.util
 from pathlib import Path
 import struct
 import tempfile
+import tracemalloc
 import unittest
 from unittest.mock import patch
 import zipfile
@@ -120,6 +121,25 @@ class SignalOracleTests(unittest.TestCase):
         with patch.object(oracle.zipfile, 'ZipFile', side_effect=AssertionError('Too late')):
             with self.assertRaisesRegex(ValueError, 'ZIP64 directory'):
                 oracle.read_edges(self.path, ['SCL', 'SDA'])
+
+    def test_forged_metadata_size_cannot_expand_past_its_output_budget(self):
+        # Stream the malformed member so constructing the fixture is bounded.
+        with zipfile.ZipFile(self.path, 'w', compression=zipfile.ZIP_DEFLATED) as archive:
+            with archive.open('metadata', 'w') as member:
+                for _ in range(128):
+                    member.write(b'X' * 65536)
+        data = bytearray(self.path.read_bytes())
+        directory = data.index(b'PK\x01\x02')
+        struct.pack_into('<I', data, directory + 24, 8192)
+        self.path.write_bytes(data)
+        tracemalloc.start()
+        try:
+            with self.assertRaises(zipfile.BadZipFile):
+                oracle.read_edges(self.path, ['SCL', 'SDA'])
+            _, peak = tracemalloc.get_traced_memory()
+        finally:
+            tracemalloc.stop()
+        self.assertLess(peak, 1024 * 1024, 'Metadata allocation followed forged ZIP expansion')
 
 
 if __name__ == '__main__':

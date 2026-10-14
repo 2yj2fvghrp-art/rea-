@@ -137,7 +137,7 @@ were cleaned. Terminal whole-scope counters are unavailable and remain unknown.
 
 ## Verification and replay
 
-Ten independent-oracle regressions and 12 comparator/sample-interval tests pass.
+Eleven independent-oracle regressions and 12 comparator/sample-interval tests pass.
 Twenty-four private replays using actual SDK Evidence cover valid answers, failed
 calls before/after recovery, wrong bytes, unknown citations and missing limitations.
 These are grading checks with injected state, not additional model/provider trials.
@@ -152,6 +152,13 @@ classic-ZIP directory records on the same bounded snapshot before allocating
 fail on the original implementation. Replaying all eight original model trials
 and 24 injected grading cases with these checks preserves their factual/plan
 grades and recorded usage/time; these replays are not new model measurements.
+
+Metadata reads cap inflater output even when ZIP sizes are forged. A streamed
+8 MiB malformed metadata member declaring 8 KiB is rejected with traced Python
+allocation below 1 MiB; the same regression fails on the preceding implementation.
+Compressed snapshots use actual file size plus one growth-detection byte rather
+than preallocating the entire admission budget. Both genuine waveform oracles
+retain identical bytes, metadata, sample intervals and source digests.
 
 After rebasing onto main `44d98de2367b99808d78db732ec7d72533266233`,
 `npm run build:cached` and the 16 focused comparator/sample-interval/MCP-boundary
