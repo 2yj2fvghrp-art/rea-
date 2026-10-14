@@ -277,8 +277,8 @@ setup installs its skill copy there.
 The global MCP path is a plain JSON file; setup preserves every other server
 and top-level key when it upserts `rea`. WorkBuddy also reads a project-level
 `<project>/.workbuddy/mcp.json`, which setup does not touch: it registers the
-user-level file only. Loading this registration is verified; a real REA tool
-call through WorkBuddy remains unverified.
+user-level file only. Loading this registration and real REA tool calls
+through WorkBuddy are verified.
 
 ## ZCode
 
