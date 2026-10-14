@@ -142,6 +142,24 @@ describe("capability failure reasons", () => {
     ).toMatchObject({ available: true, reason: "available" });
   });
 
+  it("keeps JEB setup guidance when the endpoint probe fails", () => {
+    const found = buildCapabilityInventory(status(), {
+      ...enabledPolicy,
+      jebAnalysisAvailability: {
+        status: "unavailable",
+        code: "not_configured",
+        reason: "connect ECONNREFUSED 127.0.0.1:8425",
+        diagnostics: {},
+      },
+    }).find(({ name }) => name === "inspect_jeb_client");
+    expect(found).toMatchObject({
+      available: false,
+      reason: "provider_missing",
+    });
+    expect(found?.remediation).toContain("ECONNREFUSED");
+    expect(found?.remediation).toContain("REA_JEB_MCP_URL");
+  });
+
   it("keeps JEB tools unavailable until the endpoint answers", () => {
     const found = buildCapabilityInventory(status(), enabledPolicy).find(
       ({ name }) => name === "inspect_jeb_client",

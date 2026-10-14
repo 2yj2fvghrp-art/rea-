@@ -578,7 +578,7 @@ export const createServer = (
       androidAnalysisAvailability: (signal) =>
         android.inspectAvailability(signal),
       adbAnalysisAvailability: (signal) =>
-        adbDevice.provider.inspectAvailability(signal),
+        adbDevice.inspectAvailability(signal),
       apktoolAnalysisAvailability: (signal) =>
         apktool.inspectAvailability(signal),
       jebAnalysisAvailability: (signal) => jeb.inspectAvailability(signal),

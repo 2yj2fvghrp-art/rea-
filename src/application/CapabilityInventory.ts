@@ -523,16 +523,29 @@ const configuredEngineAvailability = (
         remediation: availability?.reason ?? fallback,
       };
 
+const JEB_SETUP_GUIDANCE =
+  "Start a JEB client serving MCP (GUI client, or headless via its programmatic launcher) and point REA_JEB_MCP_URL at it (default http://127.0.0.1:8425/mcp). REA does not install or launch JEB.";
+
 const jebProviderAvailability = (
   name: string,
   policy: AvailabilityPolicy,
 ): Availability => {
   const availability = configuredEngineAvailability(
     policy.jebAnalysisAvailability,
-    "Start a JEB client serving MCP (GUI client, or headless via its programmatic launcher) and point REA_JEB_MCP_URL at it (default http://127.0.0.1:8425/mcp). REA does not install or launch JEB.",
+    JEB_SETUP_GUIDANCE,
   );
-  if (availability.reason !== "available" || name === "inspect_jeb_client")
-    return availability;
+  if (availability.reason !== "available") {
+    if (availability.remediation?.includes("REA_JEB_MCP_URL") === true)
+      return availability;
+    return {
+      reason: availability.reason,
+      remediation:
+        availability.remediation === null
+          ? JEB_SETUP_GUIDANCE
+          : `${availability.remediation} ${JEB_SETUP_GUIDANCE}`,
+    };
+  }
+  if (name === "inspect_jeb_client") return availability;
   const required = JEB_ADVERTISED_TOOLS[name];
   const advertised =
     policy.jebAnalysisAvailability?.diagnostics.advertised_tools;
