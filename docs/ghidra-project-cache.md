@@ -14,11 +14,11 @@ pre-imported-project workflow uses (see
 
 ## Enabling
 
-| Variable | Meaning | Default |
-|---|---|---|
-| `REA_GHIDRA_PROJECT_CACHE` | `off`, `read` (reuse only), or `on` (reuse and populate) | `off` |
-| `REA_GHIDRA_PROJECT_CACHE_DIR` | absolute cache root | `<home>/.rea/cache/ghidra-projects` |
-| `REA_GHIDRA_PROJECT_CACHE_MAX_BYTES` | size ceiling; oldest entries are pruned first | 10 GiB |
+| Variable                             | Meaning                                                  | Default                             |
+| ------------------------------------ | -------------------------------------------------------- | ----------------------------------- |
+| `REA_GHIDRA_PROJECT_CACHE`           | `off`, `read` (reuse only), or `on` (reuse and populate) | `off`                               |
+| `REA_GHIDRA_PROJECT_CACHE_DIR`       | absolute cache root                                      | `<home>/.rea/cache/ghidra-projects` |
+| `REA_GHIDRA_PROJECT_CACHE_MAX_BYTES` | size ceiling; oldest entries are pruned first            | 10 GiB                              |
 
 The cache and `REA_GHIDRA_EXISTING_PROJECT` are mutually exclusive: both select
 saved project state, and combining them is a configuration error.
@@ -72,3 +72,19 @@ profile it was built from. Saved project analysis can differ for identical
 executable bytes, so the cache reuses a specific saved program rather than
 claiming equivalence to a hypothetical fresh run. A cache hit reports that the
 provider did not import or re-analyze the target in that session.
+
+## Measured reuse
+
+Windows Ghidra P0, Ghidra 12.1.4, JDK 21, alternating
+`rea analyze <target> --provider ghidra` with `REA_GHIDRA_PROJECT_CACHE=on`:
+
+| Target                 | First open (import + analysis) | Second open (cache hit) |
+| ---------------------- | ------------------------------ | ----------------------- |
+| `engine2.dll` (6.8 MB) | 256.8 s                        | 13.1 s                  |
+| minimal PE fixture     | 17.4 s                         | 11.1 s                  |
+
+The hit is confirmed by the session limitation "Ghidra analysis was reused from
+a local project cache…" on the returned Evidence, and by an analysis profile
+that records `project_cache` and no `import_mode`. Elapsed wall-clock includes
+Node and JVM startup, a fixed cost that dominates a small target; the saving
+scales with analysis size.

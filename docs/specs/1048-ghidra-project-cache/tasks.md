@@ -4,10 +4,12 @@
 
 - Done: config/home (1), provider-independent store (2), identity rebinding
   (3), launcher save flag (4), client publish/hit wiring (5), provider
-  restructure (6), evidence/doc surface (7).
-- Remaining: real-provider verification and cold/warm measurement (8). The
-  default `off` path is unchanged; 8 test failures in the Ghidra folder are
-  pre-existing on `pr-2358`.
+  restructure (6), evidence/doc surface (7), real-provider measurement (8).
+- Measured on Windows Ghidra P0: `engine2.dll` first open 256.8 s, cache hit
+  13.1 s (recorded in `docs/ghidra-project-cache.md`). Adding a cache assertion
+  to the `verify:ghidra*` lane scripts remains for CI coverage.
+- The default `off` path is unchanged; the Ghidra source-test folder is now
+  green on Windows (platform-specific tests fixed/skipped).
 
 One PR, opt-in and reviewable: a persistent Ghidra project cache plus the
 identity rebinding that makes prior snapshots replay across sessions.
