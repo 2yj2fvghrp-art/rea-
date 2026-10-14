@@ -479,10 +479,13 @@ Only entries are observed: return values, floating-point and stack arguments,
 and inlined or `objc_direct` calls are not. The target runs with the current
 user's permissions and may change files, show UI or use the network.
 
-Debugging must be allowed for the user (Developer Tools access). A
-hardened-runtime target without `com.apple.security.get-task-allow` cannot be
-debugged; `inspect_signature` reports this as the debugger-attach facet, and
-the tool fails with a `debugger-attach-denied` reason.
+Debugging must be allowed for the user (Developer Tools access).
+`inspect_signature` reports `hardened_runtime` and the raw `entitlements`, not a
+debugger-attach decision. For a hardened-runtime target, check whether the
+entitlements contain `com.apple.security.get-task-allow`. A `null`
+`hardened_runtime` leaves the signing state unknown; `null` `entitlements` means
+no entitlement plist was parsed. These signing facts help diagnose an LLDB
+`debugger-attach-denied` result but do not establish whether this user can attach.
 
 ## Provider and verification boundaries
 
