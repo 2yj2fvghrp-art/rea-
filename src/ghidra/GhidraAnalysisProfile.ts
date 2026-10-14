@@ -49,10 +49,7 @@ export const ghidraPinnedLanguage = (
 /** Reason an existing project cannot open this target, or null when it can. */
 const ghidraExistingProjectUnsupportedReason = (
   target: BinaryTarget,
-  platform: NodeJS.Platform,
 ): string | null => {
-  if (platform === "win32")
-    return "An existing Ghidra project cannot be opened on the Windows launch path.";
   if (target.format === "dos-mz" || target.format === "dos-com")
     return "An existing Ghidra project cannot be combined with a DOS import.";
   if (target.format === "raw-binary")
@@ -89,10 +86,7 @@ export const resolveGhidraAnalysisProfile = async (
           "Existing Ghidra projects retain their imported language and analysis; caller-selected import overrides do not apply.",
         ),
       );
-    const reason = ghidraExistingProjectUnsupportedReason(
-      target,
-      installation.platform,
-    );
+    const reason = ghidraExistingProjectUnsupportedReason(target);
     if (reason !== null)
       return err(
         new AnalysisUnsupportedTargetError(

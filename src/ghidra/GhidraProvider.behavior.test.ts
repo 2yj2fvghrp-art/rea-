@@ -2323,7 +2323,7 @@ describe("Ghidra existing project selection", () => {
       expect(resolved.error._tag).toBe("AnalysisUnsupportedTargetError");
   });
 
-  it("rejects an existing project on the Windows launch path", async () => {
+  it("binds an existing project on the Windows launch path", async () => {
     const ghidra = configuredProvider(existingProjectEnvironment, undefined, {
       ...installationHost(),
       platform: "win32",
@@ -2331,8 +2331,11 @@ describe("Ghidra existing project selection", () => {
     const resolved = await ghidra.resolveAnalysisProfile(
       executableTarget("elf", "x86_64"),
     );
-    expect(resolved.ok).toBe(false);
-    if (!resolved.ok)
-      expect(resolved.error._tag).toBe("AnalysisUnsupportedTargetError");
+    if (!resolved.ok || resolved.value.profile === null)
+      throw new Error("expected a bound Ghidra profile");
+    expect(resolved.value.profile.parameters).toMatchObject({
+      import_mode: "existing-project-copy",
+      process_launch: "official-headless-script-v1",
+    });
   });
 });

@@ -586,11 +586,9 @@ export const ghidraHeadlessArguments = (
   const existing = options.existingProject;
   if (existing !== undefined) {
     // The pre-imported project carries its own analysis; every import-time
-    // selection is therefore rejected instead of silently ignored.
-    if (options.platform === "win32")
-      throw new Error(
-        "An existing Ghidra project cannot be opened on the Windows launch path.",
-      );
+    // selection is therefore rejected instead of silently ignored. The Windows
+    // P0 launch path builds the same `-process -noanalysis -readOnly`
+    // invocation as POSIX, so it is admitted here too.
     if (existing.programName.trim() === "")
       throw new Error(
         "An existing Ghidra project requires a program name for -process.",

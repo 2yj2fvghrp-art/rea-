@@ -731,8 +731,7 @@ runs on the private copy before the bridge serves results. The
 analysis profile records `import_mode: "existing-project-copy"`. The bridge
 verifies the program's executable SHA-256 against the admitted target, so a
 stale or mismatched project is rejected instead of analyzed. Existing-project
-opens are unavailable on the Windows launch path and for DOS, raw-binary, and
-PSP targets.
+opens are unavailable for DOS, raw-binary, and PSP targets.
 
 To produce the project, import the target with Ghidra's own headless analyzer
 using the fixed project name `rea-project`:
@@ -744,6 +743,12 @@ using the fixed project name `rea-project`:
 
 The imported program is named after the target file (for example
 `target-abcd1234.dll`), which is the value for `REA_GHIDRA_EXISTING_PROGRAM`.
+On Windows, use the same fixed project name with the batch analyzer:
+
+```powershell
+& "$env:GHIDRA_INSTALL_DIR\support\analyzeHeadless.bat" `
+  C:\absolute\path\to\project rea-project -import C:\absolute\path\to\target.exe
+```
 
 ### Ghidra heap and CPU controls
 

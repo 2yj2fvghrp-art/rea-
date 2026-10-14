@@ -524,19 +524,32 @@ describe("Ghidra existing project", () => {
     },
   );
 
-  it("rejects a Windows existing-project open on the P0 launch path", () => {
-    expect(() =>
-      ghidraHeadlessArguments({
-        ...base,
-        platform: "win32",
-        bridgeScriptPath: win32.join(
-          "/package",
-          "bridge",
-          "ReaGhidraBridge.java",
-        ),
-        existingProject: { programName: "game.exe" },
-      }),
-    ).toThrow(/Windows/u);
+  it("opens a Windows existing project on the P0 launch path", () => {
+    const bridgeDirectory = win32.join("/package", "bridge");
+    const bridgeScriptPath = win32.join(
+      bridgeDirectory,
+      "ReaGhidraBridge.java",
+    );
+    const arguments_ = ghidraHeadlessArguments({
+      ...base,
+      platform: "win32",
+      bridgeScriptPath,
+      existingProject: { programName: "game.exe" },
+    });
+    // The Windows P0 path builds the same `-process -noanalysis -readOnly`
+    // invocation as POSIX. The no-return repair stays POSIX-only, matching a
+    // fresh Windows import's `disabled-windows-p0` profile.
+    expect(arguments_.slice(0, 2)).toEqual(["/tmp/project", "rea-project"]);
+    expect(arguments_).toContain("-process");
+    expect(arguments_).toContain("game.exe");
+    expect(arguments_).toContain("-noanalysis");
+    expect(arguments_).toContain("-readOnly");
+    expect(arguments_).not.toContain("-import");
+    expect(arguments_).not.toContain("-deleteProject");
+    expect(arguments_).not.toContain(
+      win32.join(bridgeDirectory, "ReaGhidraNoReturnFix.java"),
+    );
+    expect(arguments_.at(-1)).toBe("/tmp/session.json");
   });
 
   it("requires a program name for -process", () => {
