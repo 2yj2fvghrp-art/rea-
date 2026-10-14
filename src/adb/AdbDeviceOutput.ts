@@ -109,9 +109,11 @@ export const parseAdbDevicesOutput = (
   if (!daemonStarted && stderr !== "") {
     for (const rawLine of stderr.split(/\r?\n/u)) {
       const line = rawLine.trimEnd();
-      if (line.startsWith("* daemon") && line.includes("started successfully")) {
-        daemonStarted = true;
-        break;
+      if (line.startsWith("* daemon")) {
+        if (line.includes("started successfully")) {
+          daemonStarted = true;
+          break;
+        }
       }
     }
   }
