@@ -409,6 +409,20 @@ describe("native macOS installer", { timeout: 20_000 }, () => {
 });
 
 describe("installer semantic version parsing", { timeout: 20_000 }, () => {
+  it("rejects an explicitly empty version instead of selecting latest", async () => {
+    const fixture = await createFixture();
+    await expect(
+      runInstaller(fixture, ["--version", "", "--dry-run"]),
+    ).rejects.toMatchObject({
+      stdout: "",
+      stderr:
+        "REA installation failed: version must be an exact semantic version.\n",
+    });
+    await expect(readFile(fixture.npmLog, "utf8")).rejects.toMatchObject({
+      code: "ENOENT",
+    });
+  });
+
   it.each([
     "",
     "1.2.3-01",
