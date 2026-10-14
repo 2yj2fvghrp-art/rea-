@@ -91,6 +91,9 @@ it("preserves graph commitments, endpoint certainty and export shapes when consu
     client.get("https:api.example.test/users?q=1&tag=a&tag=b#part");
     client.get(${JSON.stringify(String.raw`..\users?tag=a&tag=b#part`)});
     client.get(${JSON.stringify(String.raw`\api\users`)});
+    client.get(${JSON.stringify("ht\ttps://api.example.test/controls?q=1#part")});
+    client.get(".?q=1#dot");
+    client.get("%2e%2e#parent");
     new Map().get("?lookup");
     new Map().get("#lookup");
     new Map().get(${JSON.stringify(String.raw`\lookup`)});
@@ -258,6 +261,13 @@ const assertEndpointInterpretations = (
       },
       { value: "#section", state: "observed", confidence: "exact" },
       { value: String.raw`\api\users`, state: "observed", confidence: "exact" },
+      {
+        value: "ht\ttps://api.example.test/controls?q=1#part",
+        state: "observed",
+        confidence: "exact",
+      },
+      { value: ".?q=1#dot", state: "observed", confidence: "exact" },
+      { value: "%2e%2e#parent", state: "observed", confidence: "exact" },
       {
         value: String.raw`..\users?tag=a&tag=b#part`,
         state: "observed",

@@ -419,13 +419,25 @@ const isRequestUrlOrPathLiteral = (value: string): boolean =>
 
 /** Explicit request references, classified after receiver-specific exclusions. */
 const isRequestUrlReference = (value: string): boolean => {
-  // Special HTTP/WS URLs use either slash kind for root/network and dot
-  // references. Recognize the literal prefix without resolving a page base.
-  if (/^(?:[\\/?#]|\.\.?[\\/])/u.test(value)) return true;
-  // WHATWG accepts HTTP/WS scheme forms without authority slashes. Parse
-  // without a base so bare keys stay ambiguous, and keep the source spelling.
-  if (!/^(?:https?|wss?):/iu.test(value)) return false;
-  return isRequestUrlOrPathLiteral(value) || URL.parse(value) !== null;
+  // Generic receivers provide no URL identity for empty or leading-padded keys.
+  if (value.length === 0 || value.charCodeAt(0) <= 0x20) return false;
+  if (isRequestUrlOrPathLiteral(value)) return true;
+  // The parser owns scheme spelling, including embedded HT/LF/CR. No base is
+  // supplied, so ordinary relative keys cannot acquire an HTTP protocol.
+  const protocol = URL.parse(value)?.protocol;
+  if (
+    protocol === "http:" ||
+    protocol === "https:" ||
+    protocol === "ws:" ||
+    protocol === "wss:"
+  )
+    return true;
+  // Match relative markers after WHATWG preprocessing, without changing the
+  // recorded value. Only complete literal/encoded dot segments are structural.
+  const spelling = value
+    .replace(/[\x00-\x20]+$/u, "")
+    .replace(/[\t\n\r]/gu, "");
+  return /^(?:[\\/?#]|(?:\.|%2e){1,2}(?:[\\/?#]|$))/iu.test(spelling);
 };
 
 /**
@@ -575,7 +587,13 @@ export const endpointArgument = (
   ): JavaScriptEndpointArgument | undefined =>
     value === undefined ? undefined : { kind: "endpoint", value };
   if (receiverFact === "window") return undefined;
-  if (name === "fetch" || name.endsWith(".fetch") || name === "WebSocket")
+  if (
+    name === "fetch" ||
+    name.endsWith(".fetch") ||
+    name === "WebSocket" ||
+    name === "EventSource" ||
+    name.endsWith(".EventSource")
+  )
     return literal(stringValue(args[0]));
   if (name.endsWith(".open")) {
     const value = xhrOpenUrl(name, args[0], args[1], receiverFact);
@@ -609,6 +627,9 @@ export const endpointArgument = (
       value,
     };
   }
+  // navigator.sendBeacon(url, data) queues a POST to its first argument.
+  if (name === "sendBeacon" || name.endsWith(".sendBeacon"))
+    return literal(stringValue(args[0]));
   if (name.endsWith("loadURL")) return literal(stringValue(args[0]));
   return undefined;
 };

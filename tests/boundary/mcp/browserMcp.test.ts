@@ -161,7 +161,13 @@ it("keeps ambiguous endpoint candidates distinct through CLI and MCP", async () 
     String.raw`\/api.example.test\users`,
   ];
   const xhrReference = String.raw`..\xhr?tag=a&tag=b#part`;
+  const controlReference = "ht\ttps://api.example.test/controls?q=1#part";
+  const controlXhr = "w\nss://api.example.test/control-xhr";
   const source = `fetch("login"); http.get("/api/users");
+    api.get(${JSON.stringify(controlReference.replace("api.example", "user:pass@api.example"))});
+    xhr.open(method, ${JSON.stringify(controlXhr)});
+    api.get(".?q=1#dot"); api.get("%2e%2e#parent");
+    new EventSource("relative-events"); navigator.sendBeacon("relative-beacon", {});
     ${reverseReferences.map((value, index) => `api.${["get", "post", "put", "patch", "delete", "request"][index]}(${JSON.stringify(value)});`).join("\n")}
     xhr.open(method, ${JSON.stringify(xhrReference)});
     xhr.open("GET", ${JSON.stringify(String.raw`xhr\literal`)});
@@ -221,6 +227,12 @@ it("keeps ambiguous endpoint candidates distinct through CLI and MCP", async () 
       [
         ...reverseReferences,
         xhrReference,
+        controlReference,
+        controlXhr,
+        ".?q=1#dot",
+        "%2e%2e#parent",
+        "relative-events",
+        "relative-beacon",
         String.raw`\\api.example.test\profile?x=a+b&x=two#part`,
         String.raw`/\api.example.test\mixed?x=a+b&x=two#part`,
         String.raw`xhr\literal`,

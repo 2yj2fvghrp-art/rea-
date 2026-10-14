@@ -403,6 +403,8 @@ describe("web bundle explicit request reference forms", () => {
       String.raw`https:\api.example.test\users`,
       "https://[invalid",
       ...paths,
+      ".",
+      "..",
       String.raw`/api\users`,
       String.raw`\api/users`,
       String.raw`.\api/users?tag=a&tag=b#part`,
@@ -414,8 +416,6 @@ describe("web bundle explicit request reference forms", () => {
     ];
     const ambiguous = [
       "",
-      ".",
-      "..",
       "users",
       "%23section",
       "%3Fpage=2",
@@ -510,6 +510,96 @@ describe("web bundle explicit request reference forms", () => {
         .sort(),
     ).toEqual(expectedCandidates);
   });
+});
+
+it("uses parsed protocols and complete dot segments without widening lookup or leading-space admission", () => {
+  const schemeReferences = ["http", "https", "ws", "wss"].flatMap((scheme) =>
+    ["\t", "\n", "\r"].flatMap((control) =>
+      Array.from(
+        { length: scheme.length },
+        (_, index) =>
+          `${scheme.slice(0, index + 1)}${control}${scheme.slice(index + 1)}://api.example.test/users?q=1#part`,
+      ),
+    ),
+  );
+  const dotReferences = [".", "..", "%2e", ".%2E", "%2e.", "%2E%2e"].flatMap(
+    (segment) =>
+      ["", "/users", String.raw`\users`, "?q=1#part", "#part"].map(
+        (suffix) => segment + suffix,
+      ),
+  );
+  const references = [
+    ...schemeReferences,
+    ...dotReferences,
+    "h\nttps:api.example.test/rootless",
+    ".\t./users",
+    "%2\ne#control",
+    ". \t",
+  ];
+  const candidates = [
+    ...[" ", "\t", "\n", "\r", "\u0000", "\u001f"].map(
+      (prefix) => `${prefix}https://api.example.test/leading`,
+    ),
+    "ht\u0000tps://api.example.test/users",
+    "ht\u000btps://api.example.test/users",
+    "ht%09tps://api.example.test/users",
+    "ht\ttps://[invalid",
+    "ft\tp://api.example.test/users",
+    "custom:\thttps://api.example.test/users",
+    ".env",
+    "..env",
+    ".../users",
+    "%2efoo",
+    "%2e%2fusers",
+    "%252e",
+    "%2e%2e%2e",
+    ".\u00a0",
+  ];
+  const attributed = [
+    ["fetch", "\thttps://api.example.test/fetch"],
+    ["new EventSource", "\nhttps://api.example.test/events"],
+    ["navigator.sendBeacon", "\rhttps://api.example.test/beacon"],
+  ] as const;
+  const xhr = "w\rss://api.example.test/xhr";
+  const literalXhr = "\thttps://api.example.test/literal-xhr";
+  const lookupKeys = [schemeReferences[0]!, ".", "..", ".?q", "%2e"];
+  const source = `
+    ${[...references, ...candidates].map((value) => `api.get(${JSON.stringify(value)});`).join("\n")}
+    ${attributed.map(([callee, value]) => `${callee}(${JSON.stringify(value)});`).join("\n")}
+    xhr.open(method, ${JSON.stringify(xhr)});
+    xhr.open("GET", ${JSON.stringify(literalXhr)});
+    const config = vscode.workspace.getConfiguration("git");
+    ${lookupKeys.map((value) => `new Map().get(${JSON.stringify(value)}); new Headers().delete(${JSON.stringify(value)}); config.get(${JSON.stringify(value)});`).join("\n")}
+  `;
+  const expected = [
+    ...references,
+    ...attributed.map(([, value]) => value),
+    xhr,
+    literalXhr,
+  ].sort();
+  const web = analyzeCapturedWebBundle(inspection(source));
+  expect(web.observations.endpoints.map(({ value }) => value).sort()).toEqual(
+    expected,
+  );
+  expect(
+    web.inferences
+      .filter(({ kind }) => kind === "endpoint_candidate")
+      .map(({ value }) => value)
+      .sort(),
+  ).toEqual([...candidates].sort());
+  const analyzed = analyzeJavaScriptStaticSource(source);
+  expect(
+    analyzed.endpoints
+      .filter(({ interpretation }) => interpretation === undefined)
+      .map(({ value }) => value)
+      .sort(),
+  ).toEqual(expected);
+  expect(
+    analyzed.endpoints
+      .filter(({ interpretation }) => interpretation === "candidate")
+      .map(({ value }) => value)
+      .sort(),
+  ).toEqual([...candidates].sort());
 });
 
 describe("web bundle endpoint candidate classification", () => {

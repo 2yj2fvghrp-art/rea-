@@ -254,12 +254,12 @@ or a runtime call count. The bundle result retains source digests, not complete
 script text. Inspect captured script sources separately when all sites are
 needed, and match their artifact digest before treating them as the same source.
 Recognized explicit forms include HTTP(S)/WebSocket URLs, network/root paths,
-`./` and `../` paths, query-only references such as `?page=2`, and fragment-only
+dot-relative paths, query-only references such as `?page=2`, and fragment-only
 references such as `#section` (including empty `?` and `#`). They are classified
 after the existing collection/configuration exclusions; excluded lookup keys do
 not become endpoints merely because they start with `?` or `#`. Original text,
-parameter ordering and fragments are preserved without choosing a base URL,
-decoding or trimming. This is explicit-shape recognition, not full URI validation.
+parameter ordering and fragments are preserved without choosing a base URL.
+This is explicit-shape recognition, not full URI validation.
 HTTP(S)/WebSocket path references admit both slash kinds, including root,
 network, dot-relative and mixed-separator spellings such as `\api\users`,
 `\\api.example.test\users`, `.\users` and `..\users`. Their source spelling
@@ -270,12 +270,19 @@ spellings may use a safe network-reference fallback without publishing its
 temporary parsing scheme or origin.
 HTTP(S)/WebSocket scheme forms without authority slashes, such as
 `https:api.example.test/users`, are also recognized when WHATWG URL parsing
-succeeds without a base. Credential-free arguments retain their original
+succeeds without a base. The parsed protocol also recognizes accepted spellings
+with embedded tab, LF or CR characters. Complete single/double-dot segments
+(`.`, `..` and their WHATWG `%2e` spellings) are recognized before either slash,
+query, fragment or end of input. Relative-marker recognition follows WHATWG
+tab/newline and trailing C0/space preprocessing on a temporary spelling only;
+the recorded value is never replaced by that spelling or generically decoded.
+Credential-free arguments retain their original
 spelling. Existing URL userinfo redaction still applies to captured-web findings;
 its safe fallback may normalize noncanonical URLs while preserving query
 parameters and fragments.
-Overloaded HTTP-method names with bare, encoded-prefix or leading-whitespace
-arguments keep their existing candidate classification; `fetch("login")` retains
+Overloaded HTTP-method names with bare keys, encoded separators such as `%2f`
+or `%5c`, or leading C0/space keep their candidate classification. Dedicated
+network APIs retain their URL-argument findings; `fetch("login")` retains
 its syntax finding. These findings do not establish network execution. Dynamic receivers,
 computed URLs and request overloads still need independent evidence.
 
