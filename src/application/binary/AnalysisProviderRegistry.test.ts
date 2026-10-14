@@ -219,6 +219,33 @@ describe("analysis provider registry: binding failures and cancellation", () => 
     });
   });
 
+  it("cancels a pending profile probe even when the adapter ignores its signal", async () => {
+    const alpha = candidate("alpha");
+    let observedSignal: AbortSignal | undefined;
+    const ignoresCancellation: AnalysisProviderCandidate = {
+      ...alpha.provider,
+      resolveAnalysisProfile: (_target, options) => {
+        observedSignal = options?.signal;
+        return new Promise<never>(() => undefined);
+      },
+    };
+    const controller = new AbortController();
+    const selecting = new AnalysisProviderRegistry([
+      ignoresCancellation,
+    ]).select(DATABASE_TARGET, "alpha", { signal: controller.signal });
+    expect(observedSignal).toBe(controller.signal);
+
+    controller.abort();
+
+    await expect(selecting).resolves.toMatchObject({
+      ok: false,
+      error: { _tag: "AnalysisCancelledError", operation: "open_binary" },
+    });
+    expect(alpha.created).toEqual([]);
+  });
+});
+
+describe("analysis provider registry: unconfirmed provider cleanup", () => {
   it("aborts automatic selection when a provider reports unconfirmed cleanup", async () => {
     const ghidra = candidate("ghidra");
     const alternate = candidate("hopper");
@@ -247,31 +274,6 @@ describe("analysis provider registry: binding failures and cancellation", () => 
       },
     });
     expect(alternate.created).toEqual([]);
-  });
-
-  it("cancels a pending profile probe even when the adapter ignores its signal", async () => {
-    const alpha = candidate("alpha");
-    let observedSignal: AbortSignal | undefined;
-    const ignoresCancellation: AnalysisProviderCandidate = {
-      ...alpha.provider,
-      resolveAnalysisProfile: (_target, options) => {
-        observedSignal = options?.signal;
-        return new Promise<never>(() => undefined);
-      },
-    };
-    const controller = new AbortController();
-    const selecting = new AnalysisProviderRegistry([
-      ignoresCancellation,
-    ]).select(DATABASE_TARGET, "alpha", { signal: controller.signal });
-    expect(observedSignal).toBe(controller.signal);
-
-    controller.abort();
-
-    await expect(selecting).resolves.toMatchObject({
-      ok: false,
-      error: { _tag: "AnalysisCancelledError", operation: "open_binary" },
-    });
-    expect(alpha.created).toEqual([]);
   });
 });
 
