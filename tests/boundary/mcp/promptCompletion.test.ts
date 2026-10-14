@@ -257,6 +257,14 @@ describe("guided prompt completion from inspection substeps", () => {
     const offered = await completion.complete("manifest", "agm_");
     for (const manifest of manifests) expect(offered).toContain(manifest);
     expect(offered.length).toBeGreaterThanOrEqual(manifests.length);
+    const occurrences = examples.flatMap(
+      (example) =>
+        artifactInventoryResultSchema.parse(example.normalized_result)
+          .occurrences,
+    );
+    const offeredOccurrences = await completion.complete("occurrence", "occ_");
+    for (const { occurrence_id: id } of occurrences)
+      expect(offeredOccurrences).toContain(id);
     await session.close();
   });
 });
