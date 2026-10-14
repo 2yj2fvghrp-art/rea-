@@ -93,12 +93,14 @@ describe("Mach-O tool architecture selection", () => {
     { names: ["arm64v8"], selected: "arm64v8" },
     { names: ["arm64v8", "arm64e.x1"], selected: "arm64v8" },
     { names: ["arm64e.x1", "arm64v8"], selected: "arm64v8" },
+    { names: ["x86_64", "arm64e.x1"], selected: "arm64e.x1" },
     { names: ["arm64v8", "arm64e.v1"], selected: "arm64e.v1" },
     { names: ["arm64e.v1", "arm64v8"], selected: "arm64e.v1" },
   ] as const)(
     "keeps inspection and dispatch on $selected for FAT order $names",
     async ({ names, selected }) => {
       const cpus = {
+        x86_64: CPU.x86_64,
         arm64: CPU.arm64,
         arm64v8: { type: CPU.arm64.type, subtype: 1 },
         arm64e: CPU.arm64e,
@@ -127,7 +129,7 @@ describe("Mach-O tool architecture selection", () => {
         "-h",
         "-l",
         "-arch",
-        selected.split(".")[0],
+        selected.startsWith("arm64e.") ? selected : selected.split(".")[0],
         "/fixture/app",
       ]);
       expect(commands.find(({ tool }) => tool === "dyld_info")?.args).toContain(
