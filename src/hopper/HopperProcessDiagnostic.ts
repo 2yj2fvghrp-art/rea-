@@ -34,8 +34,7 @@ export const nativeHopperLaunchWasDenied = (
 /**
  * Recognize the launcher's complete Spotlight diagnostic for actionable setup
  * guidance. Custom launchers may forward this report after a handoff, so the
- * report alone does not establish whether a document exists or release
- * ownership; the launcher must separately verify Hopper's signed helper.
+ * report does not establish whether a document exists or release ownership.
  */
 export const hopperLauncherReportedApplicationNotFound = (
   outcome: HopperLauncherOutcome | undefined,

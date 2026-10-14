@@ -294,20 +294,18 @@ const launchNativeHelper = async (
 };
 
 it.each([true, false])(
-  "marks a pre-handoff not-found conclusion only for a verified native helper (%s)",
+  "marks only a verified native helper as pre-handoff evidence (%s)",
   async (verified) => {
     const checked: string[] = [];
     const launch = await launchNativeHelper({
       platform: "darwin",
       verifyNativeHelper(path) {
         checked.push(path);
-        return Promise.resolve(verified);
+        return Promise.resolve(verified ? "verified" : "unknown");
       },
     });
     expect(checked).toEqual([process.execPath]);
-    expect(launch.applicationNotFoundBeforeHandoff).toBe(
-      verified ? true : undefined,
-    );
+    expect(launch.nativeHelperVerified).toBe(verified ? true : undefined);
   },
 );
 
@@ -318,13 +316,13 @@ it("does not verify the helper outside macOS", async () => {
       throw new Error("The helper must not be verified outside macOS");
     },
   });
-  expect(launch.applicationNotFoundBeforeHandoff).toBeUndefined();
+  expect(launch.nativeHelperVerified).toBeUndefined();
 });
 
 it.skipIf(process.platform !== "darwin")(
   "rejects an executable that is not Hopper's signed helper",
   async () => {
     const launch = await launchNativeHelper({});
-    expect(launch.applicationNotFoundBeforeHandoff).toBeUndefined();
+    expect(launch.nativeHelperVerified).toBeUndefined();
   },
 );
