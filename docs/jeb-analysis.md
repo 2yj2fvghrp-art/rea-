@@ -10,6 +10,12 @@ Start a JEB client that serves MCP and point REA at it:
 - In the JEB GUI client, start the MCP server from the _File_ menu (or via the VIBRE assistant).
 - Headless, use JEB's documented programmatic route (`JebMcpServerInstance` from the JEB API) with the JEB client on your classpath; JEB 5.48's `-c` headless mode does not accept `--mcp` directly.
 
+For setup registration, set `REA_JEB_MCP_URL` in the REA process environment
+before running `rea setup`. The approved setup plan preserves the exact selected
+URL after validating its syntax. That validation does not establish that the
+JEB service is reachable or that a project is open; use the existing
+`inspect-jeb-client` command for a read-only service query.
+
 Verified against JEB 5.48.0 (Linux x64, licensed build) serving `jeb-mcp-server` 1.3.0 over streamable HTTP.
 
 ## Operations
@@ -26,8 +32,6 @@ All four are read-only with respect to the target file; only `open_jeb_project` 
 **Engine coverage note (verified):** JEB 5.48.0 headless MCP instances do not advertise `open_project` — the target must be selected when the engine client starts (`--infile` on the programmatic launcher, or the GUI's file opening). REA preserves that refusal with the engine's reason instead of failing silently; `open_jeb_project` completes only against engine builds that advertise the tool, such as GUI clients.
 
 ## Semantics
-
-- `REA_JEB_MCP_URL` must use the local MCP route `/mcp` or `/mcp/`. REA preserves an optional trailing slash and the selected scheme, literal loopback host, and port; other routes return a configuration error before connection construction. Engine availability is checked separately.
 
 - Paths in `open_jeb_project` are resolved by the JEB process, not by REA; REA does not require the artifact to exist locally.
 - The engine caps `list_units` pages at 100; a full page is reported as `coverage: "partial"` because more units may exist. An empty remainder is `complete` only when fewer units than requested were returned.
