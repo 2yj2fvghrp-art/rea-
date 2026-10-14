@@ -175,6 +175,21 @@ describe("Webpack externals with a tampered loader or module object", () => {
       ),
     ],
     [
+      "a loader without a return",
+      bootstrap(EXTERNAL, CONSUMER).replace(
+        "return m[t](o,o.exports,n),o.exports}",
+        "m[t](o,o.exports,n)}",
+      ),
+    ],
+    [
+      "a slot replaced through a constant key",
+      bootstrap(
+        EXTERNAL,
+        CONSUMER,
+        "const id=45840;n.m=m;n.m[id]=local;n(100);",
+      ),
+    ],
+    [
       "a pre-populated cache",
       bootstrap(EXTERNAL, CONSUMER).replace(
         "c={};",
