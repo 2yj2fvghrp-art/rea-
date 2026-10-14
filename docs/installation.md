@@ -397,9 +397,10 @@ running server or its registration.
 The npm release checked on **2026-10-11** was **6.4.0**, published from
 [`a56f7bb6`](https://github.com/morluto/rea/commit/a56f7bb668ab23fec8d33f7af353ac7ed2fe1895).
 The actual registry package accepted dry-run setup plans for the 17 client IDs
-in that release, including Qwen Code, Pi and Hermes. DeepSeek Harness (`dsh`)
-is on main and is not in npm 6.4.0; `rea setup --client dsh` against `@latest`
-reports an unsupported client until a release containing it is published.
+in that release, including Qwen Code, Pi and Hermes. Seven client IDs on main
+are not in npm 6.4.0: `droid`, `dsh`, `kimi`, `qoder`, `trae`, `workbuddy` and
+`zcode`. `rea setup --client <id>` against `@latest` reports an unsupported
+client for them until a release containing them is published.
 OpenCode's plan selected
 `OPENCODE_CONFIG_DIR` even when that directory did not yet exist. These checks
 used an isolated home on macOS with Node 24; they verify planning and argument
@@ -480,8 +481,8 @@ hosted connector; see [its configuration](client-configuration.md#other-client-s
 | ZCode              | `zcode`          |
 | DeepSeek Harness   | `dsh`            |
 
-`dsh`, `kimi`, and `workbuddy` require a release containing them. The registry
-check above does not cover them.
+`droid`, `dsh`, `kimi`, `qoder`, `trae`, `workbuddy`, and `zcode` require a
+release containing them. The registry check above does not cover them.
 
 See [client configuration and troubleshooting](client-configuration.md) for
 configuration paths, profiles, trust policies, and schema-limit workarounds.
