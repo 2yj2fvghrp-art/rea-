@@ -625,16 +625,114 @@ const requireWriteFact = (
  * class's instance initialization only precedes calls in that same scope,
  * since source order cannot establish when the scope runs relative to an
  * outer call.
+ *
+ * Class definition evaluation does not follow source order: computed method
+ * keys evaluate before static field initializers and static blocks run
+ * (verified against the runtime), so a static-field write cannot shadow a
+ * call in a computed key of the same class, while a computed-key write does
+ * shadow a later static initializer. Within one evaluation phase, source
+ * order still decides.
  */
 const writeFactPrecedesCall = (
   write: RequireWriteFact,
-  line: number,
-  column: number,
+  node: JavaScriptCallLike,
   callFunction: t.Node | null,
-): boolean =>
-  (write.endLine < line ||
-    (write.endLine === line && write.endColumn <= column)) &&
-  (write.functionNode === null || write.functionNode === callFunction);
+  state: JavaScriptSemanticAnalysisState,
+): boolean => {
+  const scopeOk =
+    write.functionNode === null || write.functionNode === callFunction;
+  const classOrder = classDefinitionPrecedence(write.node, node, state);
+  if (classOrder !== null) return scopeOk && classOrder;
+  const { line, column } = range(node).start;
+  return (
+    scopeOk &&
+    (write.endLine < line ||
+      (write.endLine === line && write.endColumn <= column))
+  );
+};
+
+/**
+ * Class-definition evaluation slots whose relative order contradicts source
+ * order. Computed method keys evaluate while the class is being defined,
+ * before static field initializers and static blocks run. Instance field
+ * initializers run at instantiation instead, so they keep the existing
+ * deferred handling and never report a slot here.
+ */
+type ClassDefinitionSlot = "computed-key" | "static-initializer";
+
+interface ClassDefinitionPosition {
+  readonly classNode: t.Node;
+  readonly slot: ClassDefinitionSlot;
+}
+
+/**
+ * The class-definition evaluation slot of a node that runs while its class is
+ * being defined, or null when the node does not run at class-definition time
+ * (instance field values, method bodies, nested functions) or the walk cannot
+ * classify it. Only the two slots whose relative order contradicts source
+ * order are distinguished; anything else falls back to positional order.
+ */
+const classDefinitionPosition = (
+  node: t.Node,
+  state: JavaScriptSemanticAnalysisState,
+): ClassDefinitionPosition | null => {
+  let slot: ClassDefinitionSlot | null = null;
+  let child: t.Node = node;
+  let current: t.Node | undefined = state.parentsByNode.get(child);
+  while (current !== undefined) {
+    if (
+      (t.isClassMethod(current) || t.isClassPrivateMethod(current)) &&
+      current.computed &&
+      current.key === child
+    )
+      slot = "computed-key";
+    else if (
+      ((t.isClassProperty(current) ||
+        t.isClassPrivateProperty(current) ||
+        t.isClassAccessorProperty(current)) &&
+        current.static &&
+        current.value === child) ||
+      t.isStaticBlock(current)
+    )
+      slot = "static-initializer";
+    if (t.isClass(current))
+      return slot === null ? null : { classNode: current, slot };
+    // A computed method key executes in the enclosing scope, so the walk
+    // passes through the method it names; any other function boundary (or an
+    // instance field value, which runs at instantiation) means the node does
+    // not run at class-definition time.
+    if (t.isFunction(current) && !isComputedKeyOf(child, current)) return null;
+    if (isDeferredInstanceFieldValue(child, current)) return null;
+    child = current;
+    current = state.parentsByNode.get(current);
+  }
+  return null;
+};
+
+/**
+ * Whether a write shadows a call across class-definition evaluation slots.
+ * Returns null when source order still decides: different classes, the same
+ * evaluation phase, or either side not running at class-definition time.
+ */
+const classDefinitionPrecedence = (
+  writeNode: t.Node,
+  node: JavaScriptCallLike,
+  state: JavaScriptSemanticAnalysisState,
+): boolean | null => {
+  const writePosition = classDefinitionPosition(writeNode, state);
+  const callPosition = classDefinitionPosition(node, state);
+  if (
+    writePosition === null ||
+    callPosition === null ||
+    writePosition.classNode !== callPosition.classNode ||
+    writePosition.slot === callPosition.slot
+  )
+    return null;
+  return (
+    writePosition.slot === "computed-key" &&
+    callPosition.slot === "static-initializer"
+  );
+};
 
 /**
  * A call at or after an effective write in the same function scope no longer
@@ -649,11 +747,10 @@ const requireWriteShadowsCall = (
   node: JavaScriptCallLike,
   state: JavaScriptSemanticAnalysisState,
 ): boolean => {
-  const { line, column } = range(node).start;
   const callFunction = nearestFunctionNode(node, state);
   return writes.some(
     (write) =>
-      writeFactPrecedesCall(write, line, column, callFunction) &&
+      writeFactPrecedesCall(write, node, callFunction, state) &&
       writeMustRunBeforeCall(write.node, node, callFunction, state),
   );
 };
@@ -667,7 +764,9 @@ const requireWriteShadowsCall = (
  * first on every execution that reaches the call (e.g. a write and call
  * together in a loop body). A `for...of`/`for...in` write is modeled at the
  * loop statement itself, so the loop head is not treated as conditional for
- * its own write.
+ * its own write. A classic `for` initializer runs exactly once before the
+ * test and body, so the loop is not conditional for a write in its own head
+ * either — `for (var require = local; false;) {}` still replaces the loader.
  */
 const writeMustRunBeforeCall = (
   writeNode: t.Node,
@@ -680,10 +779,13 @@ const writeMustRunBeforeCall = (
   let current: t.Node | undefined = state.parentsByNode.get(child);
   while (current !== undefined && current !== callFunction) {
     if (
-      t.isIfStatement(current) ||
-      t.isLoop(current) ||
-      t.isSwitchCase(current) ||
-      t.isTryStatement(current)
+      (t.isIfStatement(current) ||
+        t.isLoop(current) ||
+        t.isSwitchCase(current) ||
+        t.isTryStatement(current)) &&
+      // A `for` initializer always runs once before the loop, so a write in
+      // the loop head is not work the loop may skip.
+      !(t.isForStatement(current) && current.init === child)
     )
       writeBranches.set(current, child);
     child = current;

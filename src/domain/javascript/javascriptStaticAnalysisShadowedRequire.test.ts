@@ -135,6 +135,18 @@ const shadowedCases = [
     "var declaration initializer after the createRequire write shadows it",
     `import { createRequire } from "node:module";\nrequire = createRequire(import.meta.url);\nvar require = () => "local";\nrequire("./ghost.cjs");`,
   ],
+  [
+    "write in a classic for initializer shadows a later call",
+    `for (var require = () => "local"; false;) {} require("./ghost.cjs");`,
+  ],
+  [
+    "write in a classic for initializer shadows a call in the loop body",
+    `for (var require = () => "local"; false;) { require("./ghost.cjs"); }`,
+  ],
+  [
+    "computed key write shadows a call in a later static field",
+    `var require;\nclass C { [(require = () => "local", "k")]() {} static value = require("./ghost.cjs"); }`,
+  ],
 ];
 
 const loaderCases = [
@@ -287,6 +299,26 @@ const loaderCases = [
     "instance field write does not hide a call in another class's field",
     `var require;\nclass A { first = (require = () => "local"); }\nclass B { second = require("./dep.cjs"); }\nnew A();\nnew B();`,
     ["./dep.cjs"],
+  ],
+  [
+    "write in a classic for update does not hide a later call",
+    `var require;\nfor (;false; require = () => "local") {} require("./ghost.cjs");`,
+    ["./ghost.cjs"],
+  ],
+  [
+    "computed class method key runs before a static field write",
+    `var require;\nclass C { static value = (require = () => "local"); [require("./real.cjs")]() {} }`,
+    ["./real.cjs"],
+  ],
+  [
+    "computed class method key runs before a static field write in either order",
+    `var require;\nclass C { [require("./real.cjs")]() {} static value = (require = () => "local"); }`,
+    ["./real.cjs"],
+  ],
+  [
+    "computed class method key runs before a static block write",
+    `var require;\nclass C { [require("./real.cjs")]() {} static { require = () => "local"; } }`,
+    ["./real.cjs"],
   ],
   [
     "instance field write does not hide a call in a class method",
