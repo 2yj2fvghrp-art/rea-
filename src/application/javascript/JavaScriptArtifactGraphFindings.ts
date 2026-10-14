@@ -44,7 +44,7 @@ interface FindingInput<Value> {
 interface ResolvedReference {
   readonly path: string | null;
   readonly file: JavaScriptArtifactFile | null;
-  readonly node: ApplicationNode;
+  readonly node: ApplicationNode | null;
   readonly limitations: readonly string[];
   readonly resolutionStatus?: string;
   readonly resolution?: ArtifactPathResolution;
@@ -110,6 +110,8 @@ const addReference = (
             declared_specifier: input.value.specifier,
             expression: input.value.expression,
             resolved_path: resolved?.path ?? null,
+            resolution_status: resolved?.resolutionStatus ?? null,
+            ...artifactPathResolutionProperties(resolved?.resolution),
           },
           evidence: staticInferenceEvidence({
             sha256: input.file.sha256,
@@ -117,6 +119,7 @@ const addReference = (
             range: input.value.location,
             operation: "discover-worker",
             coverage: input.coverage,
+            limitations: resolved?.limitations ?? [],
           }),
         },
       ],
@@ -128,9 +131,14 @@ const addReference = (
       range: input.value.location,
       coverage: input.coverage,
       relation: "loads",
-      properties: { kind: input.value.kind },
+      properties: {
+        kind: input.value.kind,
+        resolution_status: resolved?.resolutionStatus ?? null,
+        ...artifactPathResolutionProperties(resolved?.resolution),
+      },
+      limitations: resolved?.limitations ?? [],
     });
-    if (resolved !== null && resolved.path !== null)
+    if (resolved !== null && resolved.path !== null && resolved.node !== null)
       addStaticInferenceEdge(context, {
         source: worker,
         target: resolved.node,
@@ -146,7 +154,7 @@ const addReference = (
   // A reference that resolves to its own source, such as a bundled module
   // requiring its own key, cannot become an edge: the application graph
   // forbids self-referential edges and one would fail the whole analysis.
-  if (resolved?.node.node_id === source.node_id) {
+  if (resolved?.node?.node_id === source.node_id) {
     omissions.selfReferences += 1;
     return;
   }
@@ -193,10 +201,17 @@ const addEndpoint = (
       input.value.module_runtime,
     ) ?? input.asset;
   const key = compactStringIdentityKey(input.value.value);
-  const label = `${input.value.kind} endpoint`;
+  const candidate = input.value.interpretation === "candidate";
+  const candidateLimitation =
+    "The unbound method-like argument is only a candidate; its receiver does not establish a network call.";
+  const label = `${input.value.kind} ${candidate ? "endpoint candidate" : "endpoint"}`;
   const node = context.accumulator.addNode({
     kind: "endpoint",
-    identity: artifactLocalIdentity(input.file.sha256, input.value.kind, key),
+    identity: artifactLocalIdentity(
+      input.file.sha256,
+      input.value.kind,
+      JSON.stringify([input.value.interpretation ?? "literal", key]),
+    ),
     observations: [
       {
         label:
@@ -205,14 +220,25 @@ const addEndpoint = (
           endpoint_kind: input.value.kind,
           value: input.value.value,
           mechanism: input.value.mechanism,
+          ...(candidate ? { interpretation: input.value.interpretation } : {}),
         },
-        evidence: astObservationEvidence({
-          sha256: input.file.sha256,
-          path: input.file.path,
-          range: input.value.location,
-          operation: "discover-static-endpoint",
-          coverage: input.coverage,
-        }),
+        evidence: candidate
+          ? staticInferenceEvidence({
+              sha256: input.file.sha256,
+              path: input.file.path,
+              range: input.value.location,
+              operation: "classify-static-endpoint-candidate",
+              coverage: input.coverage,
+              confidence: "low",
+              limitations: [candidateLimitation],
+            })
+          : astObservationEvidence({
+              sha256: input.file.sha256,
+              path: input.file.path,
+              range: input.value.location,
+              operation: "discover-static-endpoint",
+              coverage: input.coverage,
+            }),
       },
     ],
   });
@@ -223,7 +249,16 @@ const addEndpoint = (
     range: input.value.location,
     coverage: input.coverage,
     relation: input.value.kind === "route" ? "exposes" : "calls",
-    properties: { mechanism: input.value.mechanism },
+    properties: {
+      mechanism: input.value.mechanism,
+      ...(candidate ? { interpretation: input.value.interpretation } : {}),
+    },
+    ...(candidate
+      ? {
+          confidence: "low" as const,
+          limitations: [candidateLimitation],
+        }
+      : {}),
   });
 };
 
@@ -284,6 +319,15 @@ const addDiscoveredRole = (
     context: input.value.resolution_context,
     files: context.filesByPath,
     retainedPaths: context.retainedPaths,
+    unanalyzedFiles: context.unanalyzedFiles,
+    ...(input.value.role === "preload" ||
+    (input.value.role === "renderer" &&
+      input.value.resolution_context === "filesystem-expression")
+      ? { runtimePathKind: "exact-file" as const }
+      : input.value.role === "renderer" &&
+          input.value.resolution_context === "module-specifier"
+        ? { runtimePathKind: "url-resource" as const }
+        : {}),
   });
   const role = createElectronRoleNode(context, {
     kind:
@@ -332,6 +376,7 @@ const addSourceMapEdge = (
     context: "url-reference",
     files: context.filesByPath,
     retainedPaths: context.retainedPaths,
+    unanalyzedFiles: context.unanalyzedFiles,
   });
   const resolvedPath = resolution.resolved_path;
   const resolvedFile =
@@ -340,6 +385,12 @@ const addSourceMapEdge = (
     resolvedPath === null ? undefined : context.fileNodes.get(resolvedPath);
   const isAvailable =
     resolvedFile?.kind === "source-map" && resolvedNode !== undefined;
+  const limitations =
+    isAvailable || resolution.limitations.length > 0
+      ? resolution.limitations
+      : [
+          "The declared reference does not identify an available source-map projection.",
+        ];
   const target = context.accumulator.addNode({
     kind: "source-map",
     identity:
@@ -357,6 +408,8 @@ const addSourceMapEdge = (
           declared_url: input.value.declared_url,
           declared_url_sha256: declaredUrlSha256,
           resolved_path: resolvedPath,
+          resolution_status: resolution.resolution_status,
+          ...artifactPathResolutionProperties(resolution),
           available: isAvailable,
         },
         evidence: staticInferenceEvidence({
@@ -366,13 +419,7 @@ const addSourceMapEdge = (
           operation: "discover-source-map",
           coverage: input.coverage,
           confidence: "medium",
-          limitations: isAvailable
-            ? []
-            : resolution.resolution_status === "unavailable"
-              ? resolution.limitations
-              : [
-                  "The declared source map was not present in the inventoried artifact.",
-                ],
+          limitations,
         }),
       },
     ],
@@ -384,9 +431,12 @@ const addSourceMapEdge = (
     range: input.value.location,
     coverage: input.coverage,
     relation: "maps_to",
+    limitations,
     properties: {
       declared_url_sha256: declaredUrlSha256,
       resolved_path: resolvedPath,
+      resolution_status: resolution.resolution_status,
+      ...artifactPathResolutionProperties(resolution),
     },
   });
 };
@@ -430,6 +480,7 @@ const resolveReference = (
         context: "url-reference",
         files: context.filesByPath,
         retainedPaths: context.retainedPaths,
+        unanalyzedFiles: context.unanalyzedFiles,
       })
     : resolveArtifactPathByContext({
         declaredPath: specifier,
@@ -437,6 +488,7 @@ const resolveReference = (
         context: "module-specifier",
         files: context.filesByPath,
         retainedPaths: context.retainedPaths,
+        unanalyzedFiles: context.unanalyzedFiles,
         ...("require" === reference.kind ||
         "static-import" === reference.kind ||
         "dynamic-import" === reference.kind
@@ -450,20 +502,21 @@ const resolveReference = (
       });
   const path = resolution.resolved_path;
   if (path === null) {
-    if (isWorker) return null;
     const source = context.filesByPath.get(sourcePath);
     return source === undefined
       ? null
       : {
           path: null,
           file: null,
-          node: unresolvedReferenceNode(
-            context,
-            source,
-            reference,
-            coverage,
-            resolution,
-          ),
+          node: isWorker
+            ? null
+            : unresolvedReferenceNode(
+                context,
+                source,
+                reference,
+                coverage,
+                resolution,
+              ),
           limitations: resolution.limitations,
           resolutionStatus: resolution.resolution_status,
           resolution,

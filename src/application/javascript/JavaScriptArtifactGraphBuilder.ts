@@ -12,6 +12,8 @@ import type {
 } from "../../domain/javascript/javascriptArtifactFiles.js";
 import { JavaScriptArtifactGraphAccumulator } from "./JavaScriptArtifactGraphAccumulator.js";
 import {
+  HTML_INLINE_SCRIPT_LOCATION_COVERAGE_LIMIT,
+  omittedHtmlInlineScriptLocations,
   selfReferenceOmissions,
   type JavaScriptArtifactGraphContext,
 } from "./JavaScriptArtifactGraphContext.js";
@@ -28,6 +30,7 @@ import {
 import {
   completeApplicationCoverage,
   partialApplicationCoverage,
+  truncatedApplicationCoverage,
 } from "../../domain/javascript/javascriptApplicationEvidenceSchemas.js";
 import type { JavaScriptSemanticResourceLimit } from "../../domain/javascript/javascriptSemanticValueTypes.js";
 import {
@@ -112,6 +115,7 @@ function* buildJavaScriptArtifactGraphInputSteps(
     retainedPaths,
     root,
     filesByPath: new Map(fileSet.files.map((file) => [file.path, file])),
+    unanalyzedFiles: fileSet.unanalyzed_files,
     fileNodes: new Map(),
     assetNodes: new Map(),
     sourceModuleNodes: new Map(),
@@ -226,6 +230,7 @@ const graphCoverage = (context: JavaScriptArtifactGraphContext) => {
   );
   const unknownGap =
     (context.fileSet.source_selection?.unselected_files ?? 0) > 0 ||
+    context.fileSet.unavailable_relevant_files.length > 0 ||
     context.analysis.files.some(
       ({ analysis_failure, application_projection_failure }) =>
         analysis_failure !== undefined ||
@@ -233,6 +238,7 @@ const graphCoverage = (context: JavaScriptArtifactGraphContext) => {
     ) ||
     context.analysis.parse_failures > 0 ||
     context.fileSet.invalid_utf8_files > 0 ||
+    context.analysis.html_inline_scripts.length > 0 ||
     sourceMapPolicyGap ||
     malformedStructuredData ||
     partialJavaScript;
@@ -244,18 +250,30 @@ const graphCoverage = (context: JavaScriptArtifactGraphContext) => {
           : javaScriptAnalysisCoverageLimits(failure.limits),
       ),
   );
-  if (resourceLimits.length > 0 || executionLimits.length > 0)
-    return partialApplicationCoverage(
-      [
-        ...new Map(
-          [
-            ...semanticResourceLimitCoverage(resourceLimits),
-            ...executionLimits,
-          ].map((limit) => [JSON.stringify(limit), limit]),
-        ).values(),
-      ],
-      null,
-    );
+  // Capped inline script locations truncate the result. The total omission
+  // stays unknown because the unanalyzed bodies hide an unknown fact count.
+  const inlineScriptsTruncated =
+    omittedHtmlInlineScriptLocations(context.analysis.html_inline_scripts) > 0;
+  if (
+    resourceLimits.length > 0 ||
+    executionLimits.length > 0 ||
+    inlineScriptsTruncated
+  ) {
+    const limits = [
+      ...new Map(
+        [
+          ...semanticResourceLimitCoverage(resourceLimits),
+          ...executionLimits,
+          ...(inlineScriptsTruncated
+            ? [HTML_INLINE_SCRIPT_LOCATION_COVERAGE_LIMIT]
+            : []),
+        ].map((limit) => [JSON.stringify(limit), limit]),
+      ).values(),
+    ];
+    return inlineScriptsTruncated
+      ? truncatedApplicationCoverage(limits, null)
+      : partialApplicationCoverage(limits, null);
+  }
   if (unknownGap) return partialApplicationCoverage([], null);
   if (context.snapshot.integrity_contradictions.length > 0) {
     const nestedArchiveWasOpaque =

@@ -257,9 +257,14 @@ export const reconstructJavaScriptArtifact = async (
           : { source_selection: files.source_selection }),
         graph,
         semantic_graph: semanticGraph,
-        electron_summary: summarizeElectronBoundaries(analysis, retainedPaths),
+        electron_summary: summarizeElectronBoundaries(
+          analysis,
+          retainedPaths,
+          files.unanalyzed_files,
+        ),
         statistics: {
-          relevant_files: files.files.length,
+          relevant_files:
+            files.files.length + files.unavailable_relevant_files.length,
           nested_asar_containers: files.containers.length,
           text_bytes_read: files.text_bytes_read,
           invalid_utf8_files: files.invalid_utf8_files,
