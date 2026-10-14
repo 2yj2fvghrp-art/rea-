@@ -35,6 +35,32 @@ describe("nested signature type digests", () => {
     expect(digest(MAX_TYPE_NESTING_DEPTH + 1)).toBeNull();
   });
 
+  it("reads shared parents once when many types are nested past the cap", () => {
+    // Rows 1..64 form a chain; rows 1001..2000 are each nested in row 64, one
+    // level past the cap. Naming the deepest types first must not reread the
+    // chain for each of them.
+    const calls: number[] = [];
+    const children = 1_000;
+    const link = (row: number) => {
+      calls.push(row);
+      if (row >= 1 && row <= MAX_TYPE_NESTING_DEPTH)
+        return {
+          name: `T${String(row)}`,
+          enclosingRow: row > 1 ? row - 1 : null,
+        };
+      return row > 1_000 && row <= 1_000 + children
+        ? { name: `C${String(row)}`, enclosingRow: MAX_TYPE_NESTING_DEPTH }
+        : null;
+    };
+    const digest = nestedTypeDigests(link, () => undefined);
+    for (let row = 1_001; row <= 1_000 + children; row += 1)
+      expect(digest(row)).toBeNull();
+
+    // No row is read twice; the walk can stop at the cap before the outermost.
+    expect(new Set(calls).size).toBe(calls.length);
+    expect(calls.length).toBeLessThanOrEqual(MAX_TYPE_NESTING_DEPTH + children);
+  });
+
   it("names every type of a long chain in linear time", () => {
     const { calls, digest } = chain(4_000);
     for (let row = 1; row <= 4_000; row += 1) digest(row);

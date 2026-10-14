@@ -91,7 +91,7 @@ interface NamedRow {
  * enclosing type's digest and its own name, as `Outer/Inner` would read. Each
  * row is read and digested once, so naming a chain is linear in its length.
  * A gap, a cycle, or nesting deeper than `MAX_TYPE_NESTING_DEPTH` has no
- * digest. `retain` is charged once per remembered row.
+ * digest. `retain` is charged once per row read and once per remembered row.
  */
 export const nestedTypeDigests = (
   link: (row: number) => TypeLink | null,
@@ -101,6 +101,17 @@ export const nestedTypeDigests = (
   const remember = (row: number, value: NamedRow | null): void => {
     retain();
     named.set(row, value);
+  };
+  // Rows a walk read but could not name, such as the parents of a type nested
+  // past the cap, are still read only once.
+  const links = new Map<number, TypeLink | null>();
+  const readLink = (row: number): TypeLink | null => {
+    const known = links.get(row);
+    if (known !== undefined) return known;
+    const read = link(row);
+    retain();
+    links.set(row, read);
+    return read;
   };
   return (row) => {
     // Walk out to a named row or the outermost type, at most past the cap.
@@ -127,7 +138,7 @@ export const nestedTypeDigests = (
         remember(row, null);
         return null;
       }
-      const step = link(current);
+      const step = readLink(current);
       if (step === null) {
         remember(current, null);
         for (const visited of path) remember(visited.row, null);
