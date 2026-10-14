@@ -99,7 +99,9 @@ it("keeps main pushes proposal-only and gates merged-release automation", async 
     branches: ["main"],
   });
   const proposal = workflow.jobs["release-proposal"];
-  expect(proposal.if).toBe("github.event_name == 'push'");
+  expect(proposal.if).toBe(
+    "github.event_name == 'push' && github.repository == 'morluto/rea'",
+  );
   const action = proposal.steps.find((step) =>
     step.uses?.startsWith("googleapis/release-please-action@"),
   );
@@ -121,8 +123,19 @@ it("keeps main pushes proposal-only and gates merged-release automation", async 
     sha: "${{ steps.release.outputs.sha }}",
   });
   expect(workflow.jobs["release-please"].if).toBe(
-    "github.event_name == 'workflow_dispatch'",
+    "github.event_name == 'workflow_dispatch' && github.repository == 'morluto/rea'",
   );
+  for (const name of [
+    "release-proposal",
+    "merged-release",
+    "release-please",
+    "qualification",
+    "publish",
+    "publish-mcp",
+  ] as const)
+    expect(workflow.jobs[name].if, name).toContain(
+      "github.repository == 'morluto/rea'",
+    );
   expect(workflow.concurrency.group).toBe(
     "release-${{ inputs.release_branch || github.event.pull_request.merge_commit_sha || github.ref_name }}",
   );
