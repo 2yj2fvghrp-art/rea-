@@ -1,5 +1,25 @@
 # Changelog
 
+## [6.6.0](https://github.com/morluto/rea/compare/rea-agents-6.5.0...rea-agents-6.6.0) (2026-10-14)
+
+
+### Bug Fixes
+
+* **ci:** include GitHub action code in static cache inputs ([c0aa2e3](https://github.com/morluto/rea/commit/c0aa2e32b3f6799cb872cc80375d8afdcaa59fe9))
+* **ci:** invalidate GitHub entrypoint and package-scope caches ([#3522](https://github.com/morluto/rea/issues/3522)) ([eb44921](https://github.com/morluto/rea/commit/eb44921c4c3682e33c78508285629926e8ef241e)), closes [#3510](https://github.com/morluto/rea/issues/3510)
+* **ghidra:** preserve PE PDB coverage facts ([#2933](https://github.com/morluto/rea/issues/2933)) ([0f55f24](https://github.com/morluto/rea/commit/0f55f247cdd2ae9bd7903d5e45962b19dfc233dc)), closes [#2259](https://github.com/morluto/rea/issues/2259)
+* **managed:** compare nominal signatures across metadata builds ([#3059](https://github.com/morluto/rea/issues/3059)) ([eab789a](https://github.com/morluto/rea/commit/eab789aed74acd6ef7c15d509e0f3de350be2733))
+* **managed:** preserve enclosing identity in member comparisons ([#3079](https://github.com/morluto/rea/issues/3079)) ([1438422](https://github.com/morluto/rea/commit/1438422dfedf1de29368b595e09a04f1fc10750d))
+* **release:** install the npm canary before its MCP handshake ([0b4fd11](https://github.com/morluto/rea/commit/0b4fd11c8ccd411b5293f1b343609405cafd3194))
+* **release:** recover verified partial registry publications ([790657d](https://github.com/morluto/rea/commit/790657dc0dd68a6cc292fae70df1aa158ece8ba5))
+* **release:** rehearse qualified packages before publication ([6060de3](https://github.com/morluto/rea/commit/6060de329de9f3636f63e24a2419847fd9d3f889))
+* **release:** restore qualified runtime before the npm canary ([c99c6a8](https://github.com/morluto/rea/commit/c99c6a89d6985881bcad92754f429e39718073d7))
+
+
+### Tests
+
+* **perf:** measure real sigrok annotation selection workflows ([ca1b2f8](https://github.com/morluto/rea/commit/ca1b2f8608c52ed721d3576ba5eeb1d66717b08c))
+
 ## [6.5.0](https://github.com/morluto/rea/compare/rea-agents-6.4.0...rea-agents-6.5.0) (2026-10-13)
 
 Provider prerequisites and recorded verification scope are listed in [the testing guide](docs/testing.md).
