@@ -988,6 +988,41 @@ describe("source-map original dependency syntax", () => {
       result.items[0]?.original_module_edges.map(({ specifier }) => specifier),
     ).toEqual(["./real.js", "./dynamic.js", "./common.cjs"]);
   });
+
+  it("reads expression-free template module specifiers as literals", async () => {
+    const text = [
+      "import(`./dep.js`);",
+      "import(`./dep.${name}.js`);",
+      "require(`./common.cjs`);",
+      "require(`./${name}.cjs`);",
+    ].join("\n");
+    const result = await fetchWebSourceMaps([request], input(), undefined, {
+      fetch: () =>
+        Promise.resolve(
+          new Response(
+            JSON.stringify({
+              version: 3,
+              names: [],
+              sources: ["main.ts"],
+              sourcesContent: [text],
+              mappings: "AAAA",
+            }),
+          ),
+        ),
+    });
+    const item = result.items[0];
+    if (item?.status !== "included") throw new Error("map not included");
+    expect(item.original_module_edges).toEqual([
+      expect.objectContaining({
+        kind: "dynamic_import",
+        specifier: "./dep.js",
+        resolved_source: `${origin}/assets/dep.js`,
+      }),
+      expect.objectContaining({ kind: "require", specifier: "./common.cjs" }),
+    ]);
+    expect(item.original_sources[0]?.artifact?.text).toBe(text);
+    expect(item.mappings).toHaveLength(1);
+  });
 });
 
 describe("source-map original syntax boundaries", () => {
@@ -1078,6 +1113,34 @@ describe("source-map dependency coverage of hard-to-parse sources", () => {
     expect(
       result.items[0]?.original_module_edges.map(({ specifier }) => specifier),
     ).toEqual(expected);
+  });
+
+  it("selects parser mode from the original source URL pathname", async () => {
+    const result = await fetchWebSourceMaps([request], input(), undefined, {
+      fetch: () =>
+        Promise.resolve(
+          new Response(
+            JSON.stringify({
+              version: 3,
+              names: [],
+              sources: ["main.ts?revision=2#view.tsx"],
+              sourcesContent: [`import "./dep.ts"; const value = <number>1;`],
+              mappings: "AAAA",
+            }),
+          ),
+        ),
+    });
+    expect(result.items[0]?.status).toBe("included");
+    expect(result.items[0]?.limitation).toBeNull();
+    expect(result.items[0]?.original_sources[0]?.source).toBe(
+      `${origin}/assets/main.ts?revision=2#view.tsx`,
+    );
+    expect(result.items[0]?.original_module_edges).toEqual([
+      expect.objectContaining({
+        specifier: "./dep.ts",
+        resolved_source: `${origin}/assets/dep.ts`,
+      }),
+    ]);
   });
 
   it("keeps recovered edges from a partly recovered source and reports them as partial", async () => {
