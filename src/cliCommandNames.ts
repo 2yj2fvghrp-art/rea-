@@ -155,6 +155,7 @@ export const CLI_COMMANDS = Object.freeze({
   projectAppleApplicationGraph: "project-apple-application-graph",
   projectHarmonyApplicationGraph: "project-harmony-application-graph",
   exportInteractiveGraph: "export-interactive-graph",
+  ui: "ui",
 });
 
 /** Ordered primary CLI inventory; aliases are intentionally excluded. */

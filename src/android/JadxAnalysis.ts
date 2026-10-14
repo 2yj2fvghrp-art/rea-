@@ -115,13 +115,18 @@ const inspectPackage = async (
   const manifest = normalizeJadxText(
     await tools.text("get_android_manifest", {}),
   );
-  const knownAdKeywords = ["google.android.gms.ads", "applovin", "facebook.ads", "unity3d.ads"];
+  const knownAdKeywords = [
+    "google.android.gms.ads",
+    "applovin",
+    "facebook.ads",
+    "unity3d.ads",
+  ];
   const sdks = new Set<string>();
   const metaDataRegex = /<meta-data\b[^>]*android:name="([^"]+)"[^>]*>/gi;
   for (const match of manifest.text.matchAll(metaDataRegex)) {
     const name = match[1] ?? "";
     const lowerName = name.toLowerCase();
-    if (knownAdKeywords.some(kw => lowerName.includes(kw))) {
+    if (knownAdKeywords.some((kw) => lowerName.includes(kw))) {
       sdks.add(name);
     }
   }
