@@ -64,6 +64,7 @@ export default defineConfig({
           { text: "Ghidra raw binary", link: "/raw-binary" },
           { text: "Ghidra NativeAOT", link: "/ghidra-nativeaot" },
           { text: "Ghidra semantics", link: "/ghidra-provider" },
+          { text: "Ghidra project cache", link: "/ghidra-project-cache" },
         ],
       },
       {
