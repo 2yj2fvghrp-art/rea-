@@ -116,34 +116,7 @@ export const readClientRegistrationInspections = async (
   ): void => {
     inspections.push({ status, activation });
   };
-  for (const client of supportedClients(
-    home,
-    options.platform,
-    options.environment,
-  )) {
-    if (client.configPathError !== undefined) {
-      record({
-        client: client.name,
-        config_path: client.configPath,
-        command: [],
-        state: "invalid",
-        remediation: client.configPathError,
-      });
-      continue;
-    }
-    if (!(await clientEvidencePresent(client))) continue;
-    const manualRemediation = manualRegistrationRemediation(client.name);
-    if (client.format === "unsupported") {
-      if (manualRemediation !== undefined)
-        record({
-          client: client.name,
-          config_path: client.markerPath ?? client.configPath,
-          command: [],
-          state: "manual",
-          remediation: manualRemediation,
-        });
-      continue;
-    }
+  const evaluateClient = async (client: SetupClient): Promise<void> => {
     try {
       const files = await readClientConfigurationFiles(
         client,
@@ -157,12 +130,26 @@ export const readClientRegistrationInspections = async (
           state: "invalid",
           remediation: files.error.detail,
         });
-        continue;
+        return;
       }
       const parsed = effectiveClientConfiguration(files.value);
+      // ZCode loads ~/.agents/mcp.json whenever its native mcp.servers table
+      // is empty, so the status must come from that fallback there, with the
+      // same admission a fallback write target gets during uninstall.
+      if (
+        client.format === "zcode" &&
+        client.zcodeFallbackPath !== undefined &&
+        (parsed === undefined || Object.keys(parsed.servers).length === 0) &&
+        (await exists(client.zcodeFallbackPath))
+      )
+        return evaluateClient({
+          ...client,
+          configPath: client.zcodeFallbackPath,
+          format: "zcode_fallback",
+        });
       if (parsed === undefined) {
         record(unavailableStatus(client, "missing"));
-        continue;
+        return;
       }
       const policy = await readClientPolicyBlock(
         client,
@@ -178,7 +165,7 @@ export const readClientRegistrationInspections = async (
           state: "invalid",
           remediation: policy.error.detail,
         });
-        continue;
+        return;
       }
       const policyBlock = policy.value;
       const raw = effectiveClientServer(parsed, PRODUCT_IDENTITY.mcpServerKey);
@@ -195,10 +182,10 @@ export const readClientRegistrationInspections = async (
             state: "invalid",
             remediation: editabilityError.message,
           });
-          continue;
+          return;
         }
         record(unavailableStatus(client, "missing"));
-        continue;
+        return;
       }
       const registration = parseRegistration(raw, client);
       const command: RegistrationCommand = [
@@ -240,6 +227,36 @@ export const readClientRegistrationInspections = async (
         unavailableStatus(client, isMissing(cause) ? "missing" : "invalid"),
       );
     }
+  };
+  for (const client of supportedClients(
+    home,
+    options.platform,
+    options.environment,
+  )) {
+    if (client.configPathError !== undefined) {
+      record({
+        client: client.name,
+        config_path: client.configPath,
+        command: [],
+        state: "invalid",
+        remediation: client.configPathError,
+      });
+      continue;
+    }
+    if (!(await clientEvidencePresent(client))) continue;
+    const manualRemediation = manualRegistrationRemediation(client.name);
+    if (client.format === "unsupported") {
+      if (manualRemediation !== undefined)
+        record({
+          client: client.name,
+          config_path: client.markerPath ?? client.configPath,
+          command: [],
+          state: "manual",
+          remediation: manualRemediation,
+        });
+      continue;
+    }
+    await evaluateClient(client);
   }
   return inspections.sort((left, right) =>
     compareUnicodeCodePoints(left.status.client, right.status.client),
@@ -254,7 +271,8 @@ const registrationActivation = (
   (client.format !== "grok" && registration.disabled === true) ||
   (registration.enabled === false &&
     !clientServerForcedEnabled(parsed, PRODUCT_IDENTITY.mcpServerKey)) ||
-  (client.format === "zcode" && registration.enable === false) ||
+  ((client.format === "zcode" || client.format === "zcode_fallback") &&
+    registration.enable === false) ||
   clientServerListedDisabled(parsed, PRODUCT_IDENTITY.mcpServerKey)
     ? "disabled"
     : "enabled";

@@ -422,6 +422,92 @@ describe("ZCode fallback admission", () => {
   );
 });
 
+describe("ZCode fallback registration status", () => {
+  const fallbackPath = (home: string) => join(home, ".agents", "mcp.json");
+
+  const statusFor = async (home: string) =>
+    (
+      await readClientRegistrationStatuses(home, undefined, {
+        platform: process.platform,
+        environment: {},
+      })
+    ).find(({ client }) => client === "zcode");
+
+  const writeFallbackRegistration = async (
+    home: string,
+    entry: Record<string, unknown>,
+  ) => {
+    await mkdir(join(home, ".agents"), { recursive: true });
+    await writeFile(
+      fallbackPath(home),
+      JSON.stringify({ mcpServers: { rea: entry } }, null, 2),
+    );
+  };
+
+  it("reports the registration an empty native table loads from the fallback", async () => {
+    const { home } = await zcodeClient();
+    await writeFallbackRegistration(home, {
+      command: command[0],
+      args: command.slice(1),
+    });
+
+    await expect(statusFor(home)).resolves.toMatchObject({
+      state: "aligned",
+      config_path: fallbackPath(home),
+    });
+  });
+
+  it("reports fallback package drift as stale instead of missing", async () => {
+    const { home } = await zcodeClient();
+    await writeFallbackRegistration(home, {
+      command: command[0],
+      args: command
+        .slice(1)
+        .map((argument) =>
+          argument.includes("rea-agents@")
+            ? argument.replace(/@\S+/u, "@0.0.1")
+            : argument,
+        ),
+    });
+
+    await expect(statusFor(home)).resolves.toMatchObject({
+      state: "stale",
+      config_path: fallbackPath(home),
+    });
+  });
+
+  it("fails closed on a malformed fallback during status", async () => {
+    const { home } = await zcodeClient();
+    await mkdir(join(home, ".agents"), { recursive: true });
+    await writeFile(fallbackPath(home), "{ not json");
+
+    await expect(statusFor(home)).resolves.toMatchObject({
+      state: "invalid",
+    });
+  });
+
+  it("keeps reporting missing when a nonempty native table suppresses the fallback", async () => {
+    const { home, client } = await zcodeClient();
+    await writeFallbackRegistration(home, {
+      command: command[0],
+      args: command.slice(1),
+    });
+    await writeFile(
+      client.configPath,
+      JSON.stringify(
+        { mcp: { servers: { existing: { command: "existing-server" } } } },
+        null,
+        2,
+      ),
+    );
+
+    await expect(statusFor(home)).resolves.toMatchObject({
+      state: "missing",
+      config_path: client.configPath,
+    });
+  });
+});
+
 describe("ZCode disabled registrations", () => {
   it("reports enable: false as stale and repairs it on setup", async () => {
     const { home, client } = await zcodeClient();
