@@ -78,12 +78,12 @@ it("does not resolve a parameter named require as a module dependency", () => {
   );
 });
 
-it("keeps a top-level wrapper require redeclaration", () => {
+it("keeps a formatless top-level require redeclaration unresolved", () => {
   const analysis = analyzeJavaScriptStaticSource(
     `var require; require("./wrapper.cjs");`,
   );
   expect(analysis.references).toContainEqual(
-    expect.objectContaining({ specifier: "./wrapper.cjs" }),
+    expect.objectContaining({ kind: "require", specifier: null }),
   );
 });
 
