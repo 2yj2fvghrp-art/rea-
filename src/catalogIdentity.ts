@@ -1,15 +1,14 @@
 import { createHash } from "node:crypto";
 
 import canonicalize from "canonicalize";
+import { z } from "zod";
+
 import { PROMPT_CONTRACTS } from "./contracts/promptContracts.js";
 import { TOOL_CONTRACTS } from "./contracts/toolContracts.js";
 import type { ToolContract } from "./contracts/toolContractTypes.js";
-import {
-  toolInputSchemaWithMetadata,
-  toolOutputSchemaWithMetadata,
-} from "./contracts/toolSchemaMetadata.js";
 import { CLI_COMMAND_NAMES } from "./cliCommandNames.js";
 import { compareUnicodeCodePoints } from "./domain/unicodeCodePointOrder.js";
+import { advertisedInputJsonSchema } from "./contracts/toolSchemaMetadata.js";
 
 const sortByName = (
   contracts: readonly ToolContract[],
@@ -19,20 +18,6 @@ const sortByName = (
   );
 
 const sortedToolContracts = sortByName(TOOL_CONTRACTS);
-
-const inputSchemaProjection = (
-  schema: ToolContract["inputSchema"],
-): Record<string, unknown> =>
-  schema["~standard"].jsonSchema.input({
-    target: "draft-2020-12",
-  });
-
-const outputSchemaProjection = (
-  schema: ToolContract["outputSchema"],
-): Record<string, unknown> =>
-  schema["~standard"].jsonSchema.output({
-    target: "draft-2020-12",
-  });
 
 /**
  * Digested per-tool projection. Every contract field that changes what a
@@ -49,10 +34,13 @@ const createToolCatalog = (contracts: readonly ToolContract[]) =>
     effects: { ...contract.effects },
     returns_target_content: contract.returnsTargetContent,
     annotations: contract.annotations,
-    input_schema: inputSchemaProjection(toolInputSchemaWithMetadata(contract)),
-    output_schema: outputSchemaProjection(
-      toolOutputSchemaWithMetadata(contract),
-    ),
+    input_schema: advertisedInputJsonSchema(contract),
+    output_schema: {
+      type: "object",
+      ...z.toJSONSchema(contract.outputSchema, {
+        unrepresentable: "any",
+      }),
+    },
   }));
 
 const promptCatalog = PROMPT_CONTRACTS.map((contract) => ({
