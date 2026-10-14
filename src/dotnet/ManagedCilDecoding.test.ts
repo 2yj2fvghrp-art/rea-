@@ -678,6 +678,93 @@ describe("managed exception section decoding", () => {
     });
   });
 
+  it("reads a small exception section whose legacy size omits the header", () => {
+    // VB and MC++ compilers wrote DataSize as the clause bytes alone.
+    const finallyClause = (dataSize: number) => {
+      const section = Buffer.alloc(16);
+      section[0] = 0x01;
+      section[1] = dataSize;
+      section.writeUInt16LE(2, 4);
+      return section;
+    };
+    const conformant = managedBodyWithSections(finallyClause(16));
+    const legacy = managedBodyWithSections(finallyClause(12));
+
+    expect(conformant).toMatchObject({
+      status: "present",
+      issue: null,
+      exception_regions: [{ flags: 2, try_offset: 0, handler_offset: 0 }],
+    });
+    expect(conformant?.normalized_il_sha256).not.toBeNull();
+    expect(legacy).toEqual(conformant);
+  });
+
+  it("advances past a legacy small exception section to the next section", () => {
+    const first = Buffer.alloc(16);
+    first[0] = 0x81;
+    first[1] = 12;
+    first.writeUInt16LE(2, 4);
+    const second = Buffer.alloc(16);
+    second[0] = 0x01;
+    second[1] = second.length;
+    expect(managedBodyWithSections(first, second)).toMatchObject({
+      status: "present",
+      issue: null,
+      exception_regions: [
+        expect.objectContaining({ flags: 2 }),
+        expect.objectContaining({ flags: 0 }),
+      ],
+    });
+  });
+
+  it("keeps fat exception section sizes header-inclusive", () => {
+    const section = Buffer.alloc(24);
+    section[0] = 0x41;
+    section[1] = section.length;
+
+    expect(managedBodyWithSections(section)).toMatchObject({
+      status: "malformed",
+      exception_regions: [],
+      issue: "Exception section size does not contain whole clauses",
+    });
+  });
+
+  it.each([
+    { bodyOffset: 0xfe0, status: "present", issue: null },
+    {
+      bodyOffset: 0xfe4,
+      status: "malformed",
+      issue: "Exception section size leaves artifact",
+    },
+  ])(
+    "bounds a legacy small section at $bodyOffset",
+    ({ bodyOffset, status, issue }) => {
+      const bytes = buildManagedPeFixture();
+      const methodRow = inspectManagedMembersBytes(
+        bytes,
+        managedPeFixtureTarget(bytes),
+      ).methods[0]?.row_offset;
+      expect(methodRow).toBeDefined();
+      if (methodRow === undefined) return;
+      // The file-backed method section ends at 0x1000. The 16-byte section
+      // fits after a body at 0xfe0; at 0xfe4 only its 12 declared bytes do.
+      const body = Buffer.alloc(32);
+      body.writeUInt16LE(0x301b, 0);
+      body.writeUInt16LE(8, 2);
+      body.writeUInt32LE(1, 4);
+      body[12] = 0x2a;
+      body[16] = 0x01;
+      body[17] = 12;
+      body.subarray(0, 0x1000 - bodyOffset).copy(bytes, bodyOffset);
+      bytes.writeUInt32LE(bodyOffset + 0x1e00, methodRow);
+
+      expect(
+        inspectManagedMembersBytes(bytes, managedPeFixtureTarget(bytes))
+          .methods[0]?.body,
+      ).toMatchObject({ status, issue });
+    },
+  );
+
   it("reads every chained exception section", () => {
     const first = Buffer.alloc(16);
     first[0] = 0x81;

@@ -534,16 +534,23 @@ export const parseExceptionRegions = (
         (bytes.readUInt8(sectionOffset + 3) << 16)
       : bytes.readUInt8(sectionOffset + 1);
     const clauseSize = fat ? 24 : 12;
+    // ECMA-335 counts the 4-byte section header in DataSize. Legacy VB and
+    // MC++ compilers omitted it from small EH sections, and CoreCLR accepts
+    // that layout (COR_ILMETHOD_SECT::DataSize in corhlpr.h). A conformant
+    // small size is never a whole multiple of the clause size, so the two
+    // layouts cannot be confused.
+    const span =
+      !fat && size >= clauseSize && size % clauseSize === 0 ? size + 4 : size;
     if (
-      size < 4 ||
-      sectionOffset > methodEnd - size ||
-      sectionOffset > bytes.length - size
+      span < 4 ||
+      sectionOffset > methodEnd - span ||
+      sectionOffset > bytes.length - span
     )
       return malformedExceptionRegions(
         "Exception section size leaves artifact",
         regions,
       );
-    if ((size - 4) % clauseSize !== 0)
+    if ((span - 4) % clauseSize !== 0)
       return malformedExceptionRegions(
         "Exception section size does not contain whole clauses",
         regions,
@@ -557,7 +564,7 @@ export const parseExceptionRegions = (
         regions,
       );
 
-    const count = (size - 4) / clauseSize;
+    const count = (span - 4) / clauseSize;
     // Accumulates with the method IL bound; the body reserves what it retains.
     budget?.admitTransient(count * 256, sectionOffset);
     for (const region of readExceptionClauses(
@@ -569,7 +576,7 @@ export const parseExceptionRegions = (
       regions.push(region);
 
     hasMoreSections = (kind & 0x80) !== 0;
-    sectionOffset += size;
+    sectionOffset += span;
   }
   return { status: "complete", regions };
 };
