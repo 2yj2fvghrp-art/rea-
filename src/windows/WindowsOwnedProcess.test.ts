@@ -42,6 +42,7 @@ const authority = (
     /** Observations the job reports after termination, in order. */
     readonly afterTerminate?: readonly unknown[];
     readonly appliedLimit?: (requested: unknown) => unknown;
+    readonly failClose?: () => boolean;
   } = {},
 ) => {
   const calls: { operation: string; arguments_: readonly unknown[] }[] = [];
@@ -106,7 +107,10 @@ const authority = (
         );
         return true;
       }
-      if (operation === "process_close") return null;
+      if (operation === "process_close") {
+        if (options.failClose?.()) throw new Error("native close failed");
+        return null;
+      }
       throw new Error(`Unmodeled native operation ${operation}`);
     },
   };
@@ -240,6 +244,43 @@ describe("Windows Job Object lifecycle and poll ownership", () => {
       calls.filter(({ operation }) => operation === "process_poll"),
     ).toHaveLength(2);
     expect(calls.at(-1)?.operation).toBe("process_close");
+  });
+});
+
+describe("Windows native release retry", () => {
+  it("ends output streams and retains ownership for a failed close retry", async () => {
+    vi.useFakeTimers();
+    let shouldFailClose = true;
+    try {
+      const { native, calls } = authority({
+        polls: [{ ...settledPoll }, { ...settledPoll }],
+        failClose: () => shouldFailClose,
+      });
+      const child = launch(native);
+      const failures: string[] = [];
+      child.on("error", (error: Error) => failures.push(error.message));
+      const closed = new Promise<void>((resolve) => {
+        child.once("close", () => resolve());
+      });
+
+      await vi.advanceTimersByTimeAsync(25);
+      expect(child.stdout.writableEnded).toBe(true);
+      expect(child.stderr.writableEnded).toBe(true);
+      expect(failures).toContain("native close failed");
+      expect(calls.some(({ operation }) => operation === "process_close")).toBe(
+        true,
+      );
+
+      shouldFailClose = false;
+      const cleanup = child.cleanup();
+      await vi.advanceTimersByTimeAsync(25);
+      expect(await cleanup).toMatchObject({ cleaned: true });
+      await closed;
+      expect(child.stdout.writableEnded).toBe(true);
+      expect(child.stderr.writableEnded).toBe(true);
+    } finally {
+      vi.useRealTimers();
+    }
   });
 });
 
