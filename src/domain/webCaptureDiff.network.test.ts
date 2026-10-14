@@ -248,6 +248,60 @@ describe("independent WebSocket inventory evidence", () => {
   });
 });
 
+describe("repeated HTTP request identity uncertainty", () => {
+  it.each([true, false])(
+    "keeps repeated-request regrouping unknown when one type is missing (shapes selected=%s)",
+    (selected) => {
+      const before = passiveNetworkCapture(["/a", "/a"]);
+      const after = structuredClone(before);
+      after.network.requests[1]!.resource_type = null;
+      if (!selected)
+        for (const capture of [before, after]) unselectedShapes(capture);
+      for (const [left, right] of [
+        [before, after],
+        [after, before],
+      ] as const)
+        expect(compare(left, right)).toMatchObject({
+          status: "unknown",
+          total_changes: 0,
+          changes: [],
+        });
+    },
+  );
+
+  it("retains a known repeated-request count change", () => {
+    const before = unselectedShapes(passiveNetworkCapture(["/a", "/a"]));
+    const after = unselectedShapes(passiveNetworkCapture());
+    for (const [left, right] of [
+      [before, after],
+      [after, before],
+    ] as const)
+      expect(compare(left, right)).toMatchObject({
+        status: "changed",
+        total_changes: 1,
+        changes: [{ change: "modified" }],
+      });
+  });
+
+  it("does not assign observed content to an ambiguous type bucket", () => {
+    const before = unselectedShapes(passiveNetworkCapture(["/a", "/a"]));
+    before.network.requests[1]!.resource_type = null;
+    before.network.requests[1]!.status = 503;
+    const after = structuredClone(before);
+    after.network.requests[0]!.status = 503;
+    after.network.requests[1]!.status = 200;
+    for (const [left, right] of [
+      [before, after],
+      [after, before],
+    ] as const)
+      expect(compare(left, right)).toMatchObject({
+        status: "unknown",
+        total_changes: 0,
+        changes: [],
+      });
+  });
+});
+
 describe("nullable HTTP request identities", () => {
   it.each([true, false])(
     "keeps known/unknown resource-type matches uncertain (shapes selected=%s)",

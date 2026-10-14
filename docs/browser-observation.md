@@ -279,8 +279,12 @@ REA retains local observation data and removes only URL userinfo credentials, ex
   attach-limited inventory complete or establish body-shape equality.
   An unavailable HTTP resource type also leaves request identity incomplete:
   observations with the same method and URL remain possible matches across types,
-  and identical unknown types cannot establish complete equality. Different
-  methods/URLs and complete empty peer inventories still support absence claims.
+  and identical unknown types cannot establish complete equality. Ambiguous type
+  groups cannot prove membership or content changes either: a missing type may
+  redistribute repeated requests between buckets without changing the requests.
+  Their comparison remains unknown, while independently identified groups retain
+  proven changes. Different methods/URLs and complete empty peer inventories still
+  support absence claims.
   Relevant dropped-event counts also limit inventory completeness even when no
   section is listed as truncated: HTTP uses `network_requests`, while WebSocket
   uses `websocket_connections` and `websocket_frames`. Drops in other event kinds

@@ -257,15 +257,15 @@ const networkIdentityCoverage = (
   after: WebPageInspection,
 ): {
   readonly complete: boolean;
-  readonly unprovenAbsences: ReadonlySet<string>;
+  readonly ambiguousIdentities: ReadonlySet<string>;
 } => {
   const complete = [before, after].every((inspection) =>
     inspection.network.requests.every(
       ({ resource_type }) => resource_type !== null,
     ),
   );
-  const unprovenAbsences = new Set<string>();
-  if (complete) return { complete, unprovenAbsences };
+  const ambiguousIdentities = new Set<string>();
+  if (complete) return { complete, ambiguousIdentities };
   type Request = WebPageInspection["network"]["requests"][number];
   const matchKey = (request: Request): string =>
     JSON.stringify([request.method, request.url]);
@@ -292,12 +292,12 @@ const networkIdentityCoverage = (
         peerUnknown === true ||
         (peerUnknown === false && request.resource_type === null)
       )
-        unprovenAbsences.add(networkIdentity(request));
+        ambiguousIdentities.add(networkIdentity(request));
     }
   };
   retainPotentialMatches(before, unknownTypes(after));
   retainPotentialMatches(after, unknownTypes(before));
-  return { complete, unprovenAbsences };
+  return { complete, ambiguousIdentities };
 };
 
 const networkResponseFields = [
@@ -417,12 +417,22 @@ const networkDimension = (
   );
   const compared = compareDimension(
     new Map([
-      ...networkMap(before, sources, responseFields),
+      ...networkMap(
+        before,
+        sources,
+        responseFields,
+        requestIdentities.ambiguousIdentities,
+      ),
       ...webSocketMetadataMap(beforeWebSockets),
       ...beforeWebSocketPayload,
     ]),
     new Map([
-      ...networkMap(after, sources, responseFields),
+      ...networkMap(
+        after,
+        sources,
+        responseFields,
+        requestIdentities.ambiguousIdentities,
+      ),
       ...webSocketMetadataMap(afterWebSockets),
       ...afterWebSocketPayload,
     ]),
@@ -434,12 +444,12 @@ const networkDimension = (
       webSocketShapesComplete,
     requestIdentities.complete
       ? "Network capture or selected HTTP/WebSocket payload-shape coverage is limited, unavailable, incomplete, or includes dropped network events."
-      : "HTTP request identity is incomplete because a resource type is unavailable; absence of a potentially matching request and complete network equality cannot be established.",
+      : "HTTP request identity is incomplete because a resource type is unavailable; potentially matching type groups cannot establish membership/content changes or complete network equality.",
     // HTTP and WebSocket identities have independent inventory coverage. Shape
     // selection can prevent equality without erasing proven membership changes.
     (identity) =>
       identity.startsWith("net_")
-        ? requestsComplete && !requestIdentities.unprovenAbsences.has(identity)
+        ? requestsComplete
         : identity.startsWith("ws_") && webSocketInventoryComplete,
   );
   return compared.status === "unchanged" && !responseFieldsComplete
@@ -456,10 +466,14 @@ const networkMap = (
   inspection: WebPageInspection,
   sources: ReadonlyMap<string, BodyShapeSources>,
   responseFields: ReadonlyMap<string, ReadonlySet<NetworkResponseField>>,
+  ambiguousIdentities: ReadonlySet<string>,
 ): ReadonlyMap<string, string> => {
   const grouped = new Map<string, unknown[]>();
   for (const request of inspection.network.requests) {
     const identity = networkIdentity(request);
+    // A missing type can move repeated requests between these buckets. Neither
+    // their counts nor fingerprints establish a change to that typed group.
+    if (ambiguousIdentities.has(identity)) continue;
     const shapes = sources.get(identity);
     const values = grouped.get(identity) ?? [];
     const response: Record<string, unknown> = {};

@@ -36,6 +36,9 @@ cliTest.for(["CLI", "stdio MCP"] as const)(
       url: "wss://app.example.test/live",
       events: [],
     });
+    const repeated = passiveNetworkCapture(["/a", "/a"]);
+    const repeatedUnknown = structuredClone(repeated);
+    repeatedUnknown.network.requests[1]!.resource_type = null;
     const unknownIdentity = structuredClone(before);
     unknownIdentity.network.requests[0]!.resource_type = null;
     const unknownIdentityAdded = structuredClone(after);
@@ -76,6 +79,13 @@ cliTest.for(["CLI", "stdio MCP"] as const)(
       ["equal unavailable", before, before, null],
       ["incomplete inventory", incomplete, after, null],
       ["limited WebSocket inventory", wsBefore, wsAfter, "added"],
+      ["repeated request type uncertainty", repeated, repeatedUnknown, null],
+      [
+        "repeated request type uncertainty reversed",
+        repeatedUnknown,
+        repeated,
+        null,
+      ],
       ["unknown request identity", before, unknownIdentity, null],
       ["unknown request identity reversed", unknownIdentity, before, null],
       [
