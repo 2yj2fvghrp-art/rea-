@@ -257,6 +257,8 @@ interface ParseMethodsInput {
   readonly pe: ManagedPeLayout;
   readonly ranges: readonly TypeRange[];
   readonly selected?: SelectedTypeTokens;
+  readonly methodOffset?: number;
+  readonly methodLimit?: number;
 }
 
 export const parseMethods = ({
@@ -265,20 +267,44 @@ export const parseMethods = ({
   pe,
   ranges,
   selected = null,
+  methodOffset = 0,
+  methodLimit = Number.MAX_SAFE_INTEGER,
 }: ParseMethodsInput): {
   readonly methods: readonly ManagedMethod[];
   readonly core: ReadonlyMap<string, MemberCore>;
   readonly issues: readonly ManagedParseIssue[];
+  /**
+   * Methods that may belong to a selected type but whose CIL was not fully
+   * scanned: rows that produced no method, or bodies whose decoding stopped.
+   */
+  readonly unscannedMethods: number;
 } => {
   const methods: ManagedMethod[] = [];
   const core = new Map<string, MemberCore>();
   const issues: ManagedParseIssue[] = [];
+  let unscannedMethods = 0;
   const table = layout.table(6);
   const ownerRow = readManagedValue(
     () => memberDeclaringTypeRowLookup(bytes, layout, 6),
     issues,
   );
   for (let row = 1; row <= (table?.rowCount ?? 0); row += 1) {
+    // The owner is read first: a row that produced no method hides a selected
+    // body only when its owner is selected, unknown, or unreadably named.
+    const owner =
+      ownerRow === undefined
+        ? undefined
+        : readManagedValue(() => ownerRow(row), issues);
+    const declared = owner === undefined ? undefined : ranges[owner - 1];
+    const inPage = row > methodOffset && row - methodOffset <= methodLimit;
+    const mayBeSelected =
+      inPage &&
+      (selected === null ||
+        owner === undefined ||
+        isSelected(selected, declared) ||
+        // A type whose name is unreadable may be one the caller requested.
+        declared?.fullName === null);
+    const produced = methods.length;
     readManagedValue(() => {
       const cursor = metadataRowCursor(bytes, layout, 6, row);
       const rva = cursor.readUInt32();
@@ -290,11 +316,6 @@ export const parseMethods = ({
         cursor.readIndex(layout.stringIndexSize),
         layout.strings.size,
       );
-      const owner =
-        ownerRow === undefined
-          ? 0
-          : (readManagedValue(() => ownerRow(row), issues) ?? 0);
-      const declared = ranges[owner - 1];
       const token = metadataToken(6, row);
       const member = {
         token,
@@ -303,6 +324,7 @@ export const parseMethods = ({
         kind: "method",
       } as const;
       core.set(token, member);
+      if (!inPage) return;
       if (!isSelected(selected, declared)) return;
       const sig = readMetadataBlob(
         bytes,
@@ -316,6 +338,14 @@ export const parseMethods = ({
         ...member,
         genericArity: signatureGenericArity(decoded),
       });
+      const read = methodBody(
+        bytes,
+        pe,
+        rva,
+        { implFlags, flags },
+        managedDecodeBudget(layout),
+      );
+      if (!read.scanned) unscannedMethods += 1;
       methods.push({
         token,
         row_offset: cursor.start,
@@ -326,17 +356,12 @@ export const parseMethods = ({
         impl_flags: implFlags,
         flags,
         signature: decoded,
-        body: methodBody(
-          bytes,
-          pe,
-          rva,
-          { implFlags, flags },
-          managedDecodeBudget(layout),
-        ),
+        body: read.body,
       });
     }, issues);
+    if (mayBeSelected && methods.length === produced) unscannedMethods += 1;
   }
-  return { methods, core, issues };
+  return { methods, core, issues, unscannedMethods };
 };
 
 /**
