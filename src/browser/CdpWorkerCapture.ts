@@ -57,7 +57,7 @@ export class CdpWorkerCapture {
   readonly #serviceClients = new Map<
     string,
     {
-      clients: readonly string[] | null;
+      clients: readonly string[];
       lifecycle: Observation["lifecycle"][number];
     }
   >();
@@ -616,7 +616,10 @@ export class CdpWorkerCapture {
         version_status: cdpStringValue(version.status) ?? null,
         controls_page: this.#controlsPage(clients),
       };
-      this.#serviceClients.set(id, { clients, lifecycle });
+      // An incomplete event remains unknown, but must not erase the last
+      // observed client IDs needed to revoke ownership when a frame detaches.
+      if (clients !== null)
+        this.#serviceClients.set(id, { clients, lifecycle });
       this.#updateControl(id, lifecycle.controls_page);
       const worker = this.#workers.get(id);
       if (worker === undefined) {

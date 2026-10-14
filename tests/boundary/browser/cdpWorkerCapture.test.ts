@@ -17,6 +17,7 @@ import { projectRuntimeCaptures } from "../../../src/domain/javascript/javascrip
 import { parseEvidence } from "../../../src/domain/evidence.js";
 import { createTestTempDirectory } from "../../fixtures/temporaryDirectory.js";
 import { CdpBrowserProvider } from "../../../src/browser/CdpBrowserProvider.js";
+import type { CdpEvent } from "../../../src/browser/CdpConnection.js";
 import { inspectWebPageInputSchema } from "../../../src/domain/browserObservation.js";
 import { analyzeWebBundleInputSchema } from "../../../src/domain/webBundleAnalysis.js";
 import {
@@ -1103,7 +1104,15 @@ it("observes workers reached through an allowed iframe session and releases it",
   );
 });
 
-it.each(["before", "after", "foreign", "detached"] as const)(
+it.each([
+  "before",
+  "before-unknown",
+  "after",
+  "foreign",
+  "detached",
+  "detached-unknown",
+  "detached-malformed",
+] as const)(
   "scopes service worker clients to owned iframe targets (%s)",
   async (order) => {
     const { provider, input, browser } = await fixture({
@@ -1156,11 +1165,26 @@ it.each(["before", "after", "foreign", "detached"] as const)(
             },
           },
         };
-        const events =
-          order === "before"
-            ? [version, service, frame]
-            : [frame, version, service];
-        return order === "detached"
+        const versions: CdpEvent[] = [version];
+        if (order.includes("unknown") || order.includes("malformed"))
+          versions.push({
+            ...version,
+            params: {
+              versions: [
+                {
+                  targetId: "service",
+                  status: "activated",
+                  ...(order.includes("malformed")
+                    ? { controlledClients: [42] }
+                    : {}),
+                },
+              ],
+            },
+          });
+        const events = order.startsWith("before")
+          ? [...versions, service, frame]
+          : [frame, ...versions, service];
+        return order.startsWith("detached")
           ? [
               ...events,
               {
@@ -1180,10 +1204,16 @@ it.each(["before", "after", "foreign", "detached"] as const)(
     const enabled = browser.commands.some(
       (c) => c.sessionId === "worker-service" && c.method === "Debugger.enable",
     );
-    if (order === "foreign" || order === "detached") {
+    if (order.includes("unknown") || order.includes("malformed"))
+      expect(
+        observation?.lifecycle
+          .filter((event) => event.event === "version")
+          .map((event) => event.controls_page),
+      ).toEqual([true, null]);
+    if (order === "foreign" || order.startsWith("detached")) {
       if (order === "foreign") expect(enabled).toBe(false);
       expect(observation?.scripts).toEqual([]);
-      if (order === "detached")
+      if (order.startsWith("detached"))
         expect(observation?.completeness.unavailable_sections).toContain(
           "scripts",
         );
