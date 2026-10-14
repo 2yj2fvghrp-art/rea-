@@ -323,10 +323,12 @@ describe("guided prompt completion from multi-substep inspections", () => {
     const validInventory = artifactInventoryResultSchema.parse(
       ARTIFACT_COMPARISON_EXAMPLE.right.normalized_result,
     );
+    const firstSubstep = validInspection.substeps[0];
+    if (!firstSubstep) throw new Error("expected at least one substep in fixture");
     const malformedSubstep = {
-      ...validInspection.substeps[0],
+      ...firstSubstep,
       evidence: {
-        ...validInspection.substeps[0].evidence,
+        ...firstSubstep.evidence,
         normalized_result: { not: "an inventory" },
       },
     };
