@@ -176,9 +176,11 @@ it("retains code checks when documentation code is removed or renamed to Markdow
   });
 });
 
-it("selects code checks for documentation filenames containing line breaks", async () => {
+it("selects code checks for documentation filenames containing line separators", async () => {
   const { directory, base } = await fixture();
-  const head = await change(directory, ["docs/.vitepress/navigation\nmenu.ts"]);
+  const head = await change(directory, [
+    "docs/.vitepress/navigation\u2028menu.ts",
+  ]);
   expect(await classify(directory, base, head)).toMatchObject({
     code: true,
     docs: true,
