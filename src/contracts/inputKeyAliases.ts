@@ -42,8 +42,13 @@ export const canonicalInputKeys = (
 export const compatibleToolInputSchema = <Schema extends z.ZodObject>(
   schema: Schema,
 ): z.ZodType<z.output<Schema>, z.input<Schema>> => {
+  // With exactOptionalPropertyTypes, TypeScript cannot relate a generic object
+  // schema, or its preprocess wrapper, to the schema's own inferred input and
+  // output. Both parse Schema's accepted spellings into Schema's output.
+  const typed = (value: unknown) =>
+    value as z.ZodType<z.output<Schema>, z.input<Schema>>;
   const aliases = inputKeyAliasesFor(schema);
-  if (Object.keys(aliases).length === 0) return schema;
+  if (Object.keys(aliases).length === 0) return typed(schema);
   let shapes: z.ZodRawShape[] = [schema.shape];
   for (const [alias, canonical] of Object.entries(aliases))
     shapes = shapes.flatMap((shape) => {
@@ -53,21 +58,23 @@ export const compatibleToolInputSchema = <Schema extends z.ZodObject>(
       return [shape, alternative];
     });
   const accepted = z.union(shapes.map((shape) => z.strictObject(shape)));
-  const canonical = z.preprocess((value, context) => {
-    if (typeof value !== "object" || value === null || Array.isArray(value))
-      return value;
-    const input = Object.fromEntries(Object.entries(value));
-    for (const [alias, key] of Object.entries(aliases)) {
-      if (Object.hasOwn(input, alias) && Object.hasOwn(input, key)) {
-        context.addIssue({
-          code: "custom",
-          message: `Supply either ${key} or ${alias}, not both`,
-        });
-        return z.NEVER;
+  const canonical = typed(
+    z.preprocess((value, context) => {
+      if (typeof value !== "object" || value === null || Array.isArray(value))
+        return value;
+      const input = Object.fromEntries(Object.entries(value));
+      for (const [alias, key] of Object.entries(aliases)) {
+        if (Object.hasOwn(input, alias) && Object.hasOwn(input, key)) {
+          context.addIssue({
+            code: "custom",
+            message: `Supply either ${key} or ${alias}, not both`,
+          });
+          return z.NEVER;
+        }
       }
-    }
-    return canonicalInputKeys(input, aliases);
-  }, schema);
+      return canonicalInputKeys(input, aliases);
+    }, schema),
+  );
   return withAdvertisedJsonSchema(canonical, "input", () => (options) => {
     const projected = accepted["~standard"].jsonSchema.input(options);
     const alternatives = Array.isArray(projected.anyOf) ? projected.anyOf : [];
