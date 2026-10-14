@@ -14300,18 +14300,6 @@ msgstr ""
 "Geben Sie Ihrem Agenten nach dem Verbinden den vollständigen Pfad des "
 "Originalprogramms und nennen Sie den Analyseanbieter:"
 
-#. {ph0}: <code>/absolute/path/to/program</code>
-#: website/public/get-started/index.html:1350
-#, python-brace-format
-msgctxt "page:get-started/index.html"
-msgid ""
-"Use REA with Ghidra to inspect {ph0}. List its functions and strings, then "
-"explain the part that handles user input with references to the code."
-msgstr ""
-"Untersuche {ph0} mit REA und Ghidra. Liste die Funktionen und Zeichenfolgen "
-"auf und erkläre dann den Teil, der Benutzereingaben verarbeitet. Verweise "
-"dabei auf den Code."
-
 #. {ph0}: <a href="../guides/native/">
 #. {ph1}: </a>
 #: website/public/get-started/index.html:1357
@@ -15334,6 +15322,29 @@ msgstr ""
 "Falls Ihre Shell {ph0} nicht findet, verwenden Sie den vom Installer "
 "ausgegebenen Pfad zur ausführbaren Datei. Unter Linux lautet der Standard-"
 "Setup-Befehl {ph1}."
+
+#. {ph0}: <code>/absolute/path/to/program</code>
+#: website/public/get-started/index.html:1350
+#, python-brace-format
+msgctxt "page:get-started/index.html"
+msgid ""
+"Use REA with my configured provider to inspect {ph0}. List its functions and"
+" strings, then explain the part that handles user input with references to "
+"the code."
+msgstr ""
+"Untersuche {ph0} mit REA und meinem konfigurierten Analysewerkzeug. Liste "
+"die Funktionen und Zeichenketten auf und erkläre dann mit Codeverweisen den "
+"Teil, der Benutzereingaben verarbeitet."
+
+#, python-brace-format
+#~ msgctxt "page:get-started/index.html"
+#~ msgid ""
+#~ "Use REA with Ghidra to inspect {ph0}. List its functions and strings, then "
+#~ "explain the part that handles user input with references to the code."
+#~ msgstr ""
+#~ "Untersuche {ph0} mit REA und Ghidra. Liste die Funktionen und Zeichenfolgen "
+#~ "auf und erkläre dann den Teil, der Benutzereingaben verarbeitet. Verweise "
+#~ "dabei auf den Code."
 
 #~ msgctxt "page:index.html"
 #~ msgid "Play the reconstruction"

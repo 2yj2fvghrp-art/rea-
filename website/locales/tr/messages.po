@@ -14018,18 +14018,6 @@ msgstr ""
 "Bağlantı kurulduğunda ajanınıza özgün çalıştırılabilir dosyanın tam yolunu "
 "verin ve analiz sağlayıcınızı belirtin:"
 
-#. {ph0}: <code>/absolute/path/to/program</code>
-#: website/public/get-started/index.html:1350
-#, python-brace-format
-msgctxt "page:get-started/index.html"
-msgid ""
-"Use REA with Ghidra to inspect {ph0}. List its functions and strings, then "
-"explain the part that handles user input with references to the code."
-msgstr ""
-"{ph0} dosyasını Ghidra ile REA kullanarak incele. Fonksiyonları ve metin "
-"dizelerini listele, ardından kullanıcı girdisini işleyen bölümü kod "
-"referanslarıyla açıkla."
-
 #. {ph0}: <a href="../guides/native/">
 #. {ph1}: </a>
 #: website/public/get-started/index.html:1357
@@ -15032,6 +15020,29 @@ msgid ""
 msgstr ""
 "Kabuk {ph0} komutunu bulamıyorsa yükleyicinin yazdırdığı yürütülebilir dosya"
 " yolunu kullanın. Linux'ta varsayılan kurulum komutu {ph1} şeklindedir."
+
+#. {ph0}: <code>/absolute/path/to/program</code>
+#: website/public/get-started/index.html:1350
+#, python-brace-format
+msgctxt "page:get-started/index.html"
+msgid ""
+"Use REA with my configured provider to inspect {ph0}. List its functions and"
+" strings, then explain the part that handles user input with references to "
+"the code."
+msgstr ""
+"REA ve yapılandırdığım sağlayıcıyla {ph0} dosyasını incele. İşlevlerini ve "
+"dizelerini listele, ardından kullanıcı girdisini işleyen bölümü kod "
+"referanslarıyla açıkla."
+
+#, python-brace-format
+#~ msgctxt "page:get-started/index.html"
+#~ msgid ""
+#~ "Use REA with Ghidra to inspect {ph0}. List its functions and strings, then "
+#~ "explain the part that handles user input with references to the code."
+#~ msgstr ""
+#~ "{ph0} dosyasını Ghidra ile REA kullanarak incele. Fonksiyonları ve metin "
+#~ "dizelerini listele, ardından kullanıcı girdisini işleyen bölümü kod "
+#~ "referanslarıyla açıkla."
 
 #~ msgctxt "page:index.html"
 #~ msgid "Play the reconstruction"

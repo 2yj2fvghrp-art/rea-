@@ -2941,7 +2941,9 @@ msgctxt "page:first-investigation/index.html"
 msgid ""
 "{ph0}How Notion copies text and HTML{ph1}{ph2}Follow a clipboard feature in "
 "a packaged Electron app.{ph3}"
-msgstr "{ph0}어떻게 Notion 텍스트 복사{ph1}{ph2}패키지에서 클립보드 기능 따르기 Electron 앱{ph3}"
+msgstr ""
+"{ph0}Notion이 텍스트와 HTML을 복사하는 방법{ph1}{ph2}패키징된 Electron 앱의 클립보드 기능을 "
+"추적합니다.{ph3}"
 
 #. {ph0}: <a href="../showcase/dx-ball/" >
 #. {ph1}: </a >
@@ -8143,12 +8145,12 @@ msgstr "공정거래위원회 사례 연구 읽기"
 #: website/public/showcase/index.html:241
 msgctxt "page:showcase/index.html"
 msgid "Native · Reconstruction"
-msgstr "기본*재건"
+msgstr "네이티브 프로그램 · 재구현"
 
 #: website/public/showcase/index.html:243
 msgctxt "page:showcase/index.html"
 msgid "DX-Ball's sound-pan calculation"
-msgstr "DX-Ball's 운 팬 계산"
+msgstr "DX-Ball의 좌우 음향 배분 계산"
 
 #: website/public/showcase/index.html:244
 msgctxt "page:showcase/index.html"
@@ -8173,7 +8175,7 @@ msgstr "Electron·기능 추적"
 #: website/public/showcase/index.html:262
 msgctxt "page:showcase/index.html"
 msgid "How Notion copies text and HTML"
-msgstr "어떻게 Notion 텍스트 복사"
+msgstr "Notion이 텍스트와 HTML을 복사하는 방법"
 
 #: website/public/showcase/index.html:263
 msgctxt "page:showcase/index.html"
@@ -12349,7 +12351,7 @@ msgstr "Electron·기능 추적"
 #: website/public/index.html:1047
 msgctxt "page:index.html"
 msgid "How Notion copies text and HTML"
-msgstr "어떻게 Notion 텍스트 복사"
+msgstr "Notion이 텍스트와 HTML을 복사하는 방법"
 
 #: website/public/index.html:1052
 msgctxt "page:index.html"
@@ -12359,12 +12361,12 @@ msgstr "읽Notion사례 연구"
 #: website/public/index.html:1057
 msgctxt "page:index.html"
 msgid "Native · Reconstruction"
-msgstr "기본*재건"
+msgstr "네이티브 프로그램 · 재구현"
 
 #: website/public/index.html:1058
 msgctxt "page:index.html"
 msgid "DX-Ball's sound-pan calculation"
-msgstr "DX-Ball's 운 팬 계산"
+msgstr "DX-Ball의 좌우 음향 배분 계산"
 
 #: website/public/index.html:1063
 msgctxt "page:index.html"
@@ -13086,17 +13088,6 @@ msgid ""
 "Once connected, give your agent the original executable's full path and name"
 " your provider:"
 msgstr "연결한 뒤 원본 실행 파일의 전체 경로와 사용할 분석 도구를 에이전트에 알려 주세요."
-
-#. {ph0}: <code>/absolute/path/to/program</code>
-#: website/public/get-started/index.html:1350
-#, python-brace-format
-msgctxt "page:get-started/index.html"
-msgid ""
-"Use REA with Ghidra to inspect {ph0}. List its functions and strings, then "
-"explain the part that handles user input with references to the code."
-msgstr ""
-"REA와 Ghidra로 {ph0}를 조사해 주세요. 함수와 문자열을 나열하고, 사용자 입력을 처리하는 부분을 코드 참조와 함께 설명해 "
-"주세요."
 
 #. {ph0}: <a href="../guides/native/">
 #. {ph1}: </a>
@@ -14032,6 +14023,27 @@ msgid ""
 "installer. On Linux, the default setup command is {ph1}."
 msgstr ""
 "셸에서 {ph0}를 찾지 못하면 설치 프로그램이 출력한 실행 파일 경로를 사용하세요. Linux의 기본 설정 명령은 {ph1}입니다."
+
+#. {ph0}: <code>/absolute/path/to/program</code>
+#: website/public/get-started/index.html:1350
+#, python-brace-format
+msgctxt "page:get-started/index.html"
+msgid ""
+"Use REA with my configured provider to inspect {ph0}. List its functions and"
+" strings, then explain the part that handles user input with references to "
+"the code."
+msgstr ""
+"REA와 제가 설정한 분석 도구로 {ph0}를 조사해 주세요. 함수와 문자열을 나열한 뒤, 사용자 입력을 처리하는 부분을 코드 참조와 "
+"함께 설명해 주세요."
+
+#, python-brace-format
+#~ msgctxt "page:get-started/index.html"
+#~ msgid ""
+#~ "Use REA with Ghidra to inspect {ph0}. List its functions and strings, then "
+#~ "explain the part that handles user input with references to the code."
+#~ msgstr ""
+#~ "REA와 Ghidra로 {ph0}를 조사해 주세요. 함수와 문자열을 나열하고, 사용자 입력을 처리하는 부분을 코드 참조와 함께 설명해 "
+#~ "주세요."
 
 #~ msgctxt "page:index.html"
 #~ msgid "Play the reconstruction"

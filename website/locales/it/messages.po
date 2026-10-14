@@ -14142,18 +14142,6 @@ msgstr ""
 "Una volta collegato, fornisci all'agente il percorso completo "
 "dell'eseguibile originale e indica il provider:"
 
-#. {ph0}: <code>/absolute/path/to/program</code>
-#: website/public/get-started/index.html:1350
-#, python-brace-format
-msgctxt "page:get-started/index.html"
-msgid ""
-"Use REA with Ghidra to inspect {ph0}. List its functions and strings, then "
-"explain the part that handles user input with references to the code."
-msgstr ""
-"Usa REA con Ghidra per analizzare {ph0}. Elenca le funzioni e le stringhe, "
-"poi spiega la parte che gestisce l'input dell'utente con riferimenti al "
-"codice."
-
 #. {ph0}: <a href="../guides/native/">
 #. {ph1}: </a>
 #: website/public/get-started/index.html:1357
@@ -15162,6 +15150,29 @@ msgstr ""
 "Se la shell non trova {ph0}, usa il percorso dell'eseguibile mostrato dal "
 "programma di installazione. Su Linux, il comando di configurazione "
 "predefinito è {ph1}."
+
+#. {ph0}: <code>/absolute/path/to/program</code>
+#: website/public/get-started/index.html:1350
+#, python-brace-format
+msgctxt "page:get-started/index.html"
+msgid ""
+"Use REA with my configured provider to inspect {ph0}. List its functions and"
+" strings, then explain the part that handles user input with references to "
+"the code."
+msgstr ""
+"Usa REA con il provider che ho configurato per analizzare {ph0}. Elenca le "
+"funzioni e le stringhe, poi spiega la parte che gestisce l'input dell'utente"
+" con riferimenti al codice."
+
+#, python-brace-format
+#~ msgctxt "page:get-started/index.html"
+#~ msgid ""
+#~ "Use REA with Ghidra to inspect {ph0}. List its functions and strings, then "
+#~ "explain the part that handles user input with references to the code."
+#~ msgstr ""
+#~ "Usa REA con Ghidra per analizzare {ph0}. Elenca le funzioni e le stringhe, "
+#~ "poi spiega la parte che gestisce l'input dell'utente con riferimenti al "
+#~ "codice."
 
 #~ msgctxt "page:index.html"
 #~ msgid "Play the reconstruction"

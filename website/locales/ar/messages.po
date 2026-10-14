@@ -13728,17 +13728,6 @@ msgstr ""
 "بعد الربط، أعط مساعدك المسار الكامل للملف التنفيذي الأصلي واذكر أداة "
 "التحليل:"
 
-#. {ph0}: <code>/absolute/path/to/program</code>
-#: website/public/get-started/index.html:1350
-#, python-brace-format
-msgctxt "page:get-started/index.html"
-msgid ""
-"Use REA with Ghidra to inspect {ph0}. List its functions and strings, then "
-"explain the part that handles user input with references to the code."
-msgstr ""
-"استخدم REA مع Ghidra لفحص {ph0}. اعرض الدوال والسلاسل النصية، ثم اشرح الجزء "
-"الذي يعالج إدخال المستخدم مع مراجع إلى الكود."
-
 #. {ph0}: <a href="../guides/native/">
 #. {ph1}: </a>
 #: website/public/get-started/index.html:1357
@@ -14710,6 +14699,27 @@ msgid ""
 msgstr ""
 "إذا لم تجد الصدفة {ph0}، فاستخدم مسار الملف التنفيذي الذي يطبعه المثبّت. في "
 "Linux، أمر الإعداد الافتراضي هو {ph1}."
+
+#. {ph0}: <code>/absolute/path/to/program</code>
+#: website/public/get-started/index.html:1350
+#, python-brace-format
+msgctxt "page:get-started/index.html"
+msgid ""
+"Use REA with my configured provider to inspect {ph0}. List its functions and"
+" strings, then explain the part that handles user input with references to "
+"the code."
+msgstr ""
+"استخدم REA مع أداة التحليل التي أعددتها لفحص {ph0}. اعرض الدوال والنصوص، ثم "
+"اشرح الجزء الذي يعالج مدخلات المستخدم مع الإشارة إلى الكود."
+
+#, python-brace-format
+#~ msgctxt "page:get-started/index.html"
+#~ msgid ""
+#~ "Use REA with Ghidra to inspect {ph0}. List its functions and strings, then "
+#~ "explain the part that handles user input with references to the code."
+#~ msgstr ""
+#~ "استخدم REA مع Ghidra لفحص {ph0}. اعرض الدوال والسلاسل النصية، ثم اشرح الجزء "
+#~ "الذي يعالج إدخال المستخدم مع مراجع إلى الكود."
 
 #~ msgctxt "page:index.html"
 #~ msgid "Play the reconstruction"

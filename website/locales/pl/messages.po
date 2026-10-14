@@ -14034,18 +14034,6 @@ msgstr ""
 "Po połączeniu podaj agentowi pełną ścieżkę do oryginalnego pliku "
 "wykonywalnego i nazwę dostawcy analizy:"
 
-#. {ph0}: <code>/absolute/path/to/program</code>
-#: website/public/get-started/index.html:1350
-#, python-brace-format
-msgctxt "page:get-started/index.html"
-msgid ""
-"Use REA with Ghidra to inspect {ph0}. List its functions and strings, then "
-"explain the part that handles user input with references to the code."
-msgstr ""
-"Użyj REA z Ghidra do zbadania {ph0}. Wypisz funkcje i ciągi znaków, a "
-"następnie wyjaśnij część obsługującą dane wejściowe użytkownika, ze "
-"wskazaniem odpowiedniego kodu."
-
 #. {ph0}: <a href="../guides/native/">
 #. {ph1}: </a>
 #: website/public/get-started/index.html:1357
@@ -15053,6 +15041,29 @@ msgstr ""
 "Jeśli powłoka nie znajduje {ph0}, użyj ścieżki pliku wykonywalnego "
 "wyświetlonej przez instalator. W systemie Linux domyślne polecenie "
 "konfiguracji to {ph1}."
+
+#. {ph0}: <code>/absolute/path/to/program</code>
+#: website/public/get-started/index.html:1350
+#, python-brace-format
+msgctxt "page:get-started/index.html"
+msgid ""
+"Use REA with my configured provider to inspect {ph0}. List its functions and"
+" strings, then explain the part that handles user input with references to "
+"the code."
+msgstr ""
+"Użyj REA z dostawcą, którego skonfigurowałem, aby zbadać {ph0}. Wymień "
+"funkcje i ciągi znaków, a następnie wyjaśnij część obsługującą dane "
+"użytkownika, podając odwołania do kodu."
+
+#, python-brace-format
+#~ msgctxt "page:get-started/index.html"
+#~ msgid ""
+#~ "Use REA with Ghidra to inspect {ph0}. List its functions and strings, then "
+#~ "explain the part that handles user input with references to the code."
+#~ msgstr ""
+#~ "Użyj REA z Ghidra do zbadania {ph0}. Wypisz funkcje i ciągi znaków, a "
+#~ "następnie wyjaśnij część obsługującą dane wejściowe użytkownika, ze "
+#~ "wskazaniem odpowiedniego kodu."
 
 #~ msgctxt "page:index.html"
 #~ msgid "Play the reconstruction"

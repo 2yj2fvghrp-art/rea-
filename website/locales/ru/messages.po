@@ -14151,17 +14151,6 @@ msgstr ""
 "После подключения сообщите агенту полный путь к исходному исполняемому файлу"
 " и укажите провайдер анализа:"
 
-#. {ph0}: <code>/absolute/path/to/program</code>
-#: website/public/get-started/index.html:1350
-#, python-brace-format
-msgctxt "page:get-started/index.html"
-msgid ""
-"Use REA with Ghidra to inspect {ph0}. List its functions and strings, then "
-"explain the part that handles user input with references to the code."
-msgstr ""
-"Исследуй {ph0} с помощью REA и Ghidra. Перечисли функции и строки, затем "
-"объясни часть, обрабатывающую ввод пользователя, со ссылками на код."
-
 #. {ph0}: <a href="../guides/native/">
 #. {ph1}: </a>
 #: website/public/get-started/index.html:1357
@@ -15166,6 +15155,28 @@ msgid ""
 msgstr ""
 "Если оболочка не находит {ph0}, используйте путь к исполняемому файлу, "
 "который вывел установщик. В Linux команда настройки по умолчанию — {ph1}."
+
+#. {ph0}: <code>/absolute/path/to/program</code>
+#: website/public/get-started/index.html:1350
+#, python-brace-format
+msgctxt "page:get-started/index.html"
+msgid ""
+"Use REA with my configured provider to inspect {ph0}. List its functions and"
+" strings, then explain the part that handles user input with references to "
+"the code."
+msgstr ""
+"Используй REA с настроенным мной провайдером, чтобы исследовать {ph0}. "
+"Перечисли функции и строки, затем объясни часть, обрабатывающую "
+"пользовательский ввод, со ссылками на код."
+
+#, python-brace-format
+#~ msgctxt "page:get-started/index.html"
+#~ msgid ""
+#~ "Use REA with Ghidra to inspect {ph0}. List its functions and strings, then "
+#~ "explain the part that handles user input with references to the code."
+#~ msgstr ""
+#~ "Исследуй {ph0} с помощью REA и Ghidra. Перечисли функции и строки, затем "
+#~ "объясни часть, обрабатывающую ввод пользователя, со ссылками на код."
 
 #~ msgctxt "page:index.html"
 #~ msgid "Play the reconstruction"

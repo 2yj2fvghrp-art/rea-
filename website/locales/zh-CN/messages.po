@@ -12756,15 +12756,6 @@ msgid ""
 " your provider:"
 msgstr "连接后，把原始可执行文件的完整路径和分析工具名称告诉编程助手："
 
-#. {ph0}: <code>/absolute/path/to/program</code>
-#: website/public/get-started/index.html:1350
-#, python-brace-format
-msgctxt "page:get-started/index.html"
-msgid ""
-"Use REA with Ghidra to inspect {ph0}. List its functions and strings, then "
-"explain the part that handles user input with references to the code."
-msgstr "用 REA 和 Ghidra 检查 {ph0}。列出函数和字符串，再解释处理用户输入的部分，并给出对应的代码位置。"
-
 #. {ph0}: <a href="../guides/native/">
 #. {ph1}: </a>
 #: website/public/get-started/index.html:1357
@@ -13681,6 +13672,23 @@ msgid ""
 "If your shell can't find {ph0}, use the executable path printed by the "
 "installer. On Linux, the default setup command is {ph1}."
 msgstr "如果终端找不到 {ph0}，请使用安装器打印的可执行文件路径。在 Linux 上，默认的设置命令是 {ph1}。"
+
+#. {ph0}: <code>/absolute/path/to/program</code>
+#: website/public/get-started/index.html:1350
+#, python-brace-format
+msgctxt "page:get-started/index.html"
+msgid ""
+"Use REA with my configured provider to inspect {ph0}. List its functions and"
+" strings, then explain the part that handles user input with references to "
+"the code."
+msgstr "使用 REA 和我已配置的分析工具检查 {ph0}。列出其中的函数和字符串，然后说明处理用户输入的部分，并给出代码引用。"
+
+#, python-brace-format
+#~ msgctxt "page:get-started/index.html"
+#~ msgid ""
+#~ "Use REA with Ghidra to inspect {ph0}. List its functions and strings, then "
+#~ "explain the part that handles user input with references to the code."
+#~ msgstr "用 REA 和 Ghidra 检查 {ph0}。列出函数和字符串，再解释处理用户输入的部分，并给出对应的代码位置。"
 
 #~ msgctxt "page:index.html"
 #~ msgid "Play the reconstruction"

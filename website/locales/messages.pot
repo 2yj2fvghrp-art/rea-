@@ -5172,8 +5172,8 @@ msgstr ""
 #, python-brace-format
 msgctxt "page:get-started/index.html"
 msgid ""
-"Use REA with Ghidra to inspect {ph0}. List its functions and strings, then explain the"
-" part that handles user input with references to the code."
+"Use REA with my configured provider to inspect {ph0}. List its functions and strings, "
+"then explain the part that handles user input with references to the code."
 msgstr ""
 
 #. {ph0}: <a href="../guides/native/">

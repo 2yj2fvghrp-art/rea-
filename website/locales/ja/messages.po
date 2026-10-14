@@ -13055,16 +13055,6 @@ msgid ""
 " your provider:"
 msgstr "接続したら、元の実行ファイルのフルパスと、使う分析プロバイダーをエージェントに伝えてください。"
 
-#. {ph0}: <code>/absolute/path/to/program</code>
-#: website/public/get-started/index.html:1350
-#, python-brace-format
-msgctxt "page:get-started/index.html"
-msgid ""
-"Use REA with Ghidra to inspect {ph0}. List its functions and strings, then "
-"explain the part that handles user input with references to the code."
-msgstr ""
-"REAとGhidraを使って{ph0}を調べてください。関数と文字列を一覧にし、ユーザー入力を処理する部分をコードの参照付きで説明してください。"
-
 #. {ph0}: <a href="../guides/native/">
 #. {ph1}: </a>
 #: website/public/get-started/index.html:1357
@@ -13996,6 +13986,25 @@ msgid ""
 "installer. On Linux, the default setup command is {ph1}."
 msgstr ""
 "シェルが{ph0}を見つけられない場合は、インストーラーが表示した実行ファイルのパスを使ってください。Linuxでの標準のセットアップコマンドは{ph1}です。"
+
+#. {ph0}: <code>/absolute/path/to/program</code>
+#: website/public/get-started/index.html:1350
+#, python-brace-format
+msgctxt "page:get-started/index.html"
+msgid ""
+"Use REA with my configured provider to inspect {ph0}. List its functions and"
+" strings, then explain the part that handles user input with references to "
+"the code."
+msgstr ""
+"REAと設定済みの解析ツールで{ph0}を調べてください。関数と文字列を一覧にし、ユーザー入力を処理する部分をコードの参照付きで説明してください。"
+
+#, python-brace-format
+#~ msgctxt "page:get-started/index.html"
+#~ msgid ""
+#~ "Use REA with Ghidra to inspect {ph0}. List its functions and strings, then "
+#~ "explain the part that handles user input with references to the code."
+#~ msgstr ""
+#~ "REAとGhidraを使って{ph0}を調べてください。関数と文字列を一覧にし、ユーザー入力を処理する部分をコードの参照付きで説明してください。"
 
 #~ msgctxt "page:index.html"
 #~ msgid "Play the reconstruction"

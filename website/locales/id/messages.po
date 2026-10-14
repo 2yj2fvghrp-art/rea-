@@ -14079,18 +14079,6 @@ msgstr ""
 "Setelah terhubung, berikan jalur lengkap berkas program asli kepada agen dan"
 " sebutkan penyedia analisismu:"
 
-#. {ph0}: <code>/absolute/path/to/program</code>
-#: website/public/get-started/index.html:1350
-#, python-brace-format
-msgctxt "page:get-started/index.html"
-msgid ""
-"Use REA with Ghidra to inspect {ph0}. List its functions and strings, then "
-"explain the part that handles user input with references to the code."
-msgstr ""
-"Gunakan REA dengan Ghidra untuk memeriksa {ph0}. Daftar fungsi dan string-"
-"nya, lalu jelaskan bagian yang menangani masukan pengguna dengan referensi "
-"ke kode."
-
 #. {ph0}: <a href="../guides/native/">
 #. {ph1}: </a>
 #: website/public/get-started/index.html:1357
@@ -15098,6 +15086,29 @@ msgid ""
 msgstr ""
 "Jika shell tidak menemukan {ph0}, gunakan jalur file eksekusi yang "
 "ditampilkan installer. Di Linux, perintah penyiapan default adalah {ph1}."
+
+#. {ph0}: <code>/absolute/path/to/program</code>
+#: website/public/get-started/index.html:1350
+#, python-brace-format
+msgctxt "page:get-started/index.html"
+msgid ""
+"Use REA with my configured provider to inspect {ph0}. List its functions and"
+" strings, then explain the part that handles user input with references to "
+"the code."
+msgstr ""
+"Gunakan REA dengan alat analisis yang sudah saya konfigurasikan untuk "
+"memeriksa {ph0}. Daftarkan fungsi dan string-nya, lalu jelaskan bagian yang "
+"menangani input pengguna dengan referensi ke kode."
+
+#, python-brace-format
+#~ msgctxt "page:get-started/index.html"
+#~ msgid ""
+#~ "Use REA with Ghidra to inspect {ph0}. List its functions and strings, then "
+#~ "explain the part that handles user input with references to the code."
+#~ msgstr ""
+#~ "Gunakan REA dengan Ghidra untuk memeriksa {ph0}. Daftar fungsi dan string-"
+#~ "nya, lalu jelaskan bagian yang menangani masukan pengguna dengan referensi "
+#~ "ke kode."
 
 #~ msgctxt "page:index.html"
 #~ msgid "Play the reconstruction"

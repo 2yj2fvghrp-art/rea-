@@ -14196,18 +14196,6 @@ msgstr ""
 "Una vez conectado, dale a tu agente la ruta completa del ejecutable original"
 " e indica el proveedor de análisis:"
 
-#. {ph0}: <code>/absolute/path/to/program</code>
-#: website/public/get-started/index.html:1350
-#, python-brace-format
-msgctxt "page:get-started/index.html"
-msgid ""
-"Use REA with Ghidra to inspect {ph0}. List its functions and strings, then "
-"explain the part that handles user input with references to the code."
-msgstr ""
-"Usa REA con Ghidra para inspeccionar {ph0}. Enumera sus funciones y cadenas "
-"de texto y después explica la parte que procesa las entradas del usuario, "
-"con referencias al código."
-
 #. {ph0}: <a href="../guides/native/">
 #. {ph1}: </a>
 #: website/public/get-started/index.html:1357
@@ -15217,6 +15205,29 @@ msgid ""
 msgstr ""
 "Si el shell no encuentra {ph0}, usa la ruta del ejecutable que muestra el "
 "instalador. En Linux, el comando de configuración predeterminado es {ph1}."
+
+#. {ph0}: <code>/absolute/path/to/program</code>
+#: website/public/get-started/index.html:1350
+#, python-brace-format
+msgctxt "page:get-started/index.html"
+msgid ""
+"Use REA with my configured provider to inspect {ph0}. List its functions and"
+" strings, then explain the part that handles user input with references to "
+"the code."
+msgstr ""
+"Usa REA con el proveedor que he configurado para inspeccionar {ph0}. Enumera"
+" sus funciones y cadenas, y después explica la parte que procesa la entrada "
+"del usuario con referencias al código."
+
+#, python-brace-format
+#~ msgctxt "page:get-started/index.html"
+#~ msgid ""
+#~ "Use REA with Ghidra to inspect {ph0}. List its functions and strings, then "
+#~ "explain the part that handles user input with references to the code."
+#~ msgstr ""
+#~ "Usa REA con Ghidra para inspeccionar {ph0}. Enumera sus funciones y cadenas "
+#~ "de texto y después explica la parte que procesa las entradas del usuario, "
+#~ "con referencias al código."
 
 #~ msgctxt "page:index.html"
 #~ msgid "Play the reconstruction"

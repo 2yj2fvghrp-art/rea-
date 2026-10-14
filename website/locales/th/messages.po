@@ -13771,17 +13771,6 @@ msgstr ""
 "ให้บอกพาธเต็มของไฟล์ปฏิบัติการต้นฉบับและชื่อเครื่องมือวิเคราะห์แก่ผู้ช่วย "
 "AI:"
 
-#. {ph0}: <code>/absolute/path/to/program</code>
-#: website/public/get-started/index.html:1350
-#, python-brace-format
-msgctxt "page:get-started/index.html"
-msgid ""
-"Use REA with Ghidra to inspect {ph0}. List its functions and strings, then "
-"explain the part that handles user input with references to the code."
-msgstr ""
-"ใช้ REA กับ Ghidra สำรวจ {ph0} แสดงรายการฟังก์ชันและสตริง "
-"แล้วอธิบายส่วนที่จัดการข้อมูลจากผู้ใช้ พร้อมอ้างอิงโค้ด"
-
 #. {ph0}: <a href="../guides/native/">
 #. {ph1}: </a>
 #: website/public/get-started/index.html:1357
@@ -14764,6 +14753,28 @@ msgid ""
 msgstr ""
 "หากเชลล์หา {ph0} ไม่พบ ให้ใช้พาธไฟล์ปฏิบัติการที่ตัวติดตั้งแสดงไว้ บน Linux "
 "คำสั่งตั้งค่าเริ่มต้นคือ {ph1}"
+
+#. {ph0}: <code>/absolute/path/to/program</code>
+#: website/public/get-started/index.html:1350
+#, python-brace-format
+msgctxt "page:get-started/index.html"
+msgid ""
+"Use REA with my configured provider to inspect {ph0}. List its functions and"
+" strings, then explain the part that handles user input with references to "
+"the code."
+msgstr ""
+"ใช้ REA กับเครื่องมือวิเคราะห์ที่ฉันตั้งค่าไว้เพื่อตรวจสอบ {ph0} "
+"แสดงรายการฟังก์ชันและสตริง "
+"แล้วอธิบายส่วนที่จัดการอินพุตของผู้ใช้พร้อมอ้างอิงโค้ด"
+
+#, python-brace-format
+#~ msgctxt "page:get-started/index.html"
+#~ msgid ""
+#~ "Use REA with Ghidra to inspect {ph0}. List its functions and strings, then "
+#~ "explain the part that handles user input with references to the code."
+#~ msgstr ""
+#~ "ใช้ REA กับ Ghidra สำรวจ {ph0} แสดงรายการฟังก์ชันและสตริง "
+#~ "แล้วอธิบายส่วนที่จัดการข้อมูลจากผู้ใช้ พร้อมอ้างอิงโค้ด"
 
 #~ msgctxt "page:index.html"
 #~ msgid "Play the reconstruction"

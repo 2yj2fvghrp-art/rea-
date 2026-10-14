@@ -13993,17 +13993,6 @@ msgstr ""
 "Sau khi kết nối, cung cấp cho trợ lý AI đường dẫn đầy đủ của tệp thực thi "
 "gốc và tên công cụ phân tích:"
 
-#. {ph0}: <code>/absolute/path/to/program</code>
-#: website/public/get-started/index.html:1350
-#, python-brace-format
-msgctxt "page:get-started/index.html"
-msgid ""
-"Use REA with Ghidra to inspect {ph0}. List its functions and strings, then "
-"explain the part that handles user input with references to the code."
-msgstr ""
-"Dùng REA với Ghidra để kiểm tra {ph0}. Liệt kê các hàm và chuỗi, rồi giải "
-"thích phần xử lý đầu vào người dùng kèm tham chiếu đến mã."
-
 #. {ph0}: <a href="../guides/native/">
 #. {ph1}: </a>
 #: website/public/get-started/index.html:1357
@@ -15001,6 +14990,28 @@ msgid ""
 msgstr ""
 "Nếu shell không tìm thấy {ph0}, hãy dùng đường dẫn tệp thực thi mà trình cài"
 " đặt in ra. Trên Linux, lệnh thiết lập mặc định là {ph1}."
+
+#. {ph0}: <code>/absolute/path/to/program</code>
+#: website/public/get-started/index.html:1350
+#, python-brace-format
+msgctxt "page:get-started/index.html"
+msgid ""
+"Use REA with my configured provider to inspect {ph0}. List its functions and"
+" strings, then explain the part that handles user input with references to "
+"the code."
+msgstr ""
+"Dùng REA với công cụ phân tích tôi đã cấu hình để kiểm tra {ph0}. Liệt kê "
+"các hàm và chuỗi, rồi giải thích phần xử lý dữ liệu người dùng nhập, kèm "
+"tham chiếu tới mã."
+
+#, python-brace-format
+#~ msgctxt "page:get-started/index.html"
+#~ msgid ""
+#~ "Use REA with Ghidra to inspect {ph0}. List its functions and strings, then "
+#~ "explain the part that handles user input with references to the code."
+#~ msgstr ""
+#~ "Dùng REA với Ghidra để kiểm tra {ph0}. Liệt kê các hàm và chuỗi, rồi giải "
+#~ "thích phần xử lý đầu vào người dùng kèm tham chiếu đến mã."
 
 #~ msgctxt "page:index.html"
 #~ msgid "Play the reconstruction"
