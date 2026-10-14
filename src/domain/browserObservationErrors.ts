@@ -24,6 +24,8 @@ export type BrowserObservationFailureReason =
   | "invalid_endpoint_response"
   | "target_not_found"
   | "target_not_allowed"
+  | "service_worker_blocked"
+  | "service_worker_guard_unavailable"
   | "target_changed"
   | "protocol_error"
   | "disconnected"

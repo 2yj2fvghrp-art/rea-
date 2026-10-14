@@ -18,6 +18,10 @@ final sanitized URL capture are supplied by default. Set
 For attached browsers, `block` rejects captures when the selected page or its
 frames are controlled by a service worker or already have a registration,
 including after navigation. Existing caller registrations are never removed.
+When REA cannot prove its live-frame registration guard is still installed, the
+operation fails with `service_worker_guard_unavailable` before querying existing
+registrations; confirmed active controllers or registrations fail with
+`service_worker_blocked`.
 Navigation can run destination code before a newly discovered worker is rejected;
 that rejection does not roll back browser effects. REA removes its owned
 future-document scripts, restores live frame methods, then disconnects.

@@ -392,6 +392,51 @@ it("retains native partial observations and cleanup uncertainty on provider fail
   expect(analysisErrorProjectionSchema.safeParse(projected).success).toBe(true);
 });
 
+it("projects a service-worker block with its caller-controlled remedy", () => {
+  const projected = projectAnalysisError(
+    new BrowserObservationError(
+      "capture_browser_scenario",
+      "service_worker_blocked",
+    ),
+  );
+
+  expect(projected).toMatchObject({
+    code: "target_unavailable",
+    category: "unavailable",
+    message: expect.stringContaining("service worker"),
+    remediation: {
+      action: expect.stringContaining("environment.service_workers to allow"),
+    },
+    details: {
+      operation: "capture_browser_scenario",
+      reason: "service_worker_blocked",
+    },
+  });
+});
+
+it("does not describe a missing service-worker guard as an existing worker", () => {
+  const projected = projectAnalysisError(
+    new BrowserObservationError(
+      "capture_browser_scenario",
+      "service_worker_guard_unavailable",
+    ),
+  );
+
+  expect(projected).toMatchObject({
+    code: "target_unavailable",
+    category: "unavailable",
+    message: expect.stringContaining("registration guard was unavailable"),
+    remediation: {
+      action: expect.stringContaining("supported attached browser page"),
+    },
+    details: {
+      operation: "capture_browser_scenario",
+      reason: "service_worker_guard_unavailable",
+    },
+  });
+  expect(projected.message).not.toContain("a service worker controls");
+});
+
 describe("analysis error projection: provider failures", () => {
   it("projects the primary browser failure alongside incomplete cleanup", () => {
     const projected = projectAnalysisError(
