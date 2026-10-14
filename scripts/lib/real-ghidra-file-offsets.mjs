@@ -14,7 +14,7 @@ import { promisify } from "node:util";
 import { Client } from "@modelcontextprotocol/client";
 import { StdioClientTransport } from "@modelcontextprotocol/client/stdio";
 import { parseEvidence } from "../../dist/domain/evidence.js";
-import { parseConfig } from "../../dist/config/parseConfig.js";
+import { resolveGhidraVerifierTimeouts } from "./ghidra-verifier-timeouts.mjs";
 import {
   requireMcpOperationResult,
   requireMcpToolError,
@@ -32,16 +32,8 @@ export async function verifyGhidraFileOffsets(
     REA_ANALYSIS_PROVIDER: "ghidra",
     REA_LOG_LEVEL: "silent",
   };
-  const configuration = parseConfig(environment);
-  if (!configuration.ok) throw configuration.error;
-  // A cold public query includes provider startup before its analysis request.
-  // Preserve the existing operation budget after the caller-selected startup
-  // deadline, rather than cancelling a valid startup with the outer verifier.
-  const timeoutMs = configuration.value.ghidraStartupTimeoutMs + 240_000;
-  if (timeoutMs > 2_147_483_647)
-    throw new RangeError(
-      "The Ghidra startup and verification operation budgets exceed the Node.js timer limit.",
-    );
+  const { publicRequestTimeoutMs: timeoutMs } =
+    resolveGhidraVerifierTimeouts(environment);
   const original = await readFile(targetPath);
   const workspace = await mkdtemp(join(tmpdir(), "rea-file-offsets-"));
   const runtime = join(workspace, "runtime");
