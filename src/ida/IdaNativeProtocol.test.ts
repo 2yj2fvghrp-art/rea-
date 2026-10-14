@@ -779,22 +779,40 @@ describe("native IDA attached operation admission", () => {
     await client.close();
   });
 
-  it("does not admit the headless-only containment and document operations", async () => {
+  it("does not admit headless-only containment in native attached mode", async () => {
     const { client, producer } = await fixture();
-    for (const [operation, parameters] of [
-      ["resolve_containing_procedure", { address: "0x1000" }],
-      ["list_documents", {}],
-    ] as const) {
-      const result = await client.execute(operation, parameters);
-
+    try {
+      const result = await client.execute("resolve_containing_procedure", {
+        address: "0x1000",
+      });
       expect(result.ok).toBe(false);
       if (!result.ok)
         expect(result.error._tag).toBe("AnalysisCapabilityUnavailableError");
+      expect(producer.calls, "nothing is dispatched upstream").toEqual([]);
+    } finally {
+      await client.close();
     }
-    expect(
-      producer.calls.some(({ name }) => name === "lookup_funcs"),
-      "nothing is dispatched upstream",
-    ).toBe(false);
-    await client.close();
+  });
+
+  it("lists only the admitted target with metadata checks and no attached database lifecycle calls", async () => {
+    const { client, producer, target, resources } = await fixture();
+    try {
+      const result = await client.execute("list_documents", {});
+      if (!result.ok) throw result.error;
+      expect(result.value.result).toEqual([target.path]);
+      expect(result.value.rawResult).toMatchObject({
+        metadata_before: { sha256: target.sha256 },
+        metadata_after: { sha256: target.sha256 },
+        observations: [],
+      });
+      expect(resources).toEqual(["ida://idb/metadata", "ida://idb/metadata"]);
+    } finally {
+      await client.close();
+    }
+    expect(producer.closes).toBe(1);
+    expect(producer.calls.map(({ name }) => name)).toEqual([
+      "get_metadata",
+      "get_metadata",
+    ]);
   });
 });

@@ -142,15 +142,30 @@ it("associates each source-map URL with its edge when aliases share one physical
           properties.declared_url_sha256 ===
           edge.properties.declared_url_sha256,
       );
+      const location = edge.evidence.location;
       return {
+        source_path:
+          location.available && location.value.kind === "source-range"
+            ? location.value.source
+            : null,
         declared_url: observation?.properties.declared_url,
         resolved_path: edge.properties.resolved_path,
       };
     }),
-  ).toEqual([
-    { declared_url: "app.js.map", resolved_path: "dist/app.js.map" },
-    { declared_url: "./app.js.map", resolved_path: "dist/app.js.map" },
-  ]);
+  ).toEqual(
+    expect.arrayContaining([
+      {
+        source_path: "dist/one.js",
+        declared_url: "app.js.map",
+        resolved_path: "dist/app.js.map",
+      },
+      {
+        source_path: "dist/two.js",
+        declared_url: "./app.js.map",
+        resolved_path: "dist/app.js.map",
+      },
+    ]),
+  );
 });
 
 it("resolves a bare source-map file name and worker URL next to the script", async () => {
@@ -191,6 +206,7 @@ it("resolves a bare source-map file name and worker URL next to the script", asy
       .update("app.js.map")
       .digest("hex"),
     resolved_path: "dist/app.js.map",
+    resolution_status: "resolved",
   });
   expect(
     nodes

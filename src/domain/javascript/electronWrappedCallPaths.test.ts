@@ -156,10 +156,16 @@ describe("wrapped contextBridge exposure methods", () => {
           expression: "worldId",
         },
         api_key: "isolatedApi",
+        api_status: "object-literal",
         members: ["ping"],
-        resolution_basis: "wrapper-substitution",
+        unknown_members: 0,
       }),
     );
+    expect(
+      result.electron.context_bridge_apis.find(
+        ({ api_key }) => api_key === "isolatedApi",
+      )?.resolution_basis,
+    ).toBeUndefined();
     expect(result.parse_status).toBe("partial");
   });
 

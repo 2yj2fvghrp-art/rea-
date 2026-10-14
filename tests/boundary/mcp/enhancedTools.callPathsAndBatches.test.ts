@@ -9,6 +9,7 @@ import {
   AnalysisOutputError,
 } from "../../../src/domain/analysisErrorCore.js";
 import type { RelationshipCoverage } from "../../../src/domain/relationshipCoverage.js";
+import { parseEvidence } from "../../../src/domain/evidence.js";
 import { err, ok as resultOk } from "../../../src/domain/result.js";
 
 import { closeEnhancedToolResources, connect } from "./enhancedToolsHarness.js";
@@ -125,8 +126,18 @@ describe("enhanced MCP tools", () => {
         limitations: [caveat],
       },
     });
-    expect(JSON.stringify(graph.structuredContent)?.split(caveat)).toHaveLength(
-      2,
+    const evidence = parseEvidence(graph.structuredContent);
+    // The graph owns one global caveat; the Evidence envelope independently
+    // retains upstream provenance. Neither graph node should repeat it or
+    // treat the generic caveat as incomplete relationship coverage.
+    expect(evidence.limitations.filter((value) => value === caveat)).toEqual([
+      caveat,
+    ]);
+    expect(evidence.normalized_result).not.toHaveProperty(
+      "graph.0.0.limitations",
+    );
+    expect(evidence.normalized_result).not.toHaveProperty(
+      "graph.1.0.limitations",
     );
 
     const trace = await client.callTool({

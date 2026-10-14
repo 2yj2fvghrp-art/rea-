@@ -202,20 +202,16 @@ const addEndpoint = (
     ) ?? input.asset;
   const key = compactStringIdentityKey(input.value.value);
   const candidate = input.value.interpretation === "candidate";
-  const label = `${input.value.kind} endpoint${candidate ? " candidate" : ""}`;
-  const candidateLimitations = [
-    "The overloaded callee name does not establish a network receiver; this literal may instead be a lookup key or another non-network argument.",
-  ];
-  const evidenceInput = {
-    sha256: input.file.sha256,
-    path: input.file.path,
-    range: input.value.location,
-    operation: "discover-static-endpoint",
-    coverage: input.coverage,
-  };
+  const candidateLimitation =
+    "The unbound method-like argument is only a candidate; its receiver does not establish a network call.";
+  const label = `${input.value.kind} ${candidate ? "endpoint candidate" : "endpoint"}`;
   const node = context.accumulator.addNode({
     kind: "endpoint",
-    identity: artifactLocalIdentity(input.file.sha256, input.value.kind, key),
+    identity: artifactLocalIdentity(
+      input.file.sha256,
+      input.value.kind,
+      JSON.stringify([input.value.interpretation ?? "literal", key]),
+    ),
     observations: [
       {
         label:
@@ -224,15 +220,25 @@ const addEndpoint = (
           endpoint_kind: input.value.kind,
           value: input.value.value,
           mechanism: input.value.mechanism,
-          ...(candidate ? { interpretation: "candidate" } : {}),
+          ...(candidate ? { interpretation: input.value.interpretation } : {}),
         },
         evidence: candidate
           ? staticInferenceEvidence({
-              ...evidenceInput,
+              sha256: input.file.sha256,
+              path: input.file.path,
+              range: input.value.location,
+              operation: "classify-static-endpoint-candidate",
+              coverage: input.coverage,
               confidence: "low",
-              limitations: candidateLimitations,
+              limitations: [candidateLimitation],
             })
-          : astObservationEvidence(evidenceInput),
+          : astObservationEvidence({
+              sha256: input.file.sha256,
+              path: input.file.path,
+              range: input.value.location,
+              operation: "discover-static-endpoint",
+              coverage: input.coverage,
+            }),
       },
     ],
   });
@@ -245,10 +251,13 @@ const addEndpoint = (
     relation: input.value.kind === "route" ? "exposes" : "calls",
     properties: {
       mechanism: input.value.mechanism,
-      ...(candidate ? { interpretation: "candidate" } : {}),
+      ...(candidate ? { interpretation: input.value.interpretation } : {}),
     },
     ...(candidate
-      ? { confidence: "low", limitations: candidateLimitations }
+      ? {
+          confidence: "low" as const,
+          limitations: [candidateLimitation],
+        }
       : {}),
   });
 };

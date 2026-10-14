@@ -238,7 +238,7 @@ const assertEndpointInterpretations = (
       state: "inferred",
       confidence: "low",
       limitations: expect.arrayContaining([
-        expect.stringContaining("does not establish a network receiver"),
+        expect.stringContaining("does not establish a network call"),
       ]),
     });
   }

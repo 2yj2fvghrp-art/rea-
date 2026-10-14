@@ -105,6 +105,7 @@ export const semanticTopLevelEffectFollowsCapture = (
   const before = position(capture);
   const after = position(effect);
   if (before === null || after === null) return false;
+  if (invocationInputPrecedesEffect(capture, effect, parents)) return true;
   if (positionPrecedes(before, after)) return true;
   if (
     before.body !== after.body ||
@@ -113,6 +114,43 @@ export const semanticTopLevelEffectFollowsCapture = (
   )
     return false;
   return expressionEvaluationPrecedes(capture, effect, parents);
+};
+
+/** An invocation receives its inputs only after their eager evaluation. */
+const invocationInputPrecedesEffect = (
+  capture: t.Node,
+  effect: t.Node | undefined,
+  parents: WeakMap<t.Node, t.Node>,
+): boolean => {
+  if (
+    !t.isCallExpression(effect) &&
+    !t.isOptionalCallExpression(effect) &&
+    !t.isNewExpression(effect)
+  )
+    return false;
+  let current = capture;
+  for (
+    let parent = parents.get(current);
+    parent;
+    parent = parents.get(current)
+  ) {
+    if (t.isFunction(parent)) return false;
+    if (
+      (t.isClassProperty(parent) ||
+        t.isClassPrivateProperty(parent) ||
+        t.isClassAccessorProperty(parent)) &&
+      !parent.static &&
+      parent.value === current
+    )
+      return false;
+    if (parent === effect)
+      return (
+        parent.callee === current ||
+        parent.arguments.some((argument) => argument === current)
+      );
+    current = parent;
+  }
+  return false;
 };
 
 /** Prove ordering only where JavaScript evaluates sibling expressions left-to-right. */
