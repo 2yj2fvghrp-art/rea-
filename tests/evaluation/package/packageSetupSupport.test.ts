@@ -3,16 +3,25 @@ import { describe, expect, it } from "vitest";
 import { packageSetupSupport } from "../../../scripts/verify-package-discovery.mjs";
 import { parseLinuxDistribution } from "../../../src/application/LinuxHopper.js";
 
-const osRelease = (fields: Record<string, string>) =>
+const osRelease = (
+  fields: Record<string, string>,
+  architecture: NodeJS.Architecture = "x64",
+) =>
   parseLinuxDistribution(
     Object.entries(fields)
       .map(([key, value]) => `${key}="${value}"`)
       .join("\n"),
+    architecture,
   );
 
 /** A Debian-family host REA supports that the Hopper package never tests. */
 const KALI = osRelease({ ID: "kali", VERSION_ID: "2026.3", ID_LIKE: "debian" });
 const UBUNTU_24 = osRelease({ ID: "ubuntu", VERSION_ID: "24.04" });
+/** A tested distribution on an architecture the pinned Hopper packages lack. */
+const UBUNTU_24_ARM64 = osRelease(
+  { ID: "ubuntu", VERSION_ID: "24.04" },
+  "arm64",
+);
 
 const checks = ({ node = true, host = true } = {}) => [
   { name: "node", ok: node },
@@ -27,6 +36,21 @@ describe("packaged setup support derivation", () => {
       packageSetupSupport(checks(), {
         platform: "linux",
         linuxDistribution: KALI,
+      }),
+    ).toEqual({
+      supportedSetupHost: true,
+      hopperReadinessRequired: true,
+      hopperSetupSupported: false,
+    });
+  });
+
+  it("keeps an arm64 host off the x86_64-only automated Hopper path", () => {
+    // ubuntu-24.04-arm runs REA, but every pinned Linux Hopper package is
+    // x86_64, so packaged setup must not expect an automated install there.
+    expect(
+      packageSetupSupport(checks(), {
+        platform: "linux",
+        linuxDistribution: UBUNTU_24_ARM64,
       }),
     ).toEqual({
       supportedSetupHost: true,
