@@ -1,6 +1,19 @@
 /** Maximum admitted vendor response bytes, shared by Hopper setup adapters. */
 export const HOPPER_DOWNLOAD_BYTES = 100_000_000;
 
+/**
+ * fetch follows redirects across schemes, so the starting HTTPS URL alone does
+ * not keep a vendor response on TLS. Admit only responses finally served over
+ * HTTPS; integrity checks still run on the returned bytes.
+ */
+export const servedOverHttps = (finalUrl: string): boolean => {
+  try {
+    return new URL(finalUrl).protocol === "https:";
+  } catch {
+    return false;
+  }
+};
+
 /** Bound observed response bytes before retaining them, including chunked bodies. */
 export const downloadHopperPackage = async (
   url: string,
@@ -17,6 +30,7 @@ export const downloadHopperPackage = async (
   const refused = { ok: false, bytes: new Uint8Array() };
   if (
     !response.ok ||
+    !servedOverHttps(response.url) ||
     Number(response.headers.get("content-length")) > HOPPER_DOWNLOAD_BYTES
   ) {
     await response.body?.cancel();
