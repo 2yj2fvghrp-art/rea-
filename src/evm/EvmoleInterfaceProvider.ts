@@ -445,7 +445,7 @@ export class EvmoleInterfaceProvider implements EvmInterfacePort {
       );
     } catch (cause: unknown) {
       if (cause instanceof OwnedCommandFailure)
-        processOwner = cause.cleanupOwner;
+        processOwner ??= cause.cleanupOwner;
       let fileFailure: EvmFileSizeFailureEvidence | undefined;
       let markerCleanupFailure: ArtifactReaderFailure | undefined;
       if (

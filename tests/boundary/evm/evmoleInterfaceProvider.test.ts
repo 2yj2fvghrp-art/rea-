@@ -165,12 +165,14 @@ it.runIf(!unsupportedHost)(
         reason: z.string(),
         previous_error: z
           .object({
-            failure_kind: z.string(),
+            code: z.string(),
+            details: z.object({ reason: z.string() }),
             stdout: z.unknown().optional(),
             stderr: z.unknown().optional(),
           })
-          .transform(({ failure_kind, stdout, stderr }) => ({
-            failure_kind,
+          .transform(({ code, details, stdout, stderr }) => ({
+            code,
+            reason: details.reason,
             output_repeated: stdout !== undefined || stderr !== undefined,
           })),
         captured_output: z.object({
@@ -183,7 +185,9 @@ it.runIf(!unsupportedHost)(
     expect(cleanup).toEqual({
       reason: "injected post-cleanup reporting failure",
       previous_error: {
-        failure_kind: "output-limit",
+        code: "unreadable_output",
+        reason:
+          "Command diagnostic output exceeded its complete-output budget.",
         output_repeated: false,
       },
       captured_output: { truncated: true, stderr: "", stdout: 1048576 },
@@ -266,7 +270,7 @@ it.runIf(!unsupportedHost).each(["completed", "malformed-reply"] as const)(
       reason: "injected retained cleanup failure",
       captured_output: { stderr: "worker completed", truncated: false },
       ...(scenario === "malformed-reply"
-        ? { previous_error: { code: "output_failure" } }
+        ? { previous_error: { code: "unreadable_output" } }
         : { previous_error: null }),
     });
     if (scenario === "completed")
