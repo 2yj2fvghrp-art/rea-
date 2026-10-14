@@ -144,6 +144,18 @@ const shadowedCases = [
     `for (var require = () => "local"; false;) { require("./ghost.cjs"); }`,
   ],
   [
+    "write in a do-while body shadows a later call",
+    `var require;\ndo { require = () => "local"; } while (false);\nrequire("./ghost.cjs");`,
+  ],
+  [
+    "write in a looping do-while body shadows a later call",
+    `var require;\nlet i = 0;\ndo { require = () => "local"; i += 1; } while (i < 1);\nrequire("./ghost.cjs");`,
+  ],
+  [
+    "write in a do-while body shadows a call in the loop test",
+    `var require;\ndo { require = () => "local"; } while (require("./ghost.cjs"), false);`,
+  ],
+  [
     "computed key write shadows a call in a later static field",
     `var require;\nclass C { [(require = () => "local", "k")]() {} static value = require("./ghost.cjs"); }`,
   ],
@@ -279,6 +291,16 @@ const loaderCases = [
     "write inside a never-entered loop does not hide the dependency",
     `var require;\nwhile (false) { require = localLoader; }\nrequire("./dep.cjs");`,
     ["./dep.cjs"],
+  ],
+  [
+    "write in a do-while body inside a skipped if does not hide the dependency",
+    `var require;\nif (false) { do { require = localLoader; } while (false); }\nrequire("./dep.cjs");`,
+    ["./dep.cjs"],
+  ],
+  [
+    "call before a do-while write keeps the loader",
+    `var require;\nrequire("./before.cjs");\ndo { require = localLoader; } while (false);`,
+    ["./before.cjs"],
   ],
   [
     "write in a skipped if branch does not hide the dependency",

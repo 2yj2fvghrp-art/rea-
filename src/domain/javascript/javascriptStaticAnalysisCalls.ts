@@ -767,6 +767,11 @@ const requireWriteShadowsCall = (
  * its own write. A classic `for` initializer runs exactly once before the
  * test and body, so the loop is not conditional for a write in its own head
  * either — `for (var require = local; false;) {}` still replaces the loader.
+ * A `do...while` body always runs once, so the loop is not conditional for a
+ * write in its own body either — `do { require = local; } while (false);
+ * require("./ghost.cjs")` still replaces the loader. Other loops (`while`,
+ * classic `for` bodies, `for...of`/`for...in`) may skip their body entirely,
+ * so they stay conditional.
  */
 const writeMustRunBeforeCall = (
   writeNode: t.Node,
@@ -784,8 +789,13 @@ const writeMustRunBeforeCall = (
         t.isSwitchCase(current) ||
         t.isTryStatement(current)) &&
       // A `for` initializer always runs once before the loop, so a write in
-      // the loop head is not work the loop may skip.
-      !(t.isForStatement(current) && current.init === child)
+      // the loop head is not work the loop may skip. A `do...while` body
+      // always runs once too, so a write in the body is not work the loop
+      // may skip either — the write provably runs before any call after the
+      // loop. Other loops may skip their body entirely, so they stay
+      // conditional.
+      !(t.isForStatement(current) && current.init === child) &&
+      !(t.isDoWhileStatement(current) && current.body === child)
     )
       writeBranches.set(current, child);
     child = current;
