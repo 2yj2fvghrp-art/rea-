@@ -499,10 +499,34 @@ export class GdbSessionManager {
     >
   > {
     let launched: SpawnedOwnedProviderProcess;
+    const callerRunId = Object.hasOwn(this.#environment, "REA_PROCESS_RUN_ID")
+      ? this.#environment.REA_PROCESS_RUN_ID
+      : undefined;
+    if (callerRunId !== undefined && /[\r\n]/u.test(callerRunId)) {
+      releaseReservation();
+      return err(
+        new AnalysisCapabilityUnavailableError(
+          "gdb",
+          "start_gdb_session",
+          "The caller's REA_PROCESS_RUN_ID contains a line break and cannot be preserved for the inferior.",
+        ),
+      );
+    }
     try {
       const spawnOptions: OwnedProviderProcessSpawnOptions = {
         command: this.#command,
-        arguments: ["--nx", "--quiet", `--interpreter=${miVersion}`],
+        arguments: [
+          "--nx",
+          "--quiet",
+          `--interpreter=${miVersion}`,
+          // GDB inherits REA's ownership token; the inferior must see the
+          // caller's value (or none) so a later sweep cannot mistake it for an
+          // owned process. Applied before any inferior exists, so no MI request.
+          "-iex",
+          callerRunId === undefined
+            ? "unset environment REA_PROCESS_RUN_ID"
+            : `set environment REA_PROCESS_RUN_ID ${callerRunId}`,
+        ],
         runId: randomUUID(),
         stdin: "pipe",
         hostEnvironment: this.#environment,

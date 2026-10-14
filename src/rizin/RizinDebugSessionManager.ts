@@ -397,6 +397,14 @@ export class RizinDebugSessionManager {
       `stdout=${ttyPath}`,
       "-R",
       `stderr=${ttyPath}`,
+      // The debugger carries REA's ownership token; the inferior must see the
+      // caller's value (or none) so a later sweep cannot mistake it for an
+      // owned process.
+      "-R",
+      Object.hasOwn(this.#environment, "REA_PROCESS_RUN_ID") &&
+      this.#environment.REA_PROCESS_RUN_ID !== undefined
+        ? `setenv=REA_PROCESS_RUN_ID=${this.#environment.REA_PROCESS_RUN_ID}`
+        : "unsetenv=REA_PROCESS_RUN_ID",
       "-e",
       "dbg.exitkills=false",
       ...(input.backend === undefined ? [] : ["-D", input.backend]),
