@@ -49,16 +49,13 @@ it("returns a first-call overview and pages the unchanged source after its file 
   const ajv = new Ajv2020({ strict: false, validateFormats: false });
   expect(ajv.validateSchema(definition.inputSchema)).toBe(true);
   expect(ajv.validateSchema(outputSchema)).toBe(true);
-  for (const name of [
-    "inspect_managed_members",
-    "inspect_managed_native_boundaries",
-  ])
-    expect(
-      ajv.validate(catalog.find((x) => x.name === name)!.inputSchema, {
-        path,
-        detail: "summary",
-      }),
-    ).toBe(false);
+  expect(
+    ajv.validate(
+      catalog.find((x) => x.name === "inspect_managed_native_boundaries")!
+        .inputSchema,
+      { path, detail: "summary" },
+    ),
+  ).toBe(false);
   const reply = await client.callTool({
     name: "inspect_managed_artifact",
     arguments: { path, detail: "summary" },
