@@ -94,7 +94,7 @@ export const registerSessionStatusTool = (
             : { apktoolAnalysisAvailability: apktoolAvailability }),
         },
         clientFeatures,
-      );
+      ).filter(({ name }) => server.advertisesTool(name));
       const serverIdentity = createServerIdentity({
         startedAt,
         commandPath: CURRENT_ENTRYPOINT_PATH,
