@@ -1,5 +1,14 @@
 # Tasks
 
+## Status
+
+- Done: config/home (task 1), provider-independent store (task 2), launcher
+  save flag (task 4).
+- Remaining: identity rebinding (3), client publish/hit wiring (5), provider
+  restructure (6), evidence/docs (7), verification/measurement (8). These touch
+  the Ghidra session lifecycle and need real-provider (`verify:ghidra`) checks;
+  the default `off` path is unchanged by everything committed so far.
+
 One PR, opt-in and reviewable: a persistent Ghidra project cache plus the
 identity rebinding that makes prior snapshots replay across sessions.
 
