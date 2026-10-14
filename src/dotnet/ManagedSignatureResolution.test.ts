@@ -8,7 +8,10 @@ import {
 } from "./ManagedDecodeBudget.js";
 import { inspectManagedMembersBytes } from "./ManagedMemberInspector.js";
 import { signature } from "./ManagedMemberInspectorCore.js";
-import { readManagedMetadataLayout } from "./ManagedMetadataLayout.js";
+import {
+  metadataRowOffset,
+  readManagedMetadataLayout,
+} from "./ManagedMetadataLayout.js";
 import {
   buildManagedPeFixture,
   managedPeFixtureTarget,
@@ -17,11 +20,25 @@ import { readManagedPeLayout } from "./ManagedPeReader.js";
 import { signatureTypeNames } from "./ManagedSignatureTypeNames.js";
 
 // A top-level type's name digest, as ManagedSignatureTypeNames forms it.
-const nameDigest = (name: string): Buffer =>
-  createHash("sha256")
+const nameDigest = (name: string): Buffer => {
+  const dot = name.lastIndexOf(".");
+  return createHash("sha256")
     .update(Buffer.from([0]))
-    .update(name)
+    .update(dot === -1 ? "" : name.slice(0, dot))
+    .update(Buffer.from([0]))
+    .update(name.slice(dot + 1))
     .digest();
+};
+
+const metadataLayout = (bytes: Buffer) => {
+  const pe = readManagedPeLayout(bytes);
+  if (pe.cli === null) throw new Error("Fixture has no CLI metadata");
+  return readManagedMetadataLayout(
+    bytes,
+    pe.rvaToOffset(pe.cli.metadata.rva, pe.cli.metadata.size, "cli.metadata"),
+    pe.cli.metadata.size,
+  );
+};
 
 const named =
   (names: Readonly<Record<number, string>>) =>
@@ -101,13 +118,7 @@ describe("resolved member signature digests", () => {
     const bytes = buildManagedPeFixture({
       typeReferences: [{ namespace: "System", name: "Uri" }],
     });
-    const pe = readManagedPeLayout(bytes);
-    if (pe.cli === null) throw new Error("Fixture has no CLI metadata");
-    const layout = readManagedMetadataLayout(
-      bytes,
-      pe.rvaToOffset(pe.cli.metadata.rva, pe.cli.metadata.size, "cli.metadata"),
-      pe.cli.metadata.size,
-    );
+    const layout = metadataLayout(bytes);
     const budget = new ManagedDecodeBudget();
     attachManagedDecodeBudget(layout, budget);
     const typeName = signatureTypeNames(bytes, layout, []);
@@ -117,5 +128,87 @@ describe("resolved member signature digests", () => {
     const reserve = vi.spyOn(budget, "reserve");
     expect(typeName(uri)).toEqual(nameDigest("System.Uri"));
     expect(reserve).not.toHaveBeenCalled();
+  });
+});
+
+const fieldOf = (options: Parameters<typeof buildManagedPeFixture>[0]) => {
+  const bytes = buildManagedPeFixture(options);
+  return inspectManagedMembersBytes(bytes, managedPeFixtureTarget(bytes));
+};
+
+describe("type operand names", () => {
+  it("keeps a TypeRef's namespace and name apart", () => {
+    const resolved = (namespace: string, name: string) =>
+      fieldOf({
+        typeReferences: [{ namespace, name }],
+        fieldSignature: Buffer.from([0x06, 0x12, (2 << 2) | 1]),
+      }).fields[0]?.signature.resolved_sha256;
+
+    expect(resolved("A", "B.C")).toMatch(/^[0-9a-f]{64}$/u);
+    expect(resolved("A", "B.C")).not.toBe(resolved("A.B", "C"));
+  });
+
+  it("keeps a TypeDef's namespace and name apart", () => {
+    const resolved = (typeNamespace: string, typeName: string) =>
+      fieldOf({
+        typeNamespace,
+        typeName,
+        fieldSignature: Buffer.from([0x06, 0x12, 1 << 2]),
+      }).fields[0]?.signature.resolved_sha256;
+
+    expect(resolved("A", "B.C")).toMatch(/^[0-9a-f]{64}$/u);
+    expect(resolved("A", "B.C")).not.toBe(resolved("A.B", "C"));
+  });
+
+  it("names a TypeDef and a TypeRef of one namespace and name alike", () => {
+    const definition = fieldOf({
+      fieldSignature: Buffer.from([0x06, 0x12, 1 << 2]),
+    }).fields[0]?.signature.resolved_sha256;
+    const reference = fieldOf({
+      typeReferences: [{ namespace: "Fixture", name: "Program" }],
+      fieldSignature: Buffer.from([0x06, 0x12, (2 << 2) | 1]),
+    }).fields[0]?.signature.resolved_sha256;
+
+    expect(definition).toMatch(/^[0-9a-f]{64}$/u);
+    expect(definition).toBe(reference);
+  });
+
+  it("reports an unreadable TypeRef operand row once in coverage", () => {
+    const uri = (2 << 2) | 1;
+    const bytes = buildManagedPeFixture({
+      typeReferences: [{ namespace: "System", name: "Uri" }],
+      fieldSignature: Buffer.from([0x06, 0x12, uri]),
+      methodSignature: Buffer.from([0x00, 0x00, 0x12, uri]),
+    });
+    const layout = metadataLayout(bytes);
+    // An out-of-range name index makes TypeRef row 2 unreadable.
+    bytes.writeUInt16LE(
+      0xffff,
+      metadataRowOffset(layout, 1, 2) +
+        layout.codedIndexSize("ResolutionScope"),
+    );
+    const inspection = inspectManagedMembersBytes(
+      bytes,
+      managedPeFixtureTarget(bytes),
+    );
+
+    expect(inspection.fields[0]?.signature.resolved_sha256).toBeNull();
+    expect(inspection.coverage.state).toBe("partial");
+    expect(inspection.coverage.issues).toEqual([
+      expect.objectContaining({
+        code: "invalid-heap-index",
+        scope: "metadata.#Strings",
+      }),
+    ]);
+  });
+
+  it("keeps coverage complete for an operand row outside its table", () => {
+    // Member signature operands are not validated against their tables.
+    const inspection = fieldOf({
+      fieldSignature: Buffer.from([0x06, 0x12, (9 << 2) | 1]),
+    });
+
+    expect(inspection.fields[0]?.signature.resolved_sha256).toBeNull();
+    expect(inspection.coverage.state).toBe("complete");
   });
 });

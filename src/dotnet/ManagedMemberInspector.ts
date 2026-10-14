@@ -184,7 +184,7 @@ export const inspectManagedMembersBytes = (
     appendManagedParseIssues(issues, parsedTypes.issues);
     const exportedTypes = parseExportedTypes(bytes, layout);
     appendManagedParseIssues(issues, exportedTypes.issues);
-    const signatureTypeName = signatureTypeNames(bytes, layout, ranges);
+    const signatureTypeName = signatureTypeNames(bytes, layout, issues);
     const fields = parseFields(bytes, layout, ranges, {
       signatureTypeName,
       selected,

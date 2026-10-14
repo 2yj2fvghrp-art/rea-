@@ -11,7 +11,11 @@ const chain = (length: number) => {
   const link = (row: number) => {
     calls.push(row);
     return row >= 1 && row <= length
-      ? { name: `T${String(row)}`, enclosingRow: row > 1 ? row - 1 : null }
+      ? {
+          namespace: "",
+          name: `T${String(row)}`,
+          enclosingRow: row > 1 ? row - 1 : null,
+        }
       : null;
   };
   return { calls, digest: nestedTypeDigests(link, () => undefined) };
@@ -45,11 +49,16 @@ describe("nested signature type digests", () => {
       calls.push(row);
       if (row >= 1 && row <= MAX_TYPE_NESTING_DEPTH)
         return {
+          namespace: "",
           name: `T${String(row)}`,
           enclosingRow: row > 1 ? row - 1 : null,
         };
       return row > 1_000 && row <= 1_000 + children
-        ? { name: `C${String(row)}`, enclosingRow: MAX_TYPE_NESTING_DEPTH }
+        ? {
+            namespace: "",
+            name: `C${String(row)}`,
+            enclosingRow: MAX_TYPE_NESTING_DEPTH,
+          }
         : null;
     };
     const digest = nestedTypeDigests(link, () => undefined);
@@ -74,7 +83,11 @@ describe("nested signature type digests", () => {
 
   it("does not name a type whose nesting is cyclic", () => {
     const digest = nestedTypeDigests(
-      (row) => ({ name: `T${String(row)}`, enclosingRow: row === 1 ? 2 : 1 }),
+      (row) => ({
+        namespace: "",
+        name: `T${String(row)}`,
+        enclosingRow: row === 1 ? 2 : 1,
+      }),
       () => undefined,
     );
 
@@ -86,12 +99,12 @@ describe("nested signature type digests", () => {
     const nested = nestedTypeDigests(
       (row) =>
         row === 1
-          ? { name: "Outer", enclosingRow: null }
-          : { name: "Inner", enclosingRow: 1 },
+          ? { namespace: "", name: "Outer", enclosingRow: null }
+          : { namespace: "", name: "Inner", enclosingRow: 1 },
       () => undefined,
     );
     const flat = nestedTypeDigests(
-      () => ({ name: "Outer/Inner", enclosingRow: null }),
+      () => ({ namespace: "", name: "Outer/Inner", enclosingRow: null }),
       () => undefined,
     );
 

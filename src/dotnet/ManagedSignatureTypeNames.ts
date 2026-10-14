@@ -1,11 +1,8 @@
 import { createHash } from "node:crypto";
 
 import { managedDecodeBudget } from "./ManagedDecodeBudget.js";
-import {
-  fullName,
-  type SignatureTypeName,
-  type TypeRange,
-} from "./ManagedMemberInspectorCore.js";
+import type { ManagedParseIssue } from "../domain/managed/managedArtifact.js";
+import type { SignatureTypeName } from "./ManagedMemberInspectorCore.js";
 import {
   metadataRowCursor,
   readMetadataString,
@@ -19,8 +16,9 @@ const NESTED_CLASS = 41;
 /** ResolutionScope tag of a TypeRef that names a nested type's enclosing TypeRef. */
 const ENCLOSING_TYPE_REF = 3;
 
-/** One type's own name and the row of its enclosing type, if nested. */
+/** One type's own namespace and name, and its enclosing type's row if nested. */
 interface TypeLink {
+  readonly namespace: string;
   readonly name: string;
   readonly enclosingRow: number | null;
 }
@@ -40,15 +38,36 @@ const enclosingTypeDefs = (
   return enclosing;
 };
 
-const readTypeReference = (
+/**
+ * Read a TypeDef or TypeRef row's namespace and name; a failure to read a row
+ * in its table is retained in `issues`.
+ */
+const readTypeLink = (
   bytes: Buffer,
   layout: ManagedMetadataLayout,
-  row: number,
+  issues: ManagedParseIssue[],
+  {
+    table,
+    row,
+    enclosing,
+  }: {
+    readonly table: typeof TYPE_REF | typeof TYPE_DEF;
+    readonly row: number;
+    /** The enclosing type's row, from the row and its ResolutionScope. */
+    readonly enclosing: (row: number, scope: number) => number | null;
+  },
 ): TypeLink | null => {
+  // Member signature operands are not validated against their tables, so an
+  // operand past its table only goes unnamed; a row that is there but cannot
+  // be read is malformed metadata.
+  if (row < 1 || row > (layout.table(table)?.rowCount ?? 0)) return null;
   return (
     readManagedValue(() => {
-      const cursor = metadataRowCursor(bytes, layout, TYPE_REF, row);
-      const scope = cursor.readIndex(layout.codedIndexSize("ResolutionScope"));
+      const cursor = metadataRowCursor(bytes, layout, table, row);
+      const scope =
+        table === TYPE_REF
+          ? cursor.readIndex(layout.codedIndexSize("ResolutionScope"))
+          : cursor.readUInt32();
       const name = readMetadataString(
         bytes,
         layout,
@@ -61,11 +80,8 @@ const readTypeReference = (
         cursor.readIndex(layout.stringIndexSize),
         layout.strings.size,
       );
-      return {
-        name: fullName(namespace, name),
-        enclosingRow: (scope & 3) === ENCLOSING_TYPE_REF ? scope >>> 2 : null,
-      };
-    }, []) ?? null
+      return { namespace, name, enclosingRow: enclosing(row, scope) };
+    }, issues) ?? null
   );
 };
 
@@ -79,6 +95,11 @@ export const MAX_TYPE_NESTING_DEPTH = 64;
 /** Digest prefixes that keep a top-level type apart from a nested one. */
 const TOP_LEVEL = Buffer.from([0]);
 const NESTED = Buffer.from([1]);
+/**
+ * Separates a namespace from a name. #Strings entries end at NUL, so neither
+ * holds one, and `A` + `B.C` stays apart from `A.B` + `C`.
+ */
+const NAME_SEPARATOR = Buffer.from([0]);
 
 interface NamedRow {
   readonly digest: Buffer;
@@ -87,8 +108,9 @@ interface NamedRow {
 
 /**
  * Digest each row's type name after its enclosing types' names: a top-level
- * type hashes its namespace-qualified name, and a nested type hashes its
- * enclosing type's digest and its own name, as `Outer/Inner` would read. Each
+ * type hashes its namespace and name, each framed, and a nested type hashes
+ * its enclosing type's digest and its own namespace and name, as
+ * `Outer/Inner` would read. Each
  * row is read and digested once, so naming a chain is linear in its length.
  * A gap, a cycle, or nesting deeper than `MAX_TYPE_NESTING_DEPTH` has no
  * digest. `retain` is charged once per row read and once per remembered row.
@@ -115,7 +137,7 @@ export const nestedTypeDigests = (
   };
   return (row) => {
     // Walk out to a named row or the outermost type, at most past the cap.
-    const path: { readonly row: number; readonly name: string }[] = [];
+    const path: { readonly row: number; readonly link: TypeLink }[] = [];
     const seen = new Set<number>();
     let outer: NamedRow | null = null;
     for (let current: number | null = row; current !== null;) {
@@ -145,7 +167,7 @@ export const nestedTypeDigests = (
         return null;
       }
       seen.add(current);
-      path.push({ row: current, name: step.name });
+      path.push({ row: current, link: step });
       current = step.enclosingRow;
     }
     // Name inward from the outermost row; a row past the cap, and every row
@@ -162,7 +184,11 @@ export const nestedTypeDigests = (
       const hash = createHash("sha256");
       if (inner === null) hash.update(TOP_LEVEL);
       else hash.update(NESTED).update(inner.digest);
-      inner = { digest: hash.update(step.name).digest(), depth };
+      hash
+        .update(step.link.namespace)
+        .update(NAME_SEPARATOR)
+        .update(step.link.name);
+      inner = { digest: hash.digest(), depth };
       remember(step.row, inner);
     }
     return exceeded ? null : (inner?.digest ?? null);
@@ -176,25 +202,37 @@ export const nestedTypeDigests = (
  * the same type, and a TypeRef's resolution scope assembly is not part of its
  * name, so a type forwarded between assemblies keeps its name. A TypeSpec, an
  * unreadable row, cyclic nesting, or nesting deeper than the cap has no name,
- * so its signature has no resolved digest. Each coded index and each row is
+ * so its signature has no resolved digest; an unreadable row's failure is
+ * retained in `issues`, once per row. Each coded index and each row is
  * named and digested once, so repeated operands cost a lookup.
  */
 export const signatureTypeNames = (
   bytes: Buffer,
   layout: ManagedMetadataLayout,
-  ranges: readonly TypeRange[],
+  issues: ManagedParseIssue[],
 ): SignatureTypeName => {
   let enclosingDefs: ReadonlyMap<number, number> | undefined;
-  const definition = (row: number): TypeLink | null => {
-    const name = ranges[row - 1]?.fullName ?? null;
-    if (name === null) return null;
-    enclosingDefs ??= enclosingTypeDefs(bytes, layout);
-    return { name, enclosingRow: enclosingDefs.get(row) ?? null };
-  };
   const retain = () => managedDecodeBudget(layout).reserve(128, null);
-  const definitions = nestedTypeDigests(definition, retain);
+  const definitions = nestedTypeDigests(
+    (row) =>
+      readTypeLink(bytes, layout, issues, {
+        table: TYPE_DEF,
+        row,
+        enclosing: (nested) => {
+          enclosingDefs ??= enclosingTypeDefs(bytes, layout);
+          return enclosingDefs.get(nested) ?? null;
+        },
+      }),
+    retain,
+  );
   const references = nestedTypeDigests(
-    (current) => readTypeReference(bytes, layout, current),
+    (row) =>
+      readTypeLink(bytes, layout, issues, {
+        table: TYPE_REF,
+        row,
+        enclosing: (_row, scope) =>
+          (scope & 3) === ENCLOSING_TYPE_REF ? scope >>> 2 : null,
+      }),
     retain,
   );
   const digests = new Map<number, Buffer | null>();

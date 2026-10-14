@@ -1703,7 +1703,9 @@ describe("managed member comparison of resolved signatures", () => {
     // resolved preimage, which do not decode and so compare by raw digest.
     const programDigest = createHash("sha256")
       .update(Buffer.from([0]))
-      .update("Fixture.Program")
+      .update("Fixture")
+      .update(Buffer.from([0]))
+      .update("Program")
       .digest();
     const left = inspect(
       buildManagedPeFixture({
@@ -1882,6 +1884,71 @@ describe("managed member comparison of nested signature types", () => {
     );
 
     expect(statuses(result)).toEqual(["added", "removed"]);
+  });
+});
+
+describe("managed member comparison of unresolved signatures", () => {
+  // A TypeSpec operand has no name, so the method compares by raw bytes,
+  // while the default field resolves.
+  const typeSpecs = [Buffer.from([0x1d, 0x08]), Buffer.from([0x1d, 0x0e])];
+  const unresolvedAt = (row: number) => ({
+    typeSpecSignatures: typeSpecs,
+    methodSignature: Buffer.from([0x00, 0x00, 0x12, (row << 2) | 2]),
+  });
+  const resolved = {
+    methodSignature: Buffer.from([0x00, 0x00, 0x12, leftTypes.program]),
+  };
+  const methodLimitations = (result: ReturnType<typeof compareBuilds>) =>
+    result.methods.map(({ status, limitations }) => [status, limitations]);
+
+  it("keeps an unmatched unresolved method unknown in a resolved comparison", () => {
+    for (const result of [
+      compareBuilds(unresolvedAt(1), unresolvedAt(2)),
+      compareBuilds(unresolvedAt(2), unresolvedAt(1)),
+    ])
+      expect(methodLimitations(result)).toEqual([
+        ["unknown", [expect.stringMatching(/^signature-not-resolved:/u)]],
+        ["unknown", [expect.stringMatching(/^signature-not-resolved:/u)]],
+      ]);
+  });
+
+  it("keeps a resolved method unknown beside an unresolved same-named counterpart", () => {
+    for (const [left, right] of [
+      [unresolvedAt(1), resolved],
+      [resolved, unresolvedAt(1)],
+    ] as const) {
+      const result = compareBuilds(left, right);
+      const unresolvedSide = left === resolved ? "right" : "left";
+      expect(
+        result.methods.map(({ status, left: leftItem, limitations }) => [
+          status,
+          (leftItem === null) === (unresolvedSide === "left")
+            ? "resolved"
+            : "unresolved",
+          limitations,
+        ]),
+      ).toEqual(
+        expect.arrayContaining([
+          [
+            "unknown",
+            "unresolved",
+            [expect.stringMatching(/^signature-not-resolved:/u)],
+          ],
+          [
+            "unknown",
+            "resolved",
+            [
+              expect.stringMatching(
+                new RegExp(
+                  `^counterpart-signature-not-resolved: The ${unresolvedSide} method inventory`,
+                  "u",
+                ),
+              ),
+            ],
+          ],
+        ]),
+      );
+    }
   });
 });
 
