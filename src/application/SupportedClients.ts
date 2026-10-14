@@ -559,6 +559,16 @@ export const SUPPORTED_CLIENT_DEFINITIONS = [
     format: "json",
   },
   {
+    // The CLI reads the app's shared MCP file but loads global skills from
+    // its own ~/.gemini/antigravity-cli root, so its skill copy is separate.
+    name: "antigravity_cli",
+    displayName: "Antigravity CLI",
+    skillPath: [".gemini", "antigravity-cli", "skills"],
+    configPath: [".gemini", "config", "mcp_config.json"],
+    markerPath: [".gemini", "antigravity-cli"],
+    format: "json",
+  },
+  {
     name: "copilot_cli",
     displayName: "GitHub Copilot CLI",
     configPath: (context: ClientPathContext) =>
