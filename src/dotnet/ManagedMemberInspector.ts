@@ -33,6 +33,7 @@ import { signatureTypeNames } from "./ManagedSignatureTypeNames.js";
 import { typeNameLookup } from "./ManagedTypeNames.js";
 import { managedTypeReferences } from "./ManagedTypeReferences.js";
 import { parseUserStrings } from "./ManagedUserStrings.js";
+import { readTypeMemberListFacts } from "./ManagedTypeMemberLists.js";
 import {
   edges,
   parseExportedTypes,
@@ -116,12 +117,14 @@ const readMemberInventory = (
     rootOffset,
     cli.metadata.size,
   );
+  const memberLists = readTypeMemberListFacts(bytes, layout);
   const inventory = readManagedMetadataInventory(
     bytes,
     layout,
     readManagedResourceDirectory(pe, issues),
+    memberLists,
   );
-  return { layout, inventory };
+  return { layout, inventory, memberLists };
 };
 
 const selectTypes = (
@@ -188,9 +191,13 @@ export const inspectManagedMembersBytes = (
     return unavailable(target, bytes, pe.cliIssue, typeNames);
   const issues: ManagedParseIssue[] = [];
   try {
-    const { layout, inventory } = readMemberInventory(bytes, pe, issues);
+    const { layout, inventory, memberLists } = readMemberInventory(
+      bytes,
+      pe,
+      issues,
+    );
     appendManagedParseIssues(issues, inventory.issues);
-    const ranges = typeRanges(bytes, layout, issues);
+    const ranges = typeRanges(bytes, layout, issues, memberLists);
     const {
       tokens: selected,
       selection,
@@ -207,7 +214,7 @@ export const inspectManagedMembersBytes = (
       parsedTypes,
       typeReferences,
     );
-    const fields = parseFields(bytes, layout, ranges, {
+    const fields = parseFields(bytes, layout, ranges, memberLists, {
       signatureTypeName,
       selected,
     });
@@ -224,6 +231,7 @@ export const inspectManagedMembersBytes = (
       pe,
       ranges,
       signatureTypeName,
+      memberLists,
       selected,
       methodOffset,
       methodLimit,

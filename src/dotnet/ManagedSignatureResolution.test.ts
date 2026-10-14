@@ -23,6 +23,7 @@ import {
 import { readManagedPeLayout } from "./ManagedPeReader.js";
 import { signatureTypeNames } from "./ManagedSignatureTypeNames.js";
 import { managedTypeReferences } from "./ManagedTypeReferences.js";
+import { readTypeMemberListFacts } from "./ManagedTypeMemberLists.js";
 
 // A top-level type's name digest, as ManagedSignatureTypeNames forms it.
 const nameDigest = (name: string): Buffer => {
@@ -173,7 +174,7 @@ describe("resolved member signature digests", () => {
     const parsedTypes = parseTypes(
       bytes,
       layout,
-      typeRanges(bytes, layout, issues),
+      typeRanges(bytes, layout, issues, readTypeMemberListFacts(bytes, layout)),
     );
     const resolve = signatureTypeNames(
       layout,
