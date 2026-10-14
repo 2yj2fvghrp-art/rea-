@@ -1,49 +1,50 @@
 import { createHash } from "node:crypto";
+import { constants as fsConstants } from "node:fs";
+import { copyFile } from "node:fs/promises";
 import { err, ok, type Result } from "../domain/result.js";
-import type { ArtifactResourceScope } from "../artifacts/ArtifactResourceScope.js";
 import {
   readRegularFile,
   RegularFileCleanupFailure,
 } from "./RegularFileRead.js";
 
-interface RecoveryBackupSelection {
+export interface RecoveryBackupSelection {
   readonly backupPath: string;
   readonly present: boolean;
 }
 
-interface RecoveryBackupSelectionFailure {
+export interface RecoveryBackupSelectionFailure {
   readonly kind: "unreadable" | "occupied";
   readonly path: string;
   readonly detail: string;
 }
 
-/** Preserve the first backup while selecting a verified snapshot of current bytes. */
+const isMissing = (cause: unknown): boolean =>
+  cause instanceof Error && "code" in cause && cause.code === "ENOENT";
+
+const errorDetail = (cause: unknown): string =>
+  cause instanceof Error ? cause.message : String(cause);
+
+/** Select a persistent snapshot only when its bytes match this transaction's original. */
 export const selectCurrentRecoveryBackup = async (
   firstBackupPath: string,
   original: string | Buffer,
-  resources?: ArtifactResourceScope,
 ): Promise<Result<RecoveryBackupSelection, RecoveryBackupSelectionFailure>> => {
-  const expected =
-    typeof original === "string" ? Buffer.from(original, "utf8") : original;
-  const readBackup = (path: string): Promise<Buffer> =>
-    readRegularFile(path, {
-      symlinks: "reject",
-      ...(resources === undefined ? {} : { resources }),
-    });
-  const unreadable = (path: string, cause: unknown) =>
-    err({
-      kind: "unreadable" as const,
-      path,
-      detail: `The recovery backup could not be checked: ${cause instanceof Error ? cause.message : String(cause)}`,
-    });
-  const isMissing = (cause: unknown): boolean =>
-    cause instanceof Error && "code" in cause && cause.code === "ENOENT";
+  const expected = Buffer.isBuffer(original)
+    ? original
+    : Buffer.from(original, "utf8");
   let firstBackup: Buffer | undefined;
   try {
-    firstBackup = await readBackup(firstBackupPath);
+    firstBackup = await readRegularFile(firstBackupPath, {
+      symlinks: "reject",
+    });
   } catch (cause: unknown) {
     if (cause instanceof RegularFileCleanupFailure) throw cause;
-    if (!isMissing(cause)) return unreadable(firstBackupPath, cause);
+    if (!isMissing(cause))
+      return err({
+        kind: "unreadable",
+        path: firstBackupPath,
+        detail: `The recovery backup could not be checked: ${errorDetail(cause)}`,
+      });
   }
   if (firstBackup === undefined)
     return ok({ backupPath: firstBackupPath, present: false });
@@ -54,10 +55,15 @@ export const selectCurrentRecoveryBackup = async (
   const recoveryPath = `${firstBackupPath}.${digest}.recovery`;
   let recovery: Buffer | undefined;
   try {
-    recovery = await readBackup(recoveryPath);
+    recovery = await readRegularFile(recoveryPath, { symlinks: "reject" });
   } catch (cause: unknown) {
     if (cause instanceof RegularFileCleanupFailure) throw cause;
-    if (!isMissing(cause)) return unreadable(recoveryPath, cause);
+    if (!isMissing(cause))
+      return err({
+        kind: "unreadable",
+        path: recoveryPath,
+        detail: `The recovery backup could not be checked: ${errorDetail(cause)}`,
+      });
   }
   if (recovery !== undefined && !recovery.equals(expected))
     return err({
@@ -66,4 +72,17 @@ export const selectCurrentRecoveryBackup = async (
       detail: `The recovery path already contains different data: ${recoveryPath}`,
     });
   return ok({ backupPath: recoveryPath, present: recovery !== undefined });
+};
+
+/** Preserve a snapshot without replacing an earlier recovery file. */
+export const preserveRecoveryBackup = async (
+  source: string,
+  destination: string,
+): Promise<boolean> => {
+  try {
+    await copyFile(source, destination, fsConstants.COPYFILE_EXCL);
+    return true;
+  } catch (cause: unknown) {
+    return cause instanceof Error && "code" in cause && cause.code === "EEXIST";
+  }
 };
