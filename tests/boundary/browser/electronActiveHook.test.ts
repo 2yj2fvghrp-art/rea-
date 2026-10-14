@@ -1,6 +1,7 @@
-import { rm, writeFile } from "node:fs/promises";
-import { join } from "node:path";
 import { spawn } from "node:child_process";
+import { copyFile, mkdir, rm, writeFile } from "node:fs/promises";
+import { join } from "node:path";
+import { fileURLToPath } from "node:url";
 
 import { afterEach, expect, it } from "vitest";
 
@@ -83,6 +84,13 @@ module.exports = {
 };
 `;
 
+const ancestorResolutionSource = `const electron = require("electron");
+const window = new electron.BrowserWindow({ webPreferences: { preload: "/approved/preload.js" } });
+const decision = window.webContents.windowOpenHandler({ url: "https://popup.invalid" });
+const snapshot = globalThis.__reaElectronActiveSnapshot();
+process.stdout.write(JSON.stringify({ decision, hook_error: snapshot.hook_error, events: snapshot.events }) + "\\n");
+`;
+
 const activeCaptureSource = `(async () => {
 const electron = require("electron");
 const window = new electron.BrowserWindow({ webPreferences: { preload: "/approved/preload.js" } });
@@ -131,11 +139,9 @@ afterEach(async () => {
 it("retains active hook evidence within its event-retention budget", async () => {
   const root = await createTestTempDirectory("rea-electron-hook-");
   temporary.push(root);
-  await writeFile(join(root, "electron.js"), electronModuleSource);
   const script = join(root, "exercise.cjs");
   await writeFile(script, activeCaptureSource);
-  const hook = join(process.cwd(), "scripts/electron-active-hook.cjs");
-  const execution = await runNode(hook, script, root, root);
+  const execution = await runNode(script, root);
   expect(execution.code, execution.stderr).toBe(0);
   const result = JSON.parse(
     execution.stdout.trim().split("\n").at(-1) ?? "null",
@@ -223,7 +229,6 @@ it("classifies a dropped browser preload as preload configuration at capture", a
     "rea-electron-hook-browser-preload-",
   );
   temporary.push(root);
-  await writeFile(join(root, "electron.js"), electronModuleSource);
   const script = join(root, "browser-preload.cjs");
   await writeFile(
     script,
@@ -234,8 +239,7 @@ const snapshot = globalThis.__reaElectronActiveSnapshot();
 process.stdout.write(JSON.stringify(snapshot) + "\\n");
 `,
   );
-  const hook = join(process.cwd(), "scripts/electron-active-hook.cjs");
-  const execution = await runNode(hook, script, root, root);
+  const execution = await runNode(script, root);
   expect(execution.code, execution.stderr).toBe(0);
   const snapshot = JSON.parse(
     execution.stdout.trim().split("\n").at(-1) ?? "null",
@@ -264,29 +268,92 @@ it("preserves fatal process termination after recording uncaught exceptions", as
   temporary.push(root);
   const script = join(root, "fatal.cjs");
   await writeFile(script, 'throw new Error("fatal-hook-secret");\n');
-  const hook = join(process.cwd(), "scripts/electron-active-hook.cjs");
-  const result = await runNode(hook, script, root, root);
+  const result = await runNode(script, root);
 
   expect(result.code).not.toBe(0);
   expect(result.stderr).toContain("fatal-hook-secret");
 });
 
-const runNode = (
-  hook: string,
+it("loads the mock electron instead of an ancestor node_modules package", async () => {
+  const sandbox = await createTestTempDirectory("rea-electron-hook-ancestor-");
+  temporary.push(sandbox);
+  await writeElectronPackage(
+    join(sandbox, "node_modules", "electron"),
+    'module.exports = "ancestor-electron";\n',
+  );
+  const app = join(sandbox, "app");
+  await mkdir(app);
+  const script = join(app, "resolve.cjs");
+  await writeFile(script, ancestorResolutionSource);
+  const execution = await runNode(script, app);
+  expect(execution.code, execution.stderr).toBe(0);
+  const result = JSON.parse(
+    execution.stdout.trim().split("\n").at(-1) ?? "null",
+  ) as {
+    readonly decision: { readonly action: string };
+    readonly events: readonly unknown[];
+    readonly hook_error: boolean;
+  };
+  expect(result.decision).toEqual({ action: "deny" });
+  expect(result.hook_error).toBe(false);
+  expect(
+    electronActiveTimelineEventSchema.array().parse(result.events),
+  ).toEqual(
+    expect.arrayContaining([
+      expect.objectContaining({
+        kind: "window-lifecycle",
+        event: "created",
+      }),
+    ]),
+  );
+});
+
+const electronPackageManifest = '{"main":"index.cjs"}\n';
+
+const writeElectronPackage = async (
+  directory: string,
+  source: string,
+): Promise<void> => {
+  await mkdir(directory, { recursive: true });
+  await writeFile(join(directory, "package.json"), electronPackageManifest);
+  await writeFile(join(directory, "index.cjs"), source);
+};
+
+// CJS require walks node_modules from the requesting file upward and only
+// then consults NODE_PATH. Launch a copy beside the mock so an ancestor
+// electron package cannot win for the hook or the exercise script.
+const prepareHookLaunch = async (moduleRoot: string): Promise<string> => {
+  await writeElectronPackage(
+    join(moduleRoot, "node_modules", "electron"),
+    electronModuleSource,
+  );
+  const scriptsDirectory = fileURLToPath(
+    new URL("../../../scripts/", import.meta.url),
+  );
+  await Promise.all(
+    ["electron-active-hook.cjs", "electron-active-hook-boundaries.cjs"].map(
+      (name) =>
+        copyFile(join(scriptsDirectory, name), join(moduleRoot, name)),
+    ),
+  );
+  return join(moduleRoot, "electron-active-hook.cjs");
+};
+
+const runNode = async (
   script: string,
   moduleRoot: string,
-  cwd: string,
 ): Promise<{
   readonly code: number | null;
   readonly stdout: string;
   readonly stderr: string;
-}> =>
-  new Promise((resolve, reject) => {
+}> => {
+  const hook = await prepareHookLaunch(moduleRoot);
+  return new Promise((resolve, reject) => {
     const child = spawn(process.execPath, ["-r", hook, script], {
-      cwd,
+      cwd: moduleRoot,
       env: {
         ...process.env,
-        NODE_PATH: moduleRoot,
+        NODE_PATH: "",
       },
       stdio: ["ignore", "pipe", "pipe"],
     });
@@ -303,3 +370,4 @@ const runNode = (
       }),
     );
   });
+};
