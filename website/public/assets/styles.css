@@ -1757,12 +1757,23 @@ pre code {
 
 .home-start-grid {
   display: grid;
-  grid-template-columns: minmax(0, 1.1fr) minmax(0, 0.9fr);
-  gap: 4rem;
+  grid-template-columns: minmax(0, 1fr) minmax(0, 1fr);
+  gap: 3.5rem;
   align-items: start;
 }
 .home-start-grid h1 {
   font-size: clamp(2.8rem, 5vw, 4.2rem);
+}
+.home-reading-links {
+  margin-top: 1.75rem;
+  color: var(--muted);
+  font-size: 0.9rem;
+}
+.home-reading-links p {
+  margin-bottom: 0.5rem;
+}
+.home-reading-links p:last-child {
+  margin-bottom: 0;
 }
 .home-setup {
   min-width: 0;
@@ -1853,50 +1864,13 @@ pre code {
 }
 .home-role-comparison {
   display: grid;
-  grid-template-columns: minmax(0, 1fr);
-  gap: 0;
-  max-width: 880px;
+  grid-template-columns: minmax(0, 1.65fr) minmax(0, 1fr);
+  gap: 0 2rem;
   margin: 0;
 }
-.agent-investigation {
-  order: 1;
-  max-width: 760px;
-}
+.agent-investigation,
 .manual-investigation {
-  order: 2;
-  margin-top: 2rem;
-  padding-block: 1rem;
-  border-top: 1px solid var(--line);
-  border-bottom: 1px solid var(--line);
-}
-.manual-investigation > summary {
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
-  gap: 1rem;
-  padding: 0;
-  border: 0;
-  list-style: none;
-  cursor: pointer;
-}
-.manual-investigation > summary::-webkit-details-marker {
-  display: none;
-}
-.manual-investigation > summary:focus-visible {
-  outline: 2px solid var(--accent);
-  outline-offset: 4px;
-}
-.manual-investigation[open] > summary {
-  margin-bottom: 1rem;
-}
-.manual-investigation > summary::after {
-  content: "+";
-  color: var(--accent);
-  font-size: 1.2rem;
-  font-weight: 400;
-}
-.manual-investigation[open] > summary::after {
-  content: "−";
+  min-width: 0;
 }
 .comparison-question {
   margin-block: 1.8rem 1.2rem;
@@ -2399,6 +2373,12 @@ pre code {
   }
   .home-role-comparison figcaption {
     margin-top: 0;
+  }
+  .agent-investigation {
+    order: 1;
+  }
+  .manual-investigation {
+    order: 2;
   }
 }
 @media (max-width: 640px) {

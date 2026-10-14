@@ -230,6 +230,15 @@
               <a class="button" href="get-started/">Get started</a>
               <a class="text-link" href="#dinosaur">See an example ↓</a>
             </div>
+            <div class="home-reading-links">
+              <p>
+                <a href="showcase/">Showcases →</a> — investigations and
+                interactive demos.
+              </p>
+              <p>
+                <a href="blog/">Blog →</a> — methods and reconstruction notes.
+              </p>
+            </div>
           </div>
           <div class="home-setup" id="install">
             <div class="home-setup-agent">
@@ -324,19 +333,19 @@
             </li>
           </ol>
           <details class="home-evidence-details">
-            <summary>See a code-level example with Calculator</summary>
+            <summary>See the full Calculator investigation</summary>
             <p class="comparison-question">
               Why does Calculator give 220 for
               <span translate="no">200 + 10%</span>?
             </p>
             <figure class="home-role-comparison">
-              <details
+              <div
                 class="manual-investigation step-comparison"
                 data-step-comparison
               >
-                <summary class="comparison-label">
+                <h3 class="comparison-label">
                   Follow the instructions step by step
-                </summary>
+                </h3>
                 <div
                   class="step-selector expert-step-selector"
                   role="group"
@@ -368,11 +377,7 @@
                   </button>
                 </div>
                 <div class="expert-analysis-grid">
-                  <details
-                    class="code-block expert-assembly"
-                    data-expert-assembly
-                    open
-                  >
+                  <details class="code-block expert-assembly" open>
                     <summary class="code-header">
                       <span>Original x64 · selected instructions</span>
                       <span
@@ -487,7 +492,7 @@
                     reconstruct the calculation.</strong
                   >
                 </p>
-              </details>
+              </div>
               <div class="agent-investigation" id="ask-your-agent">
                 <p class="comparison-label">Ask your agent the same question</p>
                 <div class="agent-terminal home-analysis-terminal">
@@ -1088,6 +1093,69 @@ SPEED: 6</code></pre>
               <a href="guides/browser/">Browser observation guide</a>
             </div>
           </div>
+          <details class="home-evidence-details" id="project-prompts">
+            <summary>Try a larger project</summary>
+            <div class="code-comparison home-project-prompts">
+              <div>
+                <div class="agent-terminal">
+                  <div class="terminal-header">
+                    <span class="terminal-title">
+                      <span class="terminal-dots" aria-hidden="true"
+                        ><i></i><i></i><i></i></span
+                      >Example prompt · Website
+                    </span>
+                    <button
+                      class="copy-button"
+                      type="button"
+                      data-copy="website-project-prompt"
+                      aria-label="Copy website project prompt"
+                    >
+                      Copy
+                    </button>
+                  </div>
+                  <p class="terminal-prompt">
+                    <span class="prompt-symbol" aria-hidden="true">›</span
+                    ><span id="website-project-prompt"
+                      >Use REA to inspect
+                      <span translate="no">https://rea.tools/</span>. Clone this
+                      website for me.</span
+                    ><span class="terminal-cursor" aria-hidden="true"></span>
+                  </p>
+                </div>
+                <p class="caption">Yes, this one.</p>
+              </div>
+              <div>
+                <div class="agent-terminal">
+                  <div class="terminal-header">
+                    <span class="terminal-title">
+                      <span class="terminal-dots" aria-hidden="true"
+                        ><i></i><i></i><i></i></span
+                      >Example prompt · Game reconstruction
+                    </span>
+                    <button
+                      class="copy-button"
+                      type="button"
+                      data-copy="game-project-prompt"
+                      aria-label="Copy game reconstruction prompt"
+                    >
+                      Copy
+                    </button>
+                  </div>
+                  <p class="terminal-prompt">
+                    <span class="prompt-symbol" aria-hidden="true">›</span
+                    ><span id="game-project-prompt"
+                      >Use REA to reconstruct this game from its executable.
+                      Recover the gameplay logic in C and test it against the
+                      original.</span
+                    ><span class="terminal-cursor" aria-hidden="true"></span>
+                  </p>
+                </div>
+                <p class="caption">
+                  <a href="showcase/dx-ball/">See the DX-Ball case study →</a>
+                </p>
+              </div>
+            </div>
+          </details>
         </div>
       </section>
       <section class="section" id="community">

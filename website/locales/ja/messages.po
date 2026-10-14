@@ -73,7 +73,7 @@ msgstr "によってN0zoM1z0•10 10月2026"
 #: website/public/guides/browser/index.html:507
 #: website/public/guides/index.html:282
 #: website/public/guides/javascript/index.html:503
-#: website/public/guides/native/index.html:509 website/public/index.html:1124
+#: website/public/guides/native/index.html:509 website/public/index.html:1192
 #: website/public/showcase/aegis/index.html:808
 #: website/public/showcase/ctf/index.html:777
 #: website/public/showcase/dx-ball/index.html:785
@@ -5194,7 +5194,7 @@ msgctxt "page:index.html"
 msgid "On this page"
 msgstr "このページでは"
 
-#: website/public/index.html:197 website/public/index.html:236
+#: website/public/index.html:197 website/public/index.html:245
 msgctxt "page:index.html"
 msgid "Set up REA"
 msgstr "REAのセットアップ"
@@ -5251,7 +5251,7 @@ msgctxt "page:index.html"
 msgid "Find out how{ph0}software works."
 msgstr "ソフトウェアの{ph0}仕組みを知ろう。"
 
-#: website/public/index.html:237
+#: website/public/index.html:246
 msgctxt "page:index.html"
 msgid "Copy this into your coding agent:"
 msgstr "このプロンプトをコーディングエージェントに貼り付けてください："
@@ -5264,32 +5264,33 @@ msgstr "このプロンプトをコーディングエージェントに貼り付
 #. {ph5}: <i>
 #. {ph6}: </i>
 #. {ph7}: </span >
-#: website/public/index.html:240
+#: website/public/index.html:249
 #, python-brace-format
 msgctxt "page:index.html"
 msgid "{ph0}{ph1}{ph2}{ph3}{ph4}{ph5}{ph6}{ph7}Your coding agent"
 msgstr "{ph0}{ph1}{ph2}{ph3}{ph4}{ph5}{ph6}{ph7}あなたのコーディングエージェント"
 
-#: website/public/index.html:245 website/public/index.html:269
-#: website/public/index.html:500 website/public/index.html:651
-#: website/public/index.html:865
+#: website/public/index.html:254 website/public/index.html:278
+#: website/public/index.html:505 website/public/index.html:656
+#: website/public/index.html:870 website/public/index.html:1107
+#: website/public/index.html:1135
 msgctxt "page:index.html"
 msgid "Copy"
 msgstr "コピー"
 
-#: website/public/index.html:266
+#: website/public/index.html:275
 msgctxt "page:index.html"
 msgid "Or run this in your terminal:"
 msgstr "ターミナルから実行することもできます："
 
-#: website/public/index.html:278
+#: website/public/index.html:287
 msgctxt "page:index.html"
 msgid "Approve the setup plan, then restart your agent."
 msgstr "設定の変更内容を確認して承認したら、エージェントを再起動します。"
 
 #. {ph0}: <span>
 #. {ph1}: </span>
-#: website/public/index.html:345
+#: website/public/index.html:354
 #, python-brace-format
 msgctxt "page:index.html"
 msgid "{ph0}01{ph1} Decode branches"
@@ -5297,7 +5298,7 @@ msgstr "{ph0}01{ph1} 枝をデコードする"
 
 #. {ph0}: <span>
 #. {ph1}: </span>
-#: website/public/index.html:353
+#: website/public/index.html:362
 #, python-brace-format
 msgctxt "page:index.html"
 msgid "{ph0}02{ph1} Trace calls"
@@ -5305,7 +5306,7 @@ msgstr "{ph0}02{ph1} トレース呼び出し"
 
 #. {ph0}: <span>
 #. {ph1}: </span>
-#: website/public/index.html:361
+#: website/public/index.html:370
 #, python-brace-format
 msgctxt "page:index.html"
 msgid "{ph0}03{ph1} Recover the rule"
@@ -5315,20 +5316,20 @@ msgstr "{ph0}03{ph1} ルールを回復する"
 #. {ph1}: </span>
 #. {ph2}: <span class="assembly-disclosure" aria-hidden="true" >
 #. {ph3}: </span>
-#: website/public/index.html:376
+#: website/public/index.html:381
 #, python-brace-format
 msgctxt "page:index.html"
 msgid "{ph0}Original x64 · selected instructions{ph1} {ph2}{ph3}"
 msgstr "{ph0}オリジナルx64·選択された指示{ph1} {ph2}{ph3}"
 
-#: website/public/index.html:418
+#: website/public/index.html:423
 msgctxt "page:index.html"
 msgid "01 · Which branch?"
 msgstr "01*どの支店？"
 
 #. {ph0}: <strong>
 #. {ph1}: </strong>
-#: website/public/index.html:419
+#: website/public/index.html:424
 #, python-brace-format
 msgctxt "page:index.html"
 msgid ""
@@ -5336,29 +5337,29 @@ msgid ""
 "these?”"
 msgstr "“{ph0}0x5b? 0x5c?{ph1} 同じ場所に2つのジャンプ。 これらはどの演算子ですか？”"
 
-#: website/public/index.html:423
+#: website/public/index.html:428
 msgctxt "page:index.html"
 msgid "Look up the command IDs, then label the branch."
 msgstr "コマンドIdを検索し、ブランチにラベルを付けます。"
 
-#: website/public/index.html:429
+#: website/public/index.html:434
 msgctxt "page:index.html"
 msgid "Divide ÷"
 msgstr "ディバイド÷"
 
-#: website/public/index.html:433
+#: website/public/index.html:438
 msgctxt "page:index.html"
 msgid "Multiply ×"
 msgstr "乗算×"
 
-#: website/public/index.html:438
+#: website/public/index.html:443
 msgctxt "page:index.html"
 msgid "02 · What do the calls do?"
 msgstr "02 · 呼び出された関数は何をする？"
 
 #. {ph0}: <strong >
 #. {ph1}: </strong >
-#: website/public/index.html:439
+#: website/public/index.html:444
 #, python-brace-format
 msgctxt "page:index.html"
 msgid ""
@@ -5366,24 +5367,24 @@ msgid ""
 "value goes in?{ph1}”"
 msgstr "「100は明らかです。 呼び出しは単なるアドレスです。 {ph0}どちらが分かれていますか？ どの値が入りますか？{ph1}”"
 
-#: website/public/index.html:445
+#: website/public/index.html:450
 msgctxt "page:index.html"
 msgid "Inspect the helpers and trace the stored values."
 msgstr "ヘルパー関数を検査し、格納されている値をトレースします。"
 
-#: website/public/index.html:455
+#: website/public/index.html:460
 msgctxt "page:index.html"
 msgid "Divide"
 msgstr "ディバイド"
 
-#: website/public/index.html:460
+#: website/public/index.html:465
 msgctxt "page:index.html"
 msgid "03 · What is the rule?"
 msgstr "03·ルールとは何ですか？"
 
 #. {ph0}: <strong>
 #. {ph1}: </strong>
-#: website/public/index.html:461
+#: website/public/index.html:466
 #, python-brace-format
 msgctxt "page:index.html"
 msgid ""
@@ -5391,19 +5392,19 @@ msgid ""
 "after +.”"
 msgstr "\"このパスは、他の入力によって乗算されます。 だから {ph0}10%は200の10%を意味します{ph1} +の後。”"
 
-#: website/public/index.html:465
+#: website/public/index.html:470
 msgctxt "page:index.html"
 msgid "Name the operands and check both operator paths."
 msgstr "オペランドに名前を付け、両方の演算子パスを確認します。"
 
-#: website/public/index.html:481 website/public/index.html:408
+#: website/public/index.html:486 website/public/index.html:413
 msgctxt "page:index.html"
 msgid "Illustrative expert reasoning"
 msgstr "図解専門家の推論"
 
 #. {ph0}: <strong >
 #. {ph1}: </strong >
-#: website/public/index.html:484
+#: website/public/index.html:489
 #, python-brace-format
 msgctxt "page:index.html"
 msgid ""
@@ -5419,104 +5420,104 @@ msgstr "{ph0}命令をデコードし、関数呼び出しに従って計算を�
 #. {ph5}: <i>
 #. {ph6}: </i>
 #. {ph7}: </span >
-#: website/public/index.html:495
+#: website/public/index.html:500
 #, python-brace-format
 msgctxt "page:index.html"
 msgid "{ph0}{ph1}{ph2}{ph3}{ph4}{ph5}{ph6}{ph7}Example prompt · Calculator"
 msgstr "{ph0}{ph1}{ph2}{ph3}{ph4}{ph5}{ph6}{ph7}プロンプトの例*電卓"
 
-#: website/public/index.html:517
+#: website/public/index.html:522
 msgctxt "page:index.html"
 msgid "Example answer · based on the findings"
 msgstr "回答例*調査結果に基づく"
 
 #. {ph0}: <strong>
 #. {ph1}: </strong>
-#: website/public/index.html:520
+#: website/public/index.html:525
 #, python-brace-format
 msgctxt "page:index.html"
 msgid ""
 "After +, the % button takes {ph0}a percentage of the first number.{ph1}"
 msgstr "+の後に、%ボタンがかかります {ph0}最初の数の割合。{ph1}"
 
-#: website/public/index.html:533
+#: website/public/index.html:538
 msgctxt "page:index.html"
 msgid "REA supplies"
 msgstr "REA が提供する情報"
 
-#: website/public/index.html:534
+#: website/public/index.html:539
 msgctxt "page:index.html"
 msgid "The handler’s instructions, decompiled code and calls."
 msgstr "ハンドラーの命令、逆コンパイルされたコード、および呼び出し。"
 
-#: website/public/index.html:539
+#: website/public/index.html:544
 msgctxt "page:index.html"
 msgid "Your agent explains"
 msgstr "エージェントが説明すること"
 
-#: website/public/index.html:540
+#: website/public/index.html:545
 msgctxt "page:index.html"
 msgid "Which branch applies, what it calculates and how to rebuild it."
 msgstr "どのブランチが適用され、何が計算され、どのように再構築するか。"
 
-#: website/public/index.html:560
+#: website/public/index.html:565
 msgctxt "page:index.html"
 msgid "Example 01 · Chrome’s dinosaur game"
 msgstr "例01•Chromeの恐竜ゲーム"
 
-#: website/public/index.html:561
+#: website/public/index.html:566
 msgctxt "page:index.html"
 msgid "Why does the dinosaur get faster?"
 msgstr "恐竜はなぜ速くなる？"
 
-#: website/public/index.html:569
+#: website/public/index.html:574
 msgctxt "page:index.html"
 msgid "Play the reconstruction"
 msgstr "再構築したゲームで遊ぶ"
 
-#: website/public/index.html:601
+#: website/public/index.html:606
 msgctxt "page:index.html"
 msgid "Play"
 msgstr "スタート"
 
-#: website/public/index.html:604
+#: website/public/index.html:609
 msgctxt "page:index.html"
 msgid "Jump ↑"
 msgstr "ジャンプ ↑"
 
-#: website/public/index.html:605
+#: website/public/index.html:610
 msgctxt "page:index.html"
 msgid "Restart"
 msgstr "リスタート"
 
-#: website/public/index.html:608
+#: website/public/index.html:613
 msgctxt "page:index.html"
 msgid "Speed"
 msgstr "速度"
 
-#: website/public/index.html:618
+#: website/public/index.html:623
 msgctxt "page:index.html"
 msgid "Use the recovered acceleration rule"
 msgstr "回復された加速ルールを使用する"
 
-#: website/public/index.html:622
+#: website/public/index.html:627
 msgctxt "page:index.html"
 msgid "Original rule: start at 6, then increase toward 13."
 msgstr "元のルール：6から開始し、13に向かって増加します。"
 
-#: website/public/index.html:625
+#: website/public/index.html:630
 msgctxt "page:index.html"
 msgid "Move the slider to set your own speed. Space or Jump clears a cactus."
 msgstr "スライダーを動かして独自の速度を設定します。 スペースまたはジャンプはサボテンをクリアします。"
 
-#: website/public/index.html:630
+#: website/public/index.html:635
 msgctxt "page:index.html"
 msgid ""
 "Enable JavaScript to play the reconstruction. The code and explanation above"
 " remain readable."
 msgstr "再構成を再生するには、JavaScriptを有効にします。 上記のコードと説明は読みやすいままです。"
 
-#: website/public/index.html:638 website/public/index.html:848
+#: website/public/index.html:643 website/public/index.html:853
 msgctxt "page:index.html"
 msgid "REA returned"
 msgstr "REA が返した結果"
@@ -5529,7 +5530,7 @@ msgstr "REA が返した結果"
 #. {ph5}: <i>
 #. {ph6}: </i>
 #. {ph7}: </span >
-#: website/public/index.html:646
+#: website/public/index.html:651
 #, python-brace-format
 msgctxt "page:index.html"
 msgid "{ph0}{ph1}{ph2}{ph3}{ph4}{ph5}{ph6}{ph7}Example prompt · Dinosaur game"
@@ -5541,7 +5542,7 @@ msgstr "{ph0}{ph1}{ph2}{ph3}{ph4}{ph5}{ph6}{ph7}例プロンプト*恐竜ゲー�
 #. {ph3}: </span >
 #. {ph4}: <span class="terminal-cursor" aria-hidden="true">
 #. {ph5}: </span>
-#: website/public/index.html:660
+#: website/public/index.html:665
 #, python-brace-format
 msgctxt "page:index.html"
 msgid ""
@@ -5554,18 +5555,18 @@ msgstr ""
 
 #. {ph0}: <a href="https://wayou.github.io/t-rex-runner/" >
 #. {ph1}: </a >
-#: website/public/index.html:669
+#: website/public/index.html:674
 #, python-brace-format
 msgctxt "page:index.html"
 msgid "Inspected target: {ph0}wayou’s Chromium-derived browser edition{ph1}."
 msgstr "検査対象: {ph0}wayouのChromium派生ブラウザ版{ph1}."
 
-#: website/public/index.html:690
+#: website/public/index.html:695
 msgctxt "page:index.html"
 msgid "Open the speed lab →"
 msgstr "スピードラボを開く→"
 
-#: website/public/index.html:700
+#: website/public/index.html:705
 msgctxt "page:index.html"
 msgid "What each part does"
 msgstr "各部分が何をするか"
@@ -5576,7 +5577,7 @@ msgstr "各部分が何をするか"
 #. {ph3}: </span >
 #. {ph4}: <span class="flow-note" >
 #. {ph5}: </span >
-#: website/public/index.html:702
+#: website/public/index.html:707
 #, python-brace-format
 msgctxt "page:index.html"
 msgid ""
@@ -5591,7 +5592,7 @@ msgstr ""
 #. {ph3}: </span >
 #. {ph4}: <span class="flow-note" >
 #. {ph5}: </span >
-#: website/public/index.html:709
+#: website/public/index.html:714
 #, python-brace-format
 msgctxt "page:index.html"
 msgid ""
@@ -5606,7 +5607,7 @@ msgstr ""
 #. {ph3}: </span >
 #. {ph4}: <span class="flow-note" >
 #. {ph5}: </span >
-#: website/public/index.html:717
+#: website/public/index.html:722
 #, python-brace-format
 msgctxt "page:index.html"
 msgid ""
@@ -5615,13 +5616,13 @@ msgid ""
 msgstr ""
 "{ph0}03*あなた{ph1}{ph2}スピードとプレイを変更します{ph3}{ph4}元の加速を試してから、自分のペースを選択してください。{ph5}"
 
-#: website/public/index.html:696
+#: website/public/index.html:701
 msgctxt "page:index.html"
 msgid "See the script, checks and how to try the analysis"
 msgstr "スクリプト、チェック、および分析を試す方法を参照してください"
 
 #. {ph0}: <code>index.js</code>
-#: website/public/index.html:727
+#: website/public/index.html:732
 #, python-brace-format
 msgctxt "page:index.html"
 msgid ""
@@ -5631,7 +5632,7 @@ msgstr ""
 "REAは、ローカルデバッグ接続を介してHTTP browser editionを検査し、ロードされたものを返しました "
 "{ph0}、そのソースとダイジェストを含みます。"
 
-#: website/public/index.html:740
+#: website/public/index.html:745
 msgctxt "page:index.html"
 msgid ""
 "We called the original game’s update function in a controlled browser check,"
@@ -5643,7 +5644,7 @@ msgstr ""
 
 #. {ph0}: <a href="examples/dino-lab/">
 #. {ph1}: </a>
-#: website/public/index.html:746
+#: website/public/index.html:751
 #, python-brace-format
 msgctxt "page:index.html"
 msgid ""
@@ -5658,7 +5659,7 @@ msgstr ""
 #. {ph1}: </a>
 #. {ph2}: <a href="https://wayou.github.io/t-rex-runner/" >
 #. {ph3}: </a >
-#: website/public/index.html:752
+#: website/public/index.html:757
 #, python-brace-format
 msgctxt "page:index.html"
 msgid ""
@@ -5674,46 +5675,46 @@ msgstr ""
 #. {ph1}: </a >
 #. {ph2}: <a href="assets/licenses/dinosaur.txt" >
 #. {ph3}: </a >
-#: website/public/index.html:761
+#: website/public/index.html:766
 #, python-brace-format
 msgctxt "page:index.html"
 msgid ""
 "{ph0}Inspected speed code{ph1} · {ph2}Chromium Authors · BSD license{ph3}"
 msgstr "{ph0}検査された速度コード{ph1} · {ph2} Chromium著者·BSDライセンス{ph3}"
 
-#: website/public/index.html:778
+#: website/public/index.html:783
 msgctxt "page:index.html"
 msgid "Example 02 · Windows Calculator"
 msgstr "例02•Windows計算機"
 
-#: website/public/index.html:779
+#: website/public/index.html:784
 msgctxt "page:index.html"
 msgid "Rebuild Calculator’s % button."
 msgstr "電卓の % ボタンを再現する。"
 
-#: website/public/index.html:787
+#: website/public/index.html:792
 msgctxt "page:index.html"
 msgid "Try the calculation"
 msgstr "計算を試してみてください"
 
-#: website/public/index.html:831
+#: website/public/index.html:836
 msgctxt "page:index.html"
 msgid "Reset"
 msgstr "リセット"
 
-#: website/public/index.html:839
+#: website/public/index.html:844
 msgctxt "page:index.html"
 msgid "10% of 200 = 20. Then 200 + 20 = 220."
 msgstr "10%の200=20. 次に、200+20=220。"
 
-#: website/public/index.html:842
+#: website/public/index.html:847
 msgctxt "page:index.html"
 msgid "Interactive illustration of the inspected percentage rule."
 msgstr "検査されたパーセンテージルールのインタラクティブなイラスト。"
 
 #. {ph0}: <code>previous = 200</code>
 #. {ph1}: <code>current = 10</code>
-#: website/public/index.html:854
+#: website/public/index.html:859
 #, python-brace-format
 msgctxt "page:index.html"
 msgid "For this example, {ph0} and {ph1}."
@@ -5727,7 +5728,7 @@ msgstr "この例では, {ph0} と {ph1}."
 #. {ph5}: <i>
 #. {ph6}: </i>
 #. {ph7}: </span >
-#: website/public/index.html:860
+#: website/public/index.html:865
 #, python-brace-format
 msgctxt "page:index.html"
 msgid ""
@@ -5741,7 +5742,7 @@ msgstr "{ph0}{ph1}{ph2}{ph3}{ph4}{ph5}{ph6}{ph7}プロンプトの例*%ボタン
 #. {ph3}: </span >
 #. {ph4}: <span class="terminal-cursor" aria-hidden="true">
 #. {ph5}: </span>
-#: website/public/index.html:874
+#: website/public/index.html:879
 #, python-brace-format
 msgctxt "page:index.html"
 msgid ""
@@ -5752,7 +5753,7 @@ msgstr ""
 "{ph0}›{ph1}{ph2}REAを使用して、Windows計算機の%ボタンを検査します。 "
 "+と×の後にルールを回復し、両方を使用する小さな電卓を作成します。{ph3}{ph4}{ph5}"
 
-#: website/public/index.html:895
+#: website/public/index.html:900
 msgctxt "page:index.html"
 msgid "With +"
 msgstr "と+"
@@ -5760,13 +5761,13 @@ msgstr "と+"
 #. {ph0}: <span>
 #. {ph1}: </span >
 #. {ph2}: <code>10% of 200 = 20 → 200 + 20 = 220</code>
-#: website/public/index.html:896
+#: website/public/index.html:901
 #, python-brace-format
 msgctxt "page:index.html"
 msgid "{ph0}Take 10% of the first number.{ph1}{ph2}"
 msgstr "{ph0}最初の数の10％を取ります。{ph1}{ph2}"
 
-#: website/public/index.html:902
+#: website/public/index.html:907
 msgctxt "page:index.html"
 msgid "With ×"
 msgstr "×付き"
@@ -5774,13 +5775,13 @@ msgstr "×付き"
 #. {ph0}: <span>
 #. {ph1}: </span>
 #. {ph2}: <code>200 × 0.1 = 20</code>
-#: website/public/index.html:903
+#: website/public/index.html:908
 #, python-brace-format
 msgctxt "page:index.html"
 msgid "{ph0}Turn 10% into 0.1.{ph1}{ph2}"
 msgstr "{ph0}10％を0.1に変えます。{ph1}{ph2}"
 
-#: website/public/index.html:913
+#: website/public/index.html:918
 msgctxt "page:index.html"
 msgid "From the installed app to a working % button"
 msgstr "インストールされているアプリから作業中の％ボタンへ"
@@ -5792,7 +5793,7 @@ msgstr "インストールされているアプリから作業中の％ボタン
 #. {ph4}: <span class="flow-note" >
 #. {ph5}: <code>100</code>
 #. {ph6}: </span >
-#: website/public/index.html:926
+#: website/public/index.html:931
 #, python-brace-format
 msgctxt "page:index.html"
 msgid ""
@@ -5809,7 +5810,7 @@ msgstr ""
 #. {ph3}: </span >
 #. {ph4}: <span class="flow-note" >
 #. {ph5}: </span >
-#: website/public/index.html:934
+#: website/public/index.html:939
 #, python-brace-format
 msgctxt "page:index.html"
 msgid ""
@@ -5819,12 +5820,12 @@ msgid ""
 msgstr ""
 "{ph0}03*あなたのエージェントはそれを解釈します{ph1}{ph2}ルールの説明と再現{ph3}{ph4}ブランチをMicrosoftのソースと照合してから、上記の+と×を試してください。{ph5}"
 
-#: website/public/index.html:911
+#: website/public/index.html:916
 msgctxt "page:index.html"
 msgid "See the real code and how the answer was checked"
 msgstr "実際のコードと答えがどのようにチェックされたかを参照してください"
 
-#: website/public/index.html:969
+#: website/public/index.html:974
 msgctxt "page:index.html"
 msgid ""
 "Inspected with REA 4.1.0: Windows Calculator 11.2508.4.0, x64. The readable "
@@ -5844,7 +5845,7 @@ msgstr ""
 #. {ph3}: </a >
 #. {ph4}: <a href="guides/native/">
 #. {ph5}: </a>
-#: website/public/index.html:974
+#: website/public/index.html:979
 #, python-brace-format
 msgctxt "page:index.html"
 msgid ""
@@ -5852,80 +5853,80 @@ msgid ""
 "{ph4}Native setup guide{ph5}"
 msgstr "{ph0}割合の実装{ph1} · {ph2}マイクロソフトのテストケース{ph3} · {ph4}ネイティブセットアップガイド{ph5}"
 
-#: website/public/index.html:1043
+#: website/public/index.html:1048
 msgctxt "page:index.html"
 msgid "Your first investigation"
 msgstr "あなたの最初の調査"
 
-#: website/public/index.html:1044
+#: website/public/index.html:1049
 msgctxt "page:index.html"
 msgid "Try REA on a small app."
 msgstr "小さなアプリでREAを試してみてください。"
 
-#: website/public/index.html:1045
+#: website/public/index.html:1050
 msgctxt "page:index.html"
 msgid ""
 "Download our Notes example, trace its CSV export, and check one changed "
 "input."
 msgstr "私たちのノートの例をダウンロードし、そのCSVエクスポートをトレースし、一つの変更された入力を確認してください。"
 
-#: website/public/index.html:1050
+#: website/public/index.html:1055
 msgctxt "page:index.html"
 msgid "Try the guided example"
 msgstr "ガイド付きの例を試してください"
 
-#: website/public/index.html:1067
+#: website/public/index.html:1072
 msgctxt "page:index.html"
 msgid "Native binaries"
 msgstr "マシンコードプログラム"
 
-#: website/public/index.html:1068
+#: website/public/index.html:1073
 msgctxt "page:index.html"
 msgid ""
 "Inspect functions, strings, references and call relationships in executables"
 " and libraries."
 msgstr "実行可能ファイルおよびライブラリ内の関数、文字列、参照、および関数呼び出しの関係を検査します。"
 
-#: website/public/index.html:1072
+#: website/public/index.html:1077
 msgctxt "page:index.html"
 msgid "Native analysis guide"
 msgstr "機械コードの解析プログラムガイド"
 
-#: website/public/index.html:1075
+#: website/public/index.html:1080
 msgctxt "page:index.html"
 msgid "JavaScript & Electron"
 msgstr "JavaScript&Electron"
 
-#: website/public/index.html:1076
+#: website/public/index.html:1081
 msgctxt "page:index.html"
 msgid ""
 "Map modules, routes, IPC and native dependencies from an application folder "
 "or ASAR archive."
 msgstr "アプリケーションフォルダまたはASARアーカイブからモジュール、ルート、IPCおよびネイティブ依存関係をマップします。"
 
-#: website/public/index.html:1080
+#: website/public/index.html:1085
 msgctxt "page:index.html"
 msgid "Application workflows"
 msgstr "アプリケーションワークフロー"
 
-#: website/public/index.html:1083
+#: website/public/index.html:1088
 msgctxt "page:index.html"
 msgid "Browser & runtime activity"
 msgstr "ブラウザとランタイムアクティビティ"
 
-#: website/public/index.html:1084
+#: website/public/index.html:1089
 msgctxt "page:index.html"
 msgid ""
 "Capture selected browser or process activity, then compare the results "
 "across runs."
 msgstr "選択したブラウザまたはプロセスアクティビティをキャプチャし、実行間で結果を比較します。"
 
-#: website/public/index.html:1088
+#: website/public/index.html:1093
 msgctxt "page:index.html"
 msgid "Browser observation guide"
 msgstr "ブラウザ観察ガイド"
 
-#: website/public/index.html:1096
+#: website/public/index.html:1164
 msgctxt "page:index.html"
 msgid "Any questions?"
 msgstr "質問がありますか？"
@@ -5936,7 +5937,7 @@ msgstr "質問がありますか？"
 #. {ph3}: </a >
 #. {ph4}: <a href="https://github.com/morluto/rea/issues/new/choose" >
 #. {ph5}: </a >
-#: website/public/index.html:1097
+#: website/public/index.html:1165
 #, python-brace-format
 msgctxt "page:index.html"
 msgid ""
@@ -5960,49 +5961,49 @@ msgstr ""
 "コーディングエージェントを使用して、アプリ、バイナリ、ブラウザの動作をリバースエンジニアリングします。 "
 "明確なガイドに従って、REAを使用してインタラクティブな例を試してください。"
 
-#: website/public/index.html:245
+#: website/public/index.html:254
 msgctxt "page:index.html"
 msgid "Copy REA installation prompt"
 msgstr "コピー REAインストールプロンプト"
 
-#: website/public/index.html:269
+#: website/public/index.html:278
 msgctxt "page:index.html"
 msgid "Copy setup command"
 msgstr "Copy setupコマンド"
 
-#: website/public/index.html:340
+#: website/public/index.html:349
 msgctxt "page:index.html"
 msgid "Follow the manual Calculator analysis"
 msgstr "手動計算機の分析に従ってください"
 
-#: website/public/index.html:500
+#: website/public/index.html:505
 msgctxt "page:index.html"
 msgid "Copy Calculator percentage question"
 msgstr "コピー電卓パーセントの質問"
 
-#: website/public/index.html:591
+#: website/public/index.html:596
 msgctxt "page:index.html"
 msgid ""
 "Dinosaur mini-game. Use the Jump button or press Space while the game is "
 "focused."
 msgstr "恐竜ミニゲーム。 ゲームがフォーカスされている間にジャンプボタンを使用するか、スペースを押します。"
 
-#: website/public/index.html:651
+#: website/public/index.html:656
 msgctxt "page:index.html"
 msgid "Copy dinosaur analysis prompt"
 msgstr "コピー恐竜解析プロンプト"
 
-#: website/public/index.html:788
+#: website/public/index.html:793
 msgctxt "page:index.html"
 msgid "Choose the calculation"
 msgstr "計算を選択する"
 
-#: website/public/index.html:865
+#: website/public/index.html:870
 msgctxt "page:index.html"
 msgid "Copy Calculator analysis prompt"
 msgstr "コピー電卓分析プロンプト"
 
-#: website/public/index.html:1124
+#: website/public/index.html:1192
 msgctxt "page:index.html"
 msgid "Back to top"
 msgstr "ページ上部へ"
@@ -10272,7 +10273,7 @@ msgstr "ガイド"
 #: website/public/guides/browser/index.html:499
 #: website/public/guides/index.html:274
 #: website/public/guides/javascript/index.html:495
-#: website/public/guides/native/index.html:501 website/public/index.html:1116
+#: website/public/guides/native/index.html:501 website/public/index.html:1184
 #: website/public/showcase/aegis/index.html:800
 #: website/public/showcase/ctf/index.html:769
 #: website/public/showcase/dx-ball/index.html:777
@@ -10293,7 +10294,7 @@ msgstr "ソースコード"
 #: website/public/guides/browser/index.html:500
 #: website/public/guides/index.html:275
 #: website/public/guides/javascript/index.html:496
-#: website/public/guides/native/index.html:502 website/public/index.html:1117
+#: website/public/guides/native/index.html:502 website/public/index.html:1185
 #: website/public/showcase/aegis/index.html:801
 #: website/public/showcase/ctf/index.html:770
 #: website/public/showcase/dx-ball/index.html:778
@@ -10314,7 +10315,7 @@ msgstr "MIT ライセンス"
 #: website/public/guides/browser/index.html:501
 #: website/public/guides/index.html:276
 #: website/public/guides/javascript/index.html:497
-#: website/public/guides/native/index.html:503 website/public/index.html:1118
+#: website/public/guides/native/index.html:503 website/public/index.html:1186
 #: website/public/showcase/aegis/index.html:802
 #: website/public/showcase/ctf/index.html:771
 #: website/public/showcase/dx-ball/index.html:779
@@ -10335,7 +10336,7 @@ msgstr "コミュニティに参加"
 #: website/public/guides/browser/index.html:502
 #: website/public/guides/index.html:277
 #: website/public/guides/javascript/index.html:498
-#: website/public/guides/native/index.html:504 website/public/index.html:1119
+#: website/public/guides/native/index.html:504 website/public/index.html:1187
 #: website/public/showcase/aegis/index.html:803
 #: website/public/showcase/ctf/index.html:772
 #: website/public/showcase/dx-ball/index.html:780
@@ -10441,27 +10442,27 @@ msgctxt "page:guides/native/index.html"
 msgid "Recovered C · excerpt"
 msgstr "回収されたC*抜粋"
 
-#: website/public/index.html:1000
+#: website/public/index.html:1005
 msgctxt "page:index.html"
 msgid "Showcases →"
 msgstr "ショーケース→"
 
-#: website/public/index.html:734
+#: website/public/index.html:739
 msgctxt "page:index.html"
 msgid "Selected settings from the inspected script"
 msgstr "検査されたスクリプトから選択された設定"
 
-#: website/public/index.html:885
+#: website/public/index.html:890
 msgctxt "page:index.html"
 msgid "Readable summary of the % handler"
 msgstr "%ハンドラーの読み取り可能な要約"
 
-#: website/public/index.html:948
+#: website/public/index.html:953
 msgctxt "page:index.html"
 msgid "REA · selected original instructions"
 msgstr "REA*選択されたオリジナルの指示"
 
-#: website/public/index.html:959
+#: website/public/index.html:964
 msgctxt "page:index.html"
 msgid "Operator IDs · Microsoft’s source"
 msgstr "オペレーター Id·Microsoftのソース"
@@ -10867,7 +10868,7 @@ msgstr ""
 #. {ph4}: </span >
 #. {ph5}: <span class="terminal-cursor" aria-hidden="true">
 #. {ph6}: </span>
-#: website/public/index.html:254
+#: website/public/index.html:263
 #, python-brace-format
 msgctxt "page:index.html"
 msgid ""
@@ -11076,7 +11077,7 @@ msgstr ""
 #. {ph0}: <span translate="no">Node.js</span>
 #. {ph1}: <a href="get-started/">
 #. {ph2}: </a>
-#: website/public/index.html:290
+#: website/public/index.html:299
 #, python-brace-format
 msgctxt "page:index.html"
 msgid ""
@@ -11092,7 +11093,7 @@ msgstr ""
 #. {ph4}: </span >
 #. {ph5}: <span class="terminal-cursor" aria-hidden="true">
 #. {ph6}: </span>
-#: website/public/index.html:509
+#: website/public/index.html:514
 #, python-brace-format
 msgctxt "page:index.html"
 msgid ""
@@ -11103,7 +11104,7 @@ msgstr ""
 "220を与えますか？{ph4}{ph5}{ph6}"
 
 #. {ph0}: <span translate="no">index.js</span>
-#: website/public/index.html:677
+#: website/public/index.html:682
 #, python-brace-format
 msgctxt "page:index.html"
 msgid "REA · loaded {ph0} · selected lines"
@@ -11117,7 +11118,7 @@ msgstr "REA·ロード {ph0} *選択した行"
 #. {ph5}: <span class="flow-note" >
 #. {ph6}: <code>ms-calculator:</code>
 #. {ph7}: </span >
-#: website/public/index.html:917
+#: website/public/index.html:922
 #, python-brace-format
 msgctxt "page:index.html"
 msgid ""
@@ -12369,57 +12370,57 @@ msgctxt "page:index.html"
 msgid "{ph0}Showcases{ph1}"
 msgstr "{ph0}事例{ph1}"
 
-#: website/public/index.html:994
+#: website/public/index.html:999
 msgctxt "page:index.html"
 msgid "REA case studies."
 msgstr "REAケーススタディ."
 
-#: website/public/index.html:1004
+#: website/public/index.html:1009
 msgctxt "page:index.html"
 msgid "Android · APK analysis"
 msgstr "アンドロイド*APK分析"
 
-#: website/public/index.html:1005
+#: website/public/index.html:1010
 msgctxt "page:index.html"
 msgid "How an authenticator generates a login code"
 msgstr "認証者がログインコードを生成する方法"
 
-#: website/public/index.html:1010
+#: website/public/index.html:1015
 msgctxt "page:index.html"
 msgid "Read the Android case study"
 msgstr "Androidのケーススタディを読む"
 
-#: website/public/index.html:1015
+#: website/public/index.html:1020
 msgctxt "page:index.html"
 msgid "Electron · Feature tracing"
 msgstr "Electron•機能トレース"
 
-#: website/public/index.html:1016
+#: website/public/index.html:1021
 msgctxt "page:index.html"
 msgid "How Notion copies text and HTML"
 msgstr "NotionがテキストとHTMLをどのようにコピーするか"
 
-#: website/public/index.html:1021
+#: website/public/index.html:1026
 msgctxt "page:index.html"
 msgid "Read the Notion case study"
 msgstr "Notionのケーススタディを読む"
 
-#: website/public/index.html:1026
+#: website/public/index.html:1031
 msgctxt "page:index.html"
 msgid "Native · Reconstruction"
 msgstr "ネイティブ-リコンストラクション"
 
-#: website/public/index.html:1027
+#: website/public/index.html:1032
 msgctxt "page:index.html"
 msgid "DX-Ball's sound-pan calculation"
 msgstr "DX-Ballの左/右の音の位置の計算"
 
-#: website/public/index.html:1032
+#: website/public/index.html:1037
 msgctxt "page:index.html"
 msgid "Read the DX-Ball case study"
 msgstr "DX-Ballのケーススタディを読む"
 
-#: website/public/index.html:281
+#: website/public/index.html:290
 msgctxt "page:index.html"
 msgid "Setup options"
 msgstr "セットアップオプション"
@@ -13569,7 +13570,7 @@ msgid "Then check Ghidra and save its paths for your client:"
 msgstr ""
 
 #. {ph0}: <span translate="no">200 + 10%</span>
-#: website/public/index.html:328
+#: website/public/index.html:337
 #, python-brace-format
 msgctxt "page:index.html"
 msgid "Why does Calculator give 220 for {ph0}?"
@@ -13601,12 +13602,12 @@ msgctxt "page:index.html"
 msgid "See an example ↓"
 msgstr "例を見る ↓"
 
-#: website/public/index.html:303
+#: website/public/index.html:312
 msgctxt "page:index.html"
 msgid "How it works"
 msgstr "仕組み"
 
-#: website/public/index.html:304
+#: website/public/index.html:313
 msgctxt "page:index.html"
 msgid ""
 "Reverse engineering means learning how software works by inspecting the "
@@ -13616,100 +13617,95 @@ msgstr ""
 "リバースエンジニアリングとは、プログラムそのものを調べてソフトウェアの仕組みを理解することです。REA "
 "を使えば、エージェントがコードをたどり、機能を説明し、その再実装を手伝えます。"
 
-#: website/public/index.html:312
+#: website/public/index.html:321
 msgctxt "page:index.html"
 msgid "Ask about one feature"
 msgstr "一つの機能について質問する"
 
-#: website/public/index.html:313
+#: website/public/index.html:322
 msgctxt "page:index.html"
 msgid "Give your agent a program or page and a question."
 msgstr "エージェントにプログラムやページを渡し、質問します。"
 
-#: website/public/index.html:316
+#: website/public/index.html:325
 msgctxt "page:index.html"
 msgid "Inspect the program"
 msgstr "プログラムを調べる"
 
-#: website/public/index.html:317
+#: website/public/index.html:326
 msgctxt "page:index.html"
 msgid "REA returns code, references and runtime observations."
 msgstr "REA はコード、参照関係、実行時の観測結果を返します。"
 
-#: website/public/index.html:320
+#: website/public/index.html:329
 msgctxt "page:index.html"
 msgid "Explain it, then try a change"
 msgstr "理解してから変更を試す"
 
-#: website/public/index.html:321
+#: website/public/index.html:330
 msgctxt "page:index.html"
 msgid "Your agent uses the findings to explain or rebuild the feature."
 msgstr "エージェントは調査結果をもとに機能を説明したり、再実装したりします。"
 
-#: website/public/index.html:327
-msgctxt "page:index.html"
-msgid "See a code-level example with Calculator"
-msgstr "電卓のコードを調べる例を見る"
-
-#: website/public/index.html:337
+#: website/public/index.html:346
 msgctxt "page:index.html"
 msgid "Follow the instructions step by step"
 msgstr "命令を一つずつたどる"
 
-#: website/public/index.html:492
+#: website/public/index.html:497
 msgctxt "page:index.html"
 msgid "Ask your agent the same question"
 msgstr "エージェントに同じ質問をする"
 
-#: website/public/index.html:563
+#: website/public/index.html:568
 msgctxt "page:index.html"
 msgid ""
 "We inspected the game's speed rule, then rebuilt it with a slider. Play the "
 "result and choose your own pace."
 msgstr "ゲームの速度ルールを調べ、スライダー付きで再実装しました。遊んで、自分のペースを選んでみましょう。"
 
-#: website/public/index.html:639
+#: website/public/index.html:644
 msgctxt "page:index.html"
 msgid ""
 "The running script contains the speed settings and update function. The "
 "agent uses them to recover the acceleration."
 msgstr "実行中のスクリプトには速度設定と更新関数があります。エージェントはそれらから加速ルールを読み取ります。"
 
-#: website/public/index.html:686
+#: website/public/index.html:691
 msgctxt "page:index.html"
 msgid ""
 "Start at 6. Add 0.001 each update without a collision, while speed is below "
 "13."
 msgstr "6時からスタート。 追加 0.001 速度は以下のとおりですが、衝突のない各更新 13."
 
-#: website/public/index.html:780
+#: website/public/index.html:785
 msgctxt "page:index.html"
 msgid ""
 "The % button behaves differently after + and ×. We inspected the installed "
 "app to recover both rules. Try them below."
 msgstr "% ボタンは + の後と × の後で動作が異なります。インストール済みのアプリを調べて両方のルールを復元しました。下で試してみましょう。"
 
-#: website/public/index.html:849
+#: website/public/index.html:854
 msgctxt "page:index.html"
 msgid ""
 "One branch divides by 100. The other also multiplies by the first number. "
 "The agent uses both to recreate the % button."
 msgstr "1つの枝は100で割ります。 もう1つは、最初の数で乗算します。 エージェントは両方を使用して%ボタンを再作成します。"
 
-#: website/public/index.html:995
+#: website/public/index.html:1000
 msgctxt "page:index.html"
 msgid ""
 "Explore a feature in a released app or game, with code and checked results."
 msgstr "公開済みのアプリやゲームの機能を、コードと検証結果とともに紹介します。"
 
-#: website/public/index.html:1006
+#: website/public/index.html:1011
 msgctxt "page:index.html"
 msgid ""
 "Trace Aegis's six-digit login code through its released APK, then move a "
 "demo clock to see why it changes every 30 seconds."
 msgstr "Aegis の公開 APK で 6 桁のログインコードを追い、デモの時計を動かして 30 秒ごとに変わる理由を確かめます。"
 
-#: website/public/index.html:1017
+#: website/public/index.html:1022
 msgctxt "page:index.html"
 msgid ""
 "Follow Notion's packaged JavaScript to the system clipboard and see how a "
@@ -13717,19 +13713,19 @@ msgid ""
 msgstr ""
 "Notion に同梱された JavaScript からシステムのクリップボードまでたどり、コピーがリッチなブロックデータを保持する仕組みを調べます。"
 
-#: website/public/index.html:1028
+#: website/public/index.html:1033
 msgctxt "page:index.html"
 msgid ""
 "Recover how a ball's position becomes left/right sound in a 1996 Windows "
 "game."
 msgstr "1996 年の Windows ゲームで、ボールの位置が左右の音に変わる仕組みを復元します。"
 
-#: website/public/index.html:1059
+#: website/public/index.html:1064
 msgctxt "page:index.html"
 msgid "Choose your target."
 msgstr "調査対象を選ぶ。"
 
-#: website/public/index.html:1060
+#: website/public/index.html:1065
 msgctxt "page:index.html"
 msgid ""
 "These guides cover setup and a first investigation for each kind of "
@@ -13738,7 +13734,7 @@ msgstr "対象の種類ごとに、セットアップと最初の調査を案内
 
 #. {ph0}: <a href="#calculator">
 #. {ph1}: </a>
-#: website/public/index.html:547
+#: website/public/index.html:552
 #, python-brace-format
 msgctxt "page:index.html"
 msgid ""
@@ -13746,6 +13742,121 @@ msgid ""
 "illustrate the findings. {ph0}Continue with the Calculator example ↓{ph1}"
 msgstr ""
 "インストールされている電卓DLLから選択されたアセンブリ。 考えと返信は、調査結果を示しています。 {ph0}電卓の例に続きます↓{ph1}"
+
+#. {ph0}: <span class="terminal-dots" aria-hidden="true" >
+#. {ph1}: <i>
+#. {ph2}: </i>
+#. {ph3}: <i>
+#. {ph4}: </i>
+#. {ph5}: <i>
+#. {ph6}: </i>
+#. {ph7}: </span >
+#: website/public/index.html:1102
+#, python-brace-format
+msgctxt "page:index.html"
+msgid "{ph0}{ph1}{ph2}{ph3}{ph4}{ph5}{ph6}{ph7}Example prompt · Website"
+msgstr "{ph0}{ph1}{ph2}{ph3}{ph4}{ph5}{ph6}{ph7}プロンプトの例·ウェブサイト"
+
+#: website/public/index.html:1125
+msgctxt "page:index.html"
+msgid "Yes, this one."
+msgstr "はい、これ。"
+
+#. {ph0}: <span class="terminal-dots" aria-hidden="true" >
+#. {ph1}: <i>
+#. {ph2}: </i>
+#. {ph3}: <i>
+#. {ph4}: </i>
+#. {ph5}: <i>
+#. {ph6}: </i>
+#. {ph7}: </span >
+#: website/public/index.html:1130
+#, python-brace-format
+msgctxt "page:index.html"
+msgid ""
+"{ph0}{ph1}{ph2}{ph3}{ph4}{ph5}{ph6}{ph7}Example prompt · Game reconstruction"
+msgstr "{ph0}{ph1}{ph2}{ph3}{ph4}{ph5}{ph6}{ph7}例プロンプト·ゲームの再構築"
+
+#. {ph0}: <span class="prompt-symbol" aria-hidden="true">
+#. {ph1}: </span >
+#. {ph2}: <span id="game-project-prompt" >
+#. {ph3}: </span >
+#. {ph4}: <span class="terminal-cursor" aria-hidden="true">
+#. {ph5}: </span>
+#: website/public/index.html:1144
+#, python-brace-format
+msgctxt "page:index.html"
+msgid ""
+"{ph0}›{ph1}{ph2}Use REA to reconstruct this game from its executable. "
+"Recover the gameplay logic in C and test it against the "
+"original.{ph3}{ph4}{ph5}"
+msgstr ""
+"{ph0}›{ph1}{ph2}実行可能ファイルからこのゲームを再構築するには、REAを使用します。 "
+"Cでゲームプレイロジックを回復し、オリジナルに対してテストします。{ph3}{ph4}{ph5}"
+
+#. {ph0}: <a href="showcase/dx-ball/">
+#. {ph1}: </a>
+#: website/public/index.html:1153
+#, python-brace-format
+msgctxt "page:index.html"
+msgid "{ph0}See the DX-Ball case study →{ph1}"
+msgstr "{ph0}DX-Ballのケーススタディを見る→{ph1}"
+
+#: website/public/index.html:1107
+msgctxt "page:index.html"
+msgid "Copy website project prompt"
+msgstr "ウェブサイトプロジェクトプロンプトをコピーする"
+
+#: website/public/index.html:1135
+msgctxt "page:index.html"
+msgid "Copy game reconstruction prompt"
+msgstr "コピーゲーム再構築プロンプト"
+
+#. {ph0}: <span class="prompt-symbol" aria-hidden="true">
+#. {ph1}: </span >
+#. {ph2}: <span id="website-project-prompt" >
+#. {ph3}: <span translate="no">https://rea.tools/</span>
+#. {ph4}: </span >
+#. {ph5}: <span class="terminal-cursor" aria-hidden="true">
+#. {ph6}: </span>
+#: website/public/index.html:1116
+#, python-brace-format
+msgctxt "page:index.html"
+msgid ""
+"{ph0}›{ph1}{ph2}Use REA to inspect {ph3}. Clone this website for "
+"me.{ph4}{ph5}{ph6}"
+msgstr ""
+"{ph0}›{ph1}{ph2}REAを使用して検査する {ph3}. 私のためにこのウェブサイトを複製します。{ph4}{ph5}{ph6}"
+
+#. {ph0}: <a href="showcase/">
+#. {ph1}: </a>
+#: website/public/index.html:234
+#, python-brace-format
+msgctxt "page:index.html"
+msgid "{ph0}Showcases →{ph1} — investigations and interactive demos."
+msgstr "{ph0}事例 →{ph1} — 調査とインタラクティブなデモ。"
+
+#. {ph0}: <a href="blog/">
+#. {ph1}: </a>
+#: website/public/index.html:238
+#, python-brace-format
+msgctxt "page:index.html"
+msgid "{ph0}Blog →{ph1} — methods and reconstruction notes."
+msgstr "{ph0}ブログ →{ph1} — 手法とソフトウェア再実装の記録。"
+
+#: website/public/index.html:336
+msgctxt "page:index.html"
+msgid "See the full Calculator investigation"
+msgstr "電卓の調査全体を見る"
+
+#: website/public/index.html:1097
+msgctxt "page:index.html"
+msgid "Try a larger project"
+msgstr "より大きなプロジェクトを試す"
+
+#~ msgctxt "page:index.html"
+#~ msgid "See a code-level example with Calculator"
+#~ msgstr "電卓のコードを調べる例を見る"
 
 #~ msgctxt "page:index.html"
 #~ msgid ""
@@ -14400,52 +14511,6 @@ msgstr ""
 #~ msgctxt "page:index.html"
 #~ msgid "Want to go deeper? {ph0}Read the Blog →{ph1}"
 #~ msgstr "もっと深く行きたいですか？ {ph0}ブログを読む→{ph1}"
-
-#, python-brace-format
-#~ msgctxt "page:index.html"
-#~ msgid "{ph0}{ph1}{ph2}{ph3}{ph4}{ph5}{ph6}{ph7}Example prompt · Website"
-#~ msgstr "{ph0}{ph1}{ph2}{ph3}{ph4}{ph5}{ph6}{ph7}プロンプトの例·ウェブサイト"
-
-#~ msgctxt "page:index.html"
-#~ msgid "Yes, this one."
-#~ msgstr "はい、これ。"
-
-#, python-brace-format
-#~ msgctxt "page:index.html"
-#~ msgid ""
-#~ "{ph0}{ph1}{ph2}{ph3}{ph4}{ph5}{ph6}{ph7}Example prompt · Game reconstruction"
-#~ msgstr "{ph0}{ph1}{ph2}{ph3}{ph4}{ph5}{ph6}{ph7}例プロンプト·ゲームの再構築"
-
-#, python-brace-format
-#~ msgctxt "page:index.html"
-#~ msgid ""
-#~ "{ph0}›{ph1}{ph2}Use REA to reconstruct this game from its executable. "
-#~ "Recover the gameplay logic in C and test it against the "
-#~ "original.{ph3}{ph4}{ph5}"
-#~ msgstr ""
-#~ "{ph0}›{ph1}{ph2}実行可能ファイルからこのゲームを再構築するには、REAを使用します。 "
-#~ "Cでゲームプレイロジックを回復し、オリジナルに対してテストします。{ph3}{ph4}{ph5}"
-
-#, python-brace-format
-#~ msgctxt "page:index.html"
-#~ msgid "{ph0}See the DX-Ball case study →{ph1}"
-#~ msgstr "{ph0}DX-Ballのケーススタディを見る→{ph1}"
-
-#~ msgctxt "page:index.html"
-#~ msgid "Copy website project prompt"
-#~ msgstr "ウェブサイトプロジェクトプロンプトをコピーする"
-
-#~ msgctxt "page:index.html"
-#~ msgid "Copy game reconstruction prompt"
-#~ msgstr "コピーゲーム再構築プロンプト"
-
-#, python-brace-format
-#~ msgctxt "page:index.html"
-#~ msgid ""
-#~ "{ph0}›{ph1}{ph2}Use REA to inspect {ph3}. Clone this website for "
-#~ "me.{ph4}{ph5}{ph6}"
-#~ msgstr ""
-#~ "{ph0}›{ph1}{ph2}REAを使用して検査する {ph3}. 私のためにこのウェブサイトを複製します。{ph4}{ph5}{ph6}"
 
 #~ msgctxt "page:blog/index.html"
 #~ msgid "By N0zoM1z0 · 13 October 2026 · Draft for review"

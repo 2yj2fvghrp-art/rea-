@@ -295,8 +295,10 @@ and complete private Evidence records are not website assets.
 
 The homepage pairs a short introduction with the installation prompt and
 ordinary setup command. Get started is the primary action; a second link goes
-straight to the first interactive example. The setup-guide link starts on its
-own line. A short definition and three steps explain the workflow before the
+straight to the first interactive example. Short Showcases and Blog descriptions
+below those actions keep both reading paths available. The introduction and
+setup retain the original equal-width desktop columns. The setup-guide link
+starts on its own line. A short definition and three steps explain the workflow before the
 dinosaur and Calculator cases. The detailed manual/agent comparison is folded,
 as are each example's investigation flow and verification details. Plain
 paragraphs introduce the cases without repeating goal and purpose panels.
@@ -312,12 +314,13 @@ menu stays open and its fragment links remain usable.
 The comparison uses the same Calculator question on both sides: three
 selectable manual steps pair original instructions with an analyst illustration
 and thought bubbles; the agent side pairs a copyable question with an
-illustrative answer. Thoughts illustrate the reasoning behind the findings. The
+illustrative answer. The outer disclosure opens the complete comparison, with
+the original desktop column proportions and the agent explanation first on
+mobile. Thoughts illustrate the reasoning behind the findings. The
 shared code-step script selects the initial note on load, so all three notes remain
 readable when JavaScript is disabled.
-Within the manual analysis, the original-instruction panel starts expanded on
-desktop. On narrow screens, the homepage script collapses it; a native disclosure keeps the code available
-while the thought bubble and agent prompt remain close together.
+The original-instruction panel stays expanded when the comparison is opened,
+including on mobile; its native disclosure can still be closed manually.
 Dinosaur is the first example; Calculator follows as the native example.
 Each introduces the inspected behavior before showing the demo. A labeled
 finding explains what REA returned, and the optional flow distinguishes REA’s
@@ -325,6 +328,8 @@ inspection from the agent’s interpretation and implementation.
 Its game precedes the prompt and code on small screens. Calculator’s excerpt
 comes from an installed model DLL; Microsoft’s public implementation supplies
 names and a crosscheck. Its controls apply the percentage rule to generic inputs.
+The target guides end with an optional larger-project disclosure, preserving
+the original website-cloning and game-reconstruction prompts.
 
 The dinosaur example connects an inspected running script to a new playable
 mini-game. `public/assets/dino-speed.js` owns the recovered speed rule and replay;
