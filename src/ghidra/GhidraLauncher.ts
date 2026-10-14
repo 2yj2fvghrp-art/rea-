@@ -225,7 +225,11 @@ export class GhidraHeadlessLauncher implements GhidraLauncher {
       const configReleaseDirectory =
         this.options.configurationDirectoryName ??
         (await ghidraConfigReleaseDirectory(this.options.analyzeHeadlessPath));
-      await createGhidraRuntimeDirectories(paths, platform, configReleaseDirectory);
+      await createGhidraRuntimeDirectories(
+        paths,
+        platform,
+        configReleaseDirectory,
+      );
       const seedPath =
         this.options.analysisSeeds === undefined
           ? undefined

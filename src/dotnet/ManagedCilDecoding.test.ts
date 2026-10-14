@@ -276,7 +276,9 @@ describe("managed operand extent diagnostics", () => {
       expect(coverage.state).toBe("partial");
     },
   );
+});
 
+describe("managed fat-body operand extent diagnostics", () => {
   it.each([
     ["short variable", Buffer.from([0x0e]), "ldarg.s"],
     ["wide variable", Buffer.from([0xfe, 0x09]), "ldarg"],
