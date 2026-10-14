@@ -175,6 +175,32 @@ describe("ZipArtifactReader decompression budget", () => {
   });
 });
 
+describe("ZipArtifactReader legacy filename encoding", () => {
+  it("keeps a legacy CP437 name beside an identically spelled UTF-8 member", async () => {
+    // Both members hold the raw name bytes c3 a9 2e 74 78 74; member 0 leaves
+    // general-purpose bit 11 unset and member 1 sets it. Python's zipfile reads
+    // member 0 as CP437 and member 1 as UTF-8.
+    const fixture = Buffer.from(
+      "UEsDBBQAAAAAAAAAIQDuCcsXBgAAAAYAAAAGAAAAw6kudHh0bGVnYWN5UEsDBBQAAAgAAAAAIQCBO/g1BAAAAAQAAAAGAAAAw6kudHh0dXRmOFBLAQIUABQAAAAAAAAAIQDuCcsXBgAAAAYAAAAGAAAAAAAAAAAAAAAAAAAAAADDqS50eHRQSwECFAAUAAAIAAAAACEAgTv4NQQAAAAEAAAABgAAAAAAAAAAAAAAAAAqAAAAw6kudHh0UEsFBgAAAAACAAIAaAAAAFIAAAAAAA==",
+      "base64",
+    );
+    const directory = await createTestTempDirectory("rea-zip-legacy-name-");
+    const path = join(directory, "names.zip");
+    await writeFile(path, fixture);
+
+    const reader = new ZipArtifactReader(path, "zip");
+    try {
+      const names: string[] = [];
+      for await (const entry of reader.entries()) names.push(entry.path);
+      // A UTF-8 guess for the unflagged member would report "é.txt" twice and
+      // make the inventory boundary reject two distinct members as a collision.
+      expect(names).toEqual(["\u251c\u2310.txt", "\u00e9.txt"]);
+    } finally {
+      await reader.close();
+    }
+  });
+});
+
 describe("artifactDecompressionBudgetBytes", () => {
   it("grants at least the floor and grows with the compressed size", () => {
     expect(artifactDecompressionBudgetBytes(0)).toBe(
